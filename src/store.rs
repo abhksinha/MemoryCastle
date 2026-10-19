@@ -87,9 +87,9 @@ pub fn save_note(
         }
         None => {
             tx.execute(
-                "INSERT INTO notes(project_id, path, title, content, content_hash, source, saved_at, deleted_at, supersedes)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8)",
-                params![project.id, rel_path, title, content, hash, source, now, supersedes],
+                "INSERT INTO notes(project_id, path, title, content, content_hash, source, saved_at, deleted_at, supersedes, dated)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9)",
+                params![project.id, rel_path, title, content, hash, source, now, supersedes, dated],
             )?;
             (tx.last_insert_rowid(), SaveOutcome::Added)
         }

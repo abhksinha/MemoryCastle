@@ -205,7 +205,8 @@ pub fn spans_in_output(body: &str) -> Vec<(String, u32, u32)> {
         let t = l.trim();
         let tok = if let Some(rest) = t.strip_prefix("read: ").or_else(|| t.strip_prefix("defined: ")) {
             rest.split_whitespace().next()
-        } else if t.len() > 3 && t.as_bytes()[0].is_ascii_digit() && t.contains(". ") && t.split_once(". ").is_some_and(|(n, _)| n.chars().all(|c| c.is_ascii_digit())) {
+        } else if t.len() > 3 && t.as_bytes()[0].is_ascii_alphanumeric() && t.split_once(". ").is_some_and(|(n, _)| n.len() <= 3 && n.chars().all(|c| c.is_ascii_alphanumeric())) {
+            // `1. path:a-b` (older output) or `a. path:a-b` (the lettered table).
             t.split_once(". ").and_then(|(_, r)| r.split_whitespace().next()).filter(|tok| tok.contains(':') && tok.contains('-'))
         } else {
             None

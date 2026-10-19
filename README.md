@@ -57,6 +57,13 @@ Restart the agents.
 Nothing is written outside those paths. Uninstall: delete the two binaries and
 `~/.local/share/memorycastle/`; the notes stay in your repos as plain Markdown.
 
+## For the agent
+
+`memcastle guide` prints [docs/GUIDE.md](docs/GUIDE.md): when to search,
+what to type, how to read the answer's grammar, when and how to write a
+note. It is written as instructions an LLM can follow literally, and it is
+the file to paste into any agent that has no plugin or instruction file.
+
 ## Uninstall
 
 ```sh
@@ -110,11 +117,18 @@ the nearest unrelated page. The answer is shaped for the agent's budget:
 
 ```
 $ memcastle search "did we try batching embeddings" --brief
-1. 0.77  memorycastle/journal/2026-10-18-one-chunk-per-call.md:13 > Rejected
-read first (2 spans, 1.1 KB in all; sed -n 'a,bp' path):
-   1. src/store.rs:161-232   embed_missing   1.00  named in question
-   2. src/limits.rs:130-132  EMBED_BATCH     0.90  named by note #1
+1. memorycastle/journal/2026-10-18-one-chunk-per-call.md:13   0.77   Rejected
+read first (2 spans, 1.1 KB; sed -n 'a,bp' path):
+   a. src/store.rs:161-232   embed_missing   1.00  named in question
+   b. src/limits.rs:130-132  EMBED_BATCH     0.90  named by note #1
 ```
+
+The text has a fixed grammar, so a human and a parser read the same bytes:
+a hit line is `n. path:line   confidence   section`, the next line is the
+title and author, every field after that is `   label      value` with
+continuations indented to the value column, a blank line ends the hit, and
+the read table rows are lettered so they never look like hits. `--json`
+gives the same answer with every field typed, including the ranking trace.
 
 One line per hit: confidence, note, line, section. `--sections` prints the
 note's Decision, Rejected and Measured. Every answer ends with the code

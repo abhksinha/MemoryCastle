@@ -95,13 +95,16 @@ memcastle install</code></pre>
   </div>
 
   <p style="margin-top:28px">A search answer looks like this:</p>
-  <pre class="sample"><code>1. 0.91  memorycastle/journal/2026-10-18-model-precision.md:12 > Decision
-   Choose int8 over q4  (abhi+claude)
-   decision:  int8 is the only setting that finds every gold answer in the top 3;
+  <pre class="sample"><code>1. memorycastle/journal/2026-10-18-model-precision.md:12   0.91   Decision
+   Choose int8 over q4 for EmbeddingGemma 2   abhi+claude
+   files      src/embed/download.rs, src/embed/mod.rs
+   decision   int8 is the only setting that finds every gold answer in the top 3;
               q4 is twice as fast and 120 MB lighter but drops one question.
-   code:      src/embed/ort_rt.rs:41-88  load_model
-read first:
-   1. src/embed/ort_rt.rs:41-88   load_model   1.00  defined in a file the note names</code></pre>
+   code       load_model  src/embed/ort_rt.rs:41-88
+
+read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
+   a. src/embed/ort_rt.rs:41-88  load_model  1.00  defined in a file the note names</code></pre>
+  <p class="muted">A fixed grammar: hit line, title line, <code>label value</code> fields with continuations at one column, a blank line, a lettered read table. Eyes and a ten-line parser read the same bytes; <code>--json</code> has every field typed.</p>
 
   <h2 id="cost">What it costs to run</h2>
   <div class="grid">
@@ -132,6 +135,7 @@ read first:
 
   <h2 id="why">Why smaller is also better, for this job</h2>
   <div class="grid">
+    <div class="card"><h3>Written by the one who did the work</h3><p class="muted">The note is written by the agent that made the change, in that session, with the rejected approach and the measured number still in hand. An extractor reading the transcript later is reconstructing what the author already knew, and guessing where the transcript is silent. The why was never in the code; only the one who decided can write it.</p></div>
     <div class="card"><h3>Nothing is invented</h3><p class="muted">cognee's graph is proposed by a model, so an edge can be wrong and nobody wrote it. memorycastle's edges are the file names and symbols a note names in backticks. A wrong edge is a typo in a note, and <code>git blame</code> finds who wrote it.</p></div>
     <div class="card"><h3>Ingest costs no tokens</h3><p class="muted">A cognify run sends every chunk through an extraction model. Saving a note here is a hash check, a heading split, FTS5, and one local embedding per chunk at 0.28 s on a laptop CPU. A 90-chunk journal indexes in 21 s with no API bill.</p></div>
     <div class="card"><h3>The answer is a place in the code</h3><p class="muted">A coding agent does not want a subgraph; it wants which paragraph to trust and which 40 lines to read. Every answer ends with ranked <code>path:start-end</code> spans, re-anchored when the file has changed since indexing.</p></div>

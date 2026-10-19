@@ -21,6 +21,50 @@ engineering rule applied to every change is
 `Resource_Conscious_Software_Engineering.md`: do less work, allocate less,
 move less, and measure before and after.
 
+## Why the notes are accurate: the author is the one who did the work
+
+The memory is written by the same agent, in the same session, that made the
+change. That is the design's one bet, and it is why nothing is extracted:
+
+- **The author has the facts in hand.** At the end of a task the agent
+  knows which approach it rejected and the reason, the number it measured,
+  the files it touched. A note written then is a report from the source. A
+  model extracting the same facts afterwards, from a transcript or a diff,
+  is reconstructing what the author knew a minute earlier, and guessing
+  where the transcript is silent.
+- **The why is not in the code.** Code says what the system does; a note
+  says why it does it that way and what else was tried. The why cannot be
+  recovered from the code by any extractor, because it was never there. Only
+  the one who decided can write it.
+- **Every sentence has an author and a line.** A hit is
+  `note.md:line` with `user+agent`. A wrong statement is a wrong sentence
+  someone wrote, found by `git blame`, fixed by a superseding note. An
+  extracted graph has no author to ask and no line to point at.
+- **Nothing is invented between writer and reader.** Chunking, FTS5, an
+  embedding and a declared graph are all deterministic over the text. The
+  pipeline cannot add a fact. The only model in it, the embedder, decides
+  rank, never content.
+- **Noise does not accumulate.** A journal of fifty notes written at
+  decision time has fifty useful entries. An extracted graph over the same
+  repo has thousands of entities, most never asked about, and the useful
+  ones are hard to tell apart. Retrieval over the right fifty beats
+  retrieval over ten thousand.
+
+What this bet depends on, and how the design backs it:
+
+- The agent must write the note. The hooks ask at the three moments one is
+  due (before compaction, after a commit, at stop); `draft` fills the
+  files, author and date from the ledger; `save` fills a missing header and
+  warns when `Files:` omits a file the session edited.
+- The note must be good. `lint` refuses a placeholder title and a Decision
+  over 120 words; the quality pass flags a note that holds several topics,
+  duplicates another, or is served and never opened. Verdicts are
+  percentiles of the store's own notes, so the bar rises with the journal.
+- A decision nobody wrote down does not exist. The design accepts this:
+  "no relevant note" is a real answer, and the agent is told to work from
+  the code. Extraction is the only way around it, and that is the tool for
+  a different job.
+
 ## Graph nodes
 
 `memcastle graph` writes `nodes.tsv` with, per node: id, kind (note, file,

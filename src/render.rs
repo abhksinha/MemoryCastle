@@ -34,11 +34,15 @@ pub struct Rendered {
 /// Renders hits and read spans. Records nothing; the caller writes the
 /// ledger with `record`.
 ///
-/// Layout, one block per note. The first line is what an agent needs to
-/// trust and cite the hit and nothing else: `n. <confidence>  <path>:<line>
-/// > <section>  <date>`. Then the title (with the author), `files:`,
-/// `text:` or the printed sections, `code:` spans; the `read first` list is
-/// numbered with aligned columns. `brief` stops after the first line.
+/// Layout, a fixed grammar one block per note, for eyes and parsers alike:
+/// line 1 `n. <path>:<line>   <confidence>   <section>` (then a date for an
+/// undated tracker, the project when hits span projects, `superseded by`);
+/// line 2 the title and author; then `   <label>     <value>` lines with the
+/// label padded to `LABEL_WIDTH` and continuations indented to `VALUE_COL`
+/// (`files`, `text`, `decision`, `rejected`, `measured`, `open`, `code`,
+/// `trace`); a blank line ends the block. The `read first` table follows,
+/// rows lettered `a.` so they never look like hits, or `read first: none`.
+/// `brief` stops after line 1 of each hit and prints no blank lines.
 pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) -> Result<Rendered> {
     let mut seen_notes: HashSet<i64> = HashSet::new();
     let mut notes = Vec::new();
@@ -70,22 +74,22 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         // First line: what an agent needs to trust and cite the hit. The
         // date is in a dated note's file name; a tracker shows its save date.
         let when = if h.dated.is_some() { String::new() } else { format!("  {date}") };
-        block.push_str(&format!("{n}. {:.2}  {}:{} > {section}{when}{proj}{sup}\n", h.trace.confidence, h.path, h.line + off));
+        block.push_str(&format!("{n}. {}:{}   {:.2}   {section}{when}{proj}{sup}\n", h.path, h.line + off, h.trace.confidence));
         if o.brief {
             notes.push(h.note_id);
             out.push_str(&block);
             continue;
         }
-        block.push_str(&format!("   {title}  ({})\n", h.source));
+        block.push_str(&format!("   {title}   {}\n", h.source));
         let files = tidy_files(&h.files);
         if !files.is_empty() {
             let shown: Vec<&str> = files.iter().take(crate::limits::SEARCH_FILES_SHOWN).map(String::as_str).collect();
             let more = if files.len() > shown.len() { format!(" +{} more", files.len() - shown.len()) } else { String::new() };
-            block.push_str(&format!("   files: {}{more}\n", shown.join(", ")));
+            block.push_str(&field("files", &format!("{}{more}", shown.join(", "))));
         }
         if o.explain {
-            block.push_str(&format!(
-                "   trace: bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  cosine {}  coverage {:.2}\n",
+            block.push_str(&field("trace", &format!(
+                "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  cosine {}  coverage {:.2}",
                 h.trace.bm25_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.vec_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.score,
@@ -93,14 +97,11 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                 h.trace.graph,
                 h.trace.cosine.map(|c| format!("{c:.3}")).unwrap_or_else(|| "-".into()),
                 h.trace.coverage
-            ));
+            )));
         }
         if !o.sections {
             if !snippet.trim().is_empty() {
-                block.push_str("   text:\n");
-                for line in snippet.lines() {
-                    block.push_str(&format!("     {line}\n"));
-                }
+                block.push_str(&field("text", snippet.trim()));
             }
         } else {
             // Decision, Rejected and Measured are always printed; Open only
@@ -113,16 +114,15 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                 if printed(c) {
                     continue;
                 }
-                if j == 0 {
-                    block.push_str("   text:\n");
-                } else {
-                    block.push_str(&format!("   text:  {}:{}\n", split_heading(&c.heading).1, c.line));
+                let mut body = String::new();
+                if j > 0 {
+                    body.push_str(&format!("{}:{}\n", split_heading(&c.heading).1, c.line));
                 }
                 let mut used = 0;
                 for line in c.text.lines() {
                     let room = SEARCH_CHUNK_BYTES.saturating_sub(used);
                     if room < 40 {
-                        block.push_str("     …\n");
+                        body.push_str("…\n");
                         break;
                     }
                     let shown = if line.len() > room {
@@ -135,19 +135,19 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                         line.to_string()
                     };
                     used += line.len();
-                    block.push_str(&format!("     {shown}\n"));
+                    body.push_str(shown.trim_end());
+                    body.push('\n');
                 }
+                block.push_str(&field("text", body.trim_end()));
             }
             for name in names {
                 if let Some(body) = store::section_body(conn, h.note_id, name)? {
                     let total = body.lines().count();
-                    block.push_str(&format!("   {}:\n", name.to_ascii_lowercase()));
-                    for line in body.lines().take(SECTION_LINES) {
-                        block.push_str(&format!("     {line}\n"));
-                    }
+                    let mut shown: String = body.lines().take(SECTION_LINES).collect::<Vec<_>>().join("\n");
                     if total > SECTION_LINES {
-                        block.push_str(&format!("     … {} more lines\n", total - SECTION_LINES));
+                        shown.push_str(&format!("\n… {} more lines", total - SECTION_LINES));
                     }
+                    block.push_str(&field(&name.to_ascii_lowercase(), &shown));
                 }
             }
             // Where the code this note names lives now.
@@ -169,9 +169,9 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                     }
                 }
                 let w = rows.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
-                for (i, (sym, loc)) in rows.iter().enumerate() {
-                    let key = if i == 0 { "code: " } else { "      " };
-                    block.push_str(&format!("   {key} {sym:w$}  {loc}\n"));
+                let body: Vec<String> = rows.iter().map(|(sym, loc)| format!("{sym:w$}  {loc}")).collect();
+                if !body.is_empty() {
+                    block.push_str(&field("code", &body.join("\n")));
                 }
             }
         }
@@ -181,11 +181,18 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         }
         notes.push(h.note_id);
         out.push_str(&block);
+        if !o.brief {
+            out.push('\n');
+        }
     }
-    if !read_spans.is_empty() {
+    if read_spans.is_empty() {
+        if !out.is_empty() && !o.brief {
+            out.push_str("read first: none\n");
+        }
+    } else {
         let in_root = o.repo_root.map(|r| std::env::current_dir().map(|c| c == r).unwrap_or(false)).unwrap_or(false);
         let total: usize = read_spans.iter().map(|s| s.bytes).sum();
-        out.push_str(&format!("read first ({} spans, {:.1} KB in all; sed -n 'a,bp' path):\n", read_spans.len(), total as f64 / 1024.0));
+        out.push_str(&format!("read first ({} spans, {:.1} KB; sed -n 'a,bp' path):\n", read_spans.len(), total as f64 / 1024.0));
         let rows: Vec<(String, String)> = read_spans
             .iter()
             .map(|s| {
@@ -196,7 +203,8 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         let lw = rows.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
         let nw = rows.iter().map(|(_, n)| n.chars().count()).max().unwrap_or(0);
         for (i, (s, (loc, name))) in read_spans.iter().zip(&rows).enumerate() {
-            out.push_str(&format!("   {}. {loc:lw$}  {name:nw$}  {:.2}  {}\n", i + 1, s.score, s.why));
+            let letter = (b'a' + (i as u8).min(25)) as char;
+            out.push_str(&format!("   {letter}. {loc:lw$}  {name:nw$}  {:.2}  {}\n", s.score, s.why));
             served.push((s.path.clone(), s.start, s.end, i as u32 + 1));
         }
     }
@@ -206,6 +214,48 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
 
 /// Widest a symbol name is shown in the `read first` table before `…`.
 const READ_NAME_WIDTH: usize = 28;
+
+/// The label column: three spaces, the label padded to `LABEL_WIDTH`, then
+/// the value. Continuation lines are indented to the value column, so a
+/// label line is `^   \S` and a continuation `^ {VALUE_COL}`: nothing a
+/// note contains can read as a label or a hit.
+pub const LABEL_WIDTH: usize = 10;
+pub const VALUE_COL: usize = 3 + LABEL_WIDTH + 1;
+
+/// Prose longer than this is wrapped at a space; the bytes are the same,
+/// the terminal reads it. A line with no space before the limit is kept.
+pub const WRAP_COLS: usize = 92;
+
+fn field(label: &str, value: &str) -> String {
+    let mut out = String::new();
+    let mut first = true;
+    for line in value.lines().flat_map(wrap) {
+        if first {
+            out.push_str(&format!("   {label:LABEL_WIDTH$} {line}\n"));
+            first = false;
+        } else {
+            out.push_str(&format!("{:VALUE_COL$}{line}\n", ""));
+        }
+    }
+    out
+}
+
+fn wrap(line: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = line;
+    while rest.chars().count() > WRAP_COLS {
+        let cut = rest.char_indices().take(WRAP_COLS + 1).filter(|(_, c)| *c == ' ').map(|(i, _)| i).last();
+        match cut {
+            Some(i) if i > 0 => {
+                out.push(rest[..i].to_string());
+                rest = rest[i..].trim_start();
+            }
+            _ => break,
+        }
+    }
+    out.push(rest.to_string());
+    out
+}
 
 /// A chunk heading is `title > section > …`; the title and the rest.
 fn split_heading(heading: &str) -> (&str, &str) {

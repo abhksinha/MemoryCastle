@@ -6,7 +6,7 @@
       "name": "memorycastle",
       "source": "./plugin",
       "description": "Per-repo memory of decisions, rejected attempts and measurements for coding agents: hooks show what notes say about a file before it is edited; status reports tokens saved.",
-      "version": "0.10.4"
+      "version": "0.10.5"
     }
   ]
 }

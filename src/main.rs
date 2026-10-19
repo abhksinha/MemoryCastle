@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 #[derive(Parser)]
-#[command(name = "memorycastle", version, about = "Per-project memory for coding agents: decisions, rejected attempts, measurements, preferences")]
+#[command(name = "memorycastle", version, about = "Per-project memory for coding agents: decisions, rejected attempts, measurements, preferences", after_help = "Full usage guide for agents, as Markdown:  memcastle guide")]
 struct Cli {
     /// Act on a named project instead of the git checkout you are in.
     #[arg(long, global = true)]
@@ -124,6 +124,8 @@ enum Cmd {
         #[arg(long)]
         flagged: bool,
     },
+    /// Print the usage guide for agents (docs/GUIDE.md): when to search, how to read the answer, how to write a note.
+    Guide,
     /// One line when this session edited code after its last saved note (called by the hooks at compaction, after `git commit`, and at stop); silent otherwise.
     Owed,
     /// Draft a note from this session's edits when none was saved (called by the stop hook).
@@ -605,6 +607,10 @@ fn run(cli: Cli) -> Result<()> {
                 println!("binaries left for you to remove: rm {dir}/memorycastle {dir}/memcastle   (or: cargo uninstall memorycastle)");
             }
             println!("restart the agents so they drop the old config.");
+        }
+        Cmd::Guide => {
+            print!("{}", include_str!("../docs/GUIDE.md"));
+            return Ok(());
         }
         Cmd::Owed => {
             let Some(p) = &ctx.project else { return Ok(()) };

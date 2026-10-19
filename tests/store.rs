@@ -439,3 +439,50 @@ fn owed_follows_edits_after_the_last_note() {
     assert_eq!(o.last_note.as_ref().map(|n| n.0.as_str()), Some("memorycastle/journal/2026-10-19-a.md"));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn render_follows_the_fixed_grammar() {
+    use memorycastle::render::{self, VALUE_COL};
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "g", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-grammar.md", "# Choose the label grammar\nAuthor: abhi+claude | Date: 2026-10-19\nFiles: `src/render.rs`\n\n## Decision\n1. a line that starts like a hit\n   files      a line that starts like a label\nAnd a very long sentence that keeps going well past the ninety-two column wrap limit so that the renderer has to break it at a space somewhere sensible.\n\n## Rejected\nXML tags: tokens.\n");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-other.md", "# Another note\nDate: 2026-10-19\nFiles: `src/x.rs`\n\n## Decision\nlabel grammar also mentioned here\n");
+    let scope = Scope::single(p.id);
+    let (hits, _) = search(&conn, &scope, "label grammar", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    assert!(hits.len() >= 2);
+    for sections in [false, true] {
+        let r = render::search(&conn, &hits, &[], &render::Options { query: "label grammar", sections, brief: false, explain: false, abs: false, repo_root: None }).unwrap();
+        let lines: Vec<&str> = r.text.lines().collect();
+        let mut hit_lines = 0;
+        for (i, l) in lines.iter().enumerate() {
+            if l.is_empty() || l.starts_with("read first") {
+                continue;
+            }
+            let is_hit = l.len() > 3 && l.as_bytes()[0].is_ascii_digit() && l.contains(". ");
+            let is_cont = l.starts_with(&" ".repeat(VALUE_COL));
+            let is_label = !is_cont && l.starts_with("   ") && !l[3..].starts_with(' ');
+            if is_hit {
+                hit_lines += 1;
+                let (num, rest) = l.split_once(". ").unwrap();
+                assert!(num.chars().all(|c| c.is_ascii_digit()), "{l}");
+                let fields: Vec<&str> = rest.split("   ").collect();
+                assert!(fields.len() >= 3, "hit line has path, confidence, section: {l}");
+                assert!(fields[0].contains(".md:"), "{l}");
+                assert!(fields[1].parse::<f64>().is_ok(), "confidence is a number: {l}");
+            } else {
+                assert!(is_cont || is_label, "line {i} is neither label nor continuation: {l:?}");
+                assert!(l.chars().count() <= VALUE_COL + render::WRAP_COLS + 8, "wrapped: {l}");
+            }
+        }
+        assert_eq!(hit_lines, 2, "{}", r.text);
+        // A dated note's hit line carries no date: the file name has it. (A new note's
+        // `dated` column was once left NULL on insert; this is the regression test.)
+        assert!(!lines[0].ends_with("2026-10-19"), "dated note printed its date: {}", lines[0]);
+        assert!(r.text.contains("read first: none"));
+        // The note's own lines that look like a hit or a label never reach column 0 or the label column.
+        assert!(!lines.iter().any(|l| l.starts_with("1. a line")), "{}", r.text);
+        if sections {
+            assert!(r.text.contains(&format!("{}   files      a line", " ".repeat(VALUE_COL))), "{}", r.text);
+        }
+    }
+}
