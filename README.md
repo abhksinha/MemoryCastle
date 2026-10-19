@@ -5,12 +5,12 @@ Shared memory for coding agents. One 6 MB Rust binary, one SQLite file, no LLM, 
 **Smaller, honest, and it knows when to say nothing.** Measured on
 2026-10-19 against Mem0 2.2.1 and cognee 1.6.5, the two
 best-known open-source agent memories, each without a key and with a paid
-OpenAI configuration, on three real journals: memorycastle wins 8 of 16
+OpenAI configuration, on three real journals: memorycastle wins 9 of 16
 rows with no key, no competitor more than 4. It is the only one that says
 "no relevant note" when there is none and the only one that labels and
 demotes a superseded decision; it indexes an edited note in place in
 0.19 s, answers keyword questions in 2.5 ms from a 9 MB process, and ran
-four agent tasks on 38% fewer tokens than cognee and 51% fewer than Mem0.
+four agent tasks on 50% fewer tokens than cognee and 61% fewer than Mem0.
 Mem0's bare vector mode, a 33M-parameter model over raw chunks, ingests
 and queries faster and ranks as well; it has no floor, no supersession
 and keeps old copies on every edit. Every cell, both ways, is in

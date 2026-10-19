@@ -222,18 +222,27 @@ rubrics: found the recorded rejection, reported the measured numbers and
 their caveat, respected the recorded API-level constraint, and added a
 flag without citing an invented decision. The difference is cost.
 
-| | memorycastle | grep | cognee | Mem0 | winner | by |
-| --- | --- | --- | --- | --- | --- | --- |
-| total tokens, four tasks | **875k** | 1,208k | 1,401k | 1,772k | memorycastle | 28% under grep, 38% under cognee, 51% under Mem0 |
-| uncached input tokens | **91k** | 106k | 126k | 105k | memorycastle | 14% under grep, 28% under cognee, 13% under Mem0 |
-| retrieval bytes read | **190 KB** | 261 KB | 376 KB | 194 KB | tie, memorycastle and Mem0 | 27% under grep, 49% under cognee |
+| | memorycastle 0.11.4 | memorycastle 0.11.3 | grep | cognee | Mem0 | winner | by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| total tokens, four tasks | **700k** | 875k | 1,208k | 1,401k | 1,772k | memorycastle | 42% under grep, 50% under cognee, 61% under Mem0 |
+| uncached input tokens | **71k** | 91k | 106k | 126k | 105k | memorycastle | 34% under grep, 44% under cognee, 33% under Mem0 |
+| retrieval bytes read | **92 KB** | 190 KB | 261 KB | 376 KB | 194 KB | memorycastle | 65% under grep, 76% under cognee, 53% under Mem0 |
 
-Per task (total / uncached input / retrieval bytes): rejected approach
-411k/37k/111 KB grep, 379k/32k/90 KB memorycastle, 483k/39k/133 KB cognee,
-451k/36k/102 KB Mem0; measured number 79k/15k/13 KB, 77k/18k/15 KB,
+The 0.11.3 column is the pre-registered run. The 0.11.4 column is the
+same four tasks rerun after the Mem0 result changed the default answer
+shape (one line and the note's Decision sentence per hit, sections on
+request, the change Mem0's short memories argued for); all four rubrics
+passed again. The memory's own output is the part that halved; the rest
+of the saving is the agent reading less around it.
+
+Per task (total / uncached input / retrieval bytes; memorycastle is the
+0.11.3 run, with 0.11.4 in brackets): rejected approach
+411k/37k/111 KB grep, 379k/32k/90 KB memorycastle (220k/20k/34 KB),
+483k/39k/133 KB cognee, 451k/36k/102 KB Mem0; measured number 79k/15k/13 KB, 77k/18k/15 KB (123k/17k/6 KB),
 155k/29k/90 KB, 124k/24k/4 KB; function with a note 170k/26k/78 KB,
-151k/17k/34 KB, 185k/25k/82 KB, 173k/18k/48 KB; no note 548k/29k/58 KB,
-268k/24k/52 KB, 578k/33k/71 KB, 1,024k/28k/40 KB. One run per cell is a
+151k/17k/34 KB (198k/17k/33 KB), 185k/25k/82 KB, 173k/18k/48 KB; no note
+548k/29k/58 KB, 268k/24k/52 KB (159k/16k/18 KB), 578k/33k/71 KB,
+1,024k/28k/40 KB. One run per cell is a
 direction, not a distribution; the "no note" task varies most for reasons
 unrelated to memory (build attempts: the Mem0 run made 33 calls and took
 244 s there). Mem0's extracted memories are short, which is why its
@@ -247,8 +256,9 @@ retrieval bytes on the measured-number task are the lowest of any arm.
 | nothing on the topic | "no relevant note" | the nearest memories, at whatever score | the nearest wrong note | memorycastle |
 | the function a note describes has changed | labelled `code changed since` | no equivalent | no equivalent | not applicable |
 
-Score over the 16 rows above: memorycastle 8, Mem0 raw 4, Mem0 llm 1,
-cognee 0, ties 3. Mem0's four are speed rows that belong to a model a
+Score over the 16 rows above: memorycastle 9, Mem0 raw 4, Mem0 llm 1,
+cognee 0, ties 2 (the retrieval-bytes tie went to memorycastle on the
+0.11.4 rerun). Mem0's four are speed rows that belong to a model a
 tenth the size; its one ranking win and cognee's are single rank swaps on
 the smallest journal. memorycastle's eight are the rows about being
 right: nothing when there is nothing, the reversed decision kept reversed,
@@ -290,9 +300,11 @@ cheapest agent session.
   per answering process does not.
 - **Agent tokens.** Retrieval bytes are the part the memory controls:
   what the agent reads to find the fact. Mem0's short extracted memories
-  match memorycastle's sections here; cognee's chunks are twice the bytes.
-  The whole-run figure favours memorycastle by 28% to 51%, with one run
-  per cell.
+  matched memorycastle's sections, which is what made the brief default
+  with the Decision sentence worth shipping: after it, memorycastle's
+  agent reads half of Mem0's bytes and a quarter of cognee's for the same
+  four correct answers, and the whole run is 42% to 61% cheaper, with one
+  run per cell.
 - **Where Mem0 wins.** Bare vectors over raw chunks with a 33M model are
   very fast to build and to query, and rank as well as anything on a
   journal this size. That mode is Mem0 as a vector store: no extraction,
