@@ -136,7 +136,7 @@
     <span class="pill">Open source · Apache-2.0 / MIT · macOS and Linux</span>
     <h1>Memory for coding agents.<br><em>Written by the one who did the work.</em></h1>
     <p class="lead">One 6 MB Rust binary, one SQLite file, no LLM, no key, no server. Claude Code, Codex, Gemini CLI, Cursor and the rest forget everything between sessions. memorycastle keeps, per repository, what was decided, what was rejected, what was measured, and the exact lines of code it lives in.</p>
-    <p class="lead" style="margin-top:14px"><strong>Measured against cognee, the best-known agent memory, with its paid OpenAI configuration: memorycastle wins 12 of 13 rows without a key.</strong> Keyword answers in 2.5 ms from a 9 MB process. Ten notes indexed in 21 s on 535 MB where cognee needs 193 s and 8.8 GB. A note edited and re-indexed in 0.19 s against 13 s. Four agent tasks on 38% fewer tokens. And the only one that answers "no relevant note" when there is none. <a href="#compare">The numbers.</a></p>
+    <p class="lead" style="margin-top:14px"><strong>Measured against cognee, the best-known open-source graph memory for agents, with its paid OpenAI configuration: memorycastle wins 12 of 13 rows without a key.</strong> Keyword answers in 2.5 ms from a 9 MB process. Ten notes indexed in 21 s on 535 MB where cognee needs 193 s and 8.8 GB. A note edited and re-indexed in 0.19 s against 13 s. Four agent tasks on 38% fewer tokens. And the only one that answers "no relevant note" when there is none. <a href="#compare">The numbers.</a></p>
     <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
 memcastle install</code></pre>
     <p class="muted" style="margin-top:14px;font-size:15px">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
@@ -244,7 +244,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <span class="eyebrow rose">Comparison</span>
     <h2>Lighter, faster, and it knows when to say nothing.</h2>
     <p class="lead">Rust, one binary, one file. No Python runtime, no vector database, no graph database, no API key, no network. Every answer in milliseconds from a process a hundred times smaller than an LLM memory stack, and the retrieval is equal or better on real journals.</p>
-    <p class="sub"><a href="https://github.com/topoteretes/cognee">cognee</a> is the best-known open-source memory engine for agents. It solves a broader problem: any documents, conversations and code, for any agent, turned into a knowledge graph plus vectors, with a server, a UI and a cloud. memorycastle solves one narrow problem, a coding team's decisions per repository, and the narrowness is where the architecture differs.</p>
+    <p class="sub"><a href="https://github.com/topoteretes/cognee">cognee</a> is the best-known open-source graph-based memory for agents (Mem0 has the larger community; its graph features are a paid tier). It solves a broader problem: any documents, conversations and code, for any agent, turned into a knowledge graph plus vectors, with a server, a UI and a cloud. memorycastle solves one narrow problem, a coding team's decisions per repository, and the narrowness is where the architecture differs.</p>
     <div class="tablewrap reveal"><table>
       <thead><tr><th></th><th>memorycastle</th><th>cognee</th></tr></thead>
       <tbody>
