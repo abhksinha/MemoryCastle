@@ -90,7 +90,7 @@ memcastle install</code></pre>
     <div class="card"><h3>Agents write notes</h3><p class="muted">At the end of a task that changed a decision, the agent writes a short Markdown note in <code>memorycastle/journal/</code>: Context, Decision, Rejected, Measured. The notes are committed with the code. They are the memory; everything else is derived.</p></div>
     <div class="card"><h3>Notes are indexed locally</h3><p class="muted">Each note is split by heading, indexed for keywords (SQLite FTS5) and embedded with a local EmbeddingGemma 2 model, int8, on the CPU. No API key, no network after the first download.</p></div>
     <div class="card"><h3>A question gets a paragraph and a line range</h3><p class="muted">Keyword and meaning results are fused, judged for confidence, and reranked by what the note declares it is about. The answer ends with <code>read: path:start-end</code>, the exact lines to open.</p></div>
-    <div class="card"><h3>Hooks keep it honest</h3><p class="muted">In Claude Code, a lookup runs before every edit, reads are logged, and the savings counter shows what the printed spans stood in for. A note is drafted when a session changes code and saves none.</p></div>
+    <div class="card"><h3>Hooks keep it honest</h3><p class="muted">In Claude Code, a lookup runs before every edit, reads are logged, and the savings counter shows what the printed spans stood in for. A note is drafted when a session changes code and saves none, and the agent is asked at the three moments a note is due: before compaction, after a commit, at stop.</p></div>
   </div>
 
   <p style="margin-top:28px">A search answer looks like this:</p>

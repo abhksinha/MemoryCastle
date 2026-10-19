@@ -411,3 +411,31 @@ fn graph_rerank_lifts_the_note_that_links_the_named_file_or_symbol() {
     let (hits, _) = search(&conn, &scope, "crop handling editor", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
     assert!(hits.iter().all(|h| h.trace.graph == 1.0));
 }
+
+#[test]
+fn owed_follows_edits_after_the_last_note() {
+    use memorycastle::draft;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "o", None);
+    let root = std::env::temp_dir().join(format!("mc-owed-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.rs"), "fn a() {}\n").unwrap();
+    assert!(draft::owed(&conn, p.id).unwrap().is_none(), "no session declared: nothing owed");
+    store::set_session(&conn, p.id, "s1", Some("claude")).unwrap();
+    assert!(draft::owed(&conn, p.id).unwrap().is_none(), "no edits yet");
+    store::record_edit(&conn, p.id, &root, "src/a.rs").unwrap();
+    store::record_edit(&conn, p.id, &root, "memorycastle/journal/x.md").unwrap();
+    let o = draft::owed(&conn, p.id).unwrap().expect("an edit outside the journal is owed");
+    assert_eq!(o.files, vec!["src/a.rs".to_string()]);
+    assert!(o.last_note.is_none());
+    // Saving a note settles it; the note's saved_at must be after the edit.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-a.md", "# Chose a\nDate: 2026-10-19\nFiles: `src/a.rs`\n\n## Decision\nbecause");
+    assert!(draft::owed(&conn, p.id).unwrap().is_none(), "settled by the note: {:?}", draft::owed(&conn, p.id).unwrap());
+    // A later edit is owed again, and names the note it follows.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    store::record_edit(&conn, p.id, &root, "src/a.rs").unwrap();
+    let o = draft::owed(&conn, p.id).unwrap().expect("edit after the note is owed");
+    assert_eq!(o.last_note.as_ref().map(|n| n.0.as_str()), Some("memorycastle/journal/2026-10-19-a.md"));
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -6,5 +6,5 @@ changed=$(memcastle status 2>/dev/null | sed -n 's/^changed on disk since saved:
 # A session that edited code and saved no note gets a draft from the ledger:
 # Files: from the edits, Author: from the session; the agent fills Decision.
 draft=$(memcastle draft 2>/dev/null)
-[ -n "$draft" ] && printf 'memorycastle: this session edited code and saved no note. Draft at %s: set the title to the decision, fill Decision and Measured, then: memcastle save %s\n' "$draft" "$draft"
+[ -n "$draft" ] && printf 'memorycastle: this session edited code after its last note. Draft at %s: set the title to the decision, fill Decision and Measured, then: memcastle save %s\n' "$draft" "$draft"
 exit 0

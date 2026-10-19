@@ -9,6 +9,10 @@ sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\
 # Warm model for the session: every lookup is 90 ms instead of 230 ms cold.
 memcastle serve --detach >/dev/null 2>&1
 memcastle status 2>/dev/null | grep -E '^(project:|notes:|observed|benchmark|label log|ceiling:|warning:|changed on disk)'
+# After a compaction the draft written by pre-compact.sh is the one thing
+# the summary must not lose; after a fresh start it is last session's debt.
+owed=$(memcastle owed 2>/dev/null)
+[ -n "$owed" ] && echo "memorycastle: $owed. Draft or append with: memcastle draft"
 # The user-level CLAUDE.md carries the rules; the repo copy is for teammates.
 root=$(git rev-parse --show-toplevel 2>/dev/null)
 if [ -n "$root" ] && [ -d "$root/memorycastle/journal" ] && ! grep -q 'memorycastle snippet' "$root/CLAUDE.md" 2>/dev/null; then

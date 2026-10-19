@@ -11,20 +11,42 @@ use std::path::{Path, PathBuf};
 /// The placeholder title; `lint` refuses it.
 pub const PLACEHOLDER_TITLE: &str = "<state the decision in one line>";
 
-/// Writes the draft and returns its path, or None when the session saved a
-/// note already, edited nothing outside `memorycastle/`, or a draft exists.
-pub fn write(conn: &Connection, project_id: i64, root: &Path) -> Result<Option<PathBuf>> {
+/// What a session owes: code edited after the last note it saved.
+#[derive(Debug, Clone)]
+pub struct Owed {
+    /// Files edited since the last save, outside `memorycastle/`, sorted.
+    pub files: Vec<String>,
+    /// The last note saved in this session, when there is one.
+    pub last_note: Option<(String, i64)>,
+}
+
+/// The edits this session made after its last saved note. None when the
+/// session edited nothing outside `memorycastle/` since then: the hooks
+/// ask at compaction, after `git commit`, and when the agent stops.
+pub fn owed(conn: &Connection, project_id: i64) -> Result<Option<Owed>> {
     let Some(session) = store::current_session(conn, project_id)? else { return Ok(None) };
     let started = store::session_started(conn, project_id)?.unwrap_or(0);
-    let saved: i64 = conn.query_row("SELECT count(*) FROM notes WHERE project_id = ?1 AND saved_at >= ?2 AND deleted_at IS NULL", params![project_id, started], |r| r.get(0))?;
-    if saved > 0 {
+    let last_note: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT path, saved_at FROM notes WHERE project_id = ?1 AND saved_at >= ?2 AND deleted_at IS NULL ORDER BY saved_at DESC LIMIT 1",
+            params![project_id, started],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .ok();
+    let since = last_note.as_ref().map(|n| n.1).unwrap_or(started);
+    let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 ORDER BY path")?;
+    let files: Vec<String> = stmt.query_map(params![project_id, session, since], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?.into_iter().filter(|p| !p.starts_with("memorycastle/")).collect();
+    if files.is_empty() {
         return Ok(None);
     }
-    let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 ORDER BY path")?;
-    let edited: Vec<String> = stmt.query_map(params![project_id, session], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?.into_iter().filter(|p| !p.starts_with("memorycastle/")).collect();
-    if edited.is_empty() {
-        return Ok(None);
-    }
+    Ok(Some(Owed { files, last_note }))
+}
+
+/// Writes the draft and returns its path, or None when nothing is owed.
+/// When a note or draft with today's name exists already, its path is
+/// returned so the hook can say "append to".
+pub fn write(conn: &Connection, project_id: i64, root: &Path) -> Result<Option<PathBuf>> {
+    let Some(Owed { files: edited, .. }) = owed(conn, project_id)? else { return Ok(None) };
     let today = crate::render::fmt_date(crate::sys::now());
     let topic = branch(root).unwrap_or_else(|| "session".into());
     let rel = format!("memorycastle/journal/{today}-{topic}.md");

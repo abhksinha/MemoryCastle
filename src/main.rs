@@ -124,6 +124,8 @@ enum Cmd {
         #[arg(long)]
         flagged: bool,
     },
+    /// One line when this session edited code after its last saved note (called by the hooks at compaction, after `git commit`, and at stop); silent otherwise.
+    Owed,
     /// Draft a note from this session's edits when none was saved (called by the stop hook).
     #[command(hide = true)]
     Draft,
@@ -603,6 +605,16 @@ fn run(cli: Cli) -> Result<()> {
                 println!("binaries left for you to remove: rm {dir}/memorycastle {dir}/memcastle   (or: cargo uninstall memorycastle)");
             }
             println!("restart the agents so they drop the old config.");
+        }
+        Cmd::Owed => {
+            let Some(p) = &ctx.project else { return Ok(()) };
+            if let Some(o) = memorycastle::draft::owed(&ctx.conn, p.id)? {
+                let since = match &o.last_note {
+                    Some((path, at)) => format!("since {} ({} min ago)", path, (memorycastle::sys::now() - at).max(0) / 60),
+                    None => "and saved no note this session".into(),
+                };
+                println!("note owed: {} edited {since}: {}", o.files.len(), o.files.join(", "));
+            }
         }
         Cmd::Draft => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
