@@ -314,8 +314,12 @@ cheapest agent session.
   floor scores at most half of one the model agrees with. A rule that
   muted BM25 when the question had no rare word was measured the same
   day and fired on 1 of 68 questions: in a small store almost every
-  content word is rare. The pre-registered tables above are unchanged;
-  they are the 0.11.3 numbers.
+  content word is rare. Mem0 raw was then re-scored, no key, on the same grown
+  stores: Project 1 0.895 / 0.829, Project 2 0.972 / 0.964, Project 3
+  (corrected label) 1.000 / 0.925, so on today's stores memorycastle
+  0.11.5 leads it on all three journals, by 0.024, 0.011 and 0.013 MRR.
+  The pre-registered tables above are unchanged; they are the 0.11.3
+  numbers.
 - **One embedding server (0.11.2).** Ten were resident during the agent
   runs; the fix is described under "What the run found".
 - **Mem0's threshold tested.** Reported under "Absent topic" above, so the
