@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>memorycastle</title>
+<meta name="description" content="Shared memory for coding agents. One binary, one SQLite file, no LLM. Agents write decisions as notes; memorycastle finds the right paragraph and the exact lines to read.">
+<style>
+  :root {
+    --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b675f; --line: #e4e0d6; --card: #ffffff;
+    --accent: #b5471f; --accent-soft: #fbe9df; --code-bg: #f1eee6; --good: #2d6a4f;
+    --max: 980px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #141311; --fg: #ece8df; --muted: #a39d92; --line: #2a2825; --card: #1c1b18;
+      --accent: #f08a5a; --accent-soft: #3a2419; --code-bg: #22201c; --good: #7bc99a;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #141311; --fg: #ece8df; --muted: #a39d92; --line: #2a2825; --card: #1c1b18;
+    --accent: #f08a5a; --accent-soft: #3a2419; --code-bg: #22201c; --good: #7bc99a;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  main, header, footer { max-width: var(--max); margin: 0 auto; padding: 0 16px; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre { font: 14.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 0; }
+  pre code { background: none; padding: 0; }
+  h1, h2, h3 { line-height: 1.2; letter-spacing: -.01em; margin: 0; }
+  h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 700; }
+  h2 { font-size: clamp(24px, 3.4vw, 32px); margin: 72px 0 20px; }
+  h3 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 0 0 14px; }
+  .muted { color: var(--muted); }
+  nav { display: flex; gap: 22px; align-items: center; padding: 22px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  nav .brand { font-weight: 700; color: var(--fg); margin-right: auto; }
+  nav a { color: var(--muted); font-size: 15px; }
+  .hero { padding: 64px 0 24px; }
+  .hero p.lead { font-size: 21px; max-width: 720px; margin: 18px 0 28px; }
+  .pill { display: inline-block; font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; margin-bottom: 18px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 14px; }
+  .card .n { color: var(--accent); font-weight: 700; font-size: 13px; letter-spacing: .06em; }
+  .stat { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
+  .stat small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+  td:first-child { color: var(--muted); }
+  .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
+  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); margin: 18px 0; }
+  .flow { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); counter-reset: step; }
+  .flow .card { position: relative; }
+  .flow .card::before { counter-increment: step; content: counter(step); position: absolute; top: -12px; left: 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; }
+  .sample { white-space: pre; }
+  footer { padding: 56px 16px 40px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 80px; }
+  @media (max-width: 600px) { .hero { padding-top: 40px; } h2 { margin-top: 56px; } }
+</style>
+</head>
+<body>
+<header>
+  <nav>
+    <a class="brand" href="#">memorycastle</a>
+    <a href="#how">How it works</a>
+    <a href="#cost">Cost</a>
+    <a href="#compare">vs cognee</a>
+    <a href="#why">Why smaller</a>
+    <a href="#honest">Numbers</a>
+    <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <span class="pill">Open source · Apache-2.0 / MIT · macOS and Linux</span>
+    <h1>Shared memory for coding agents.<br>One binary, one SQLite file, no LLM.</h1>
+    <p class="lead">Claude Code, Codex, Gemini CLI, Antigravity, Cursor, GitHub Copilot and OpenCode forget everything between sessions. memorycastle gives them one memory per repository: what was decided, what was tried and rejected, what was measured, and the exact lines of code it lives in.</p>
+    <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
+memcastle install</code></pre>
+    <p class="muted" style="margin-top:12px">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
+  </section>
+
+  <h2 id="how">How it works</h2>
+  <div class="flow">
+    <div class="card"><h3>Agents write notes</h3><p class="muted">At the end of a task that changed a decision, the agent writes a short Markdown note in <code>memorycastle/journal/</code>: Context, Decision, Rejected, Measured. The notes are committed with the code. They are the memory; everything else is derived.</p></div>
+    <div class="card"><h3>Notes are indexed locally</h3><p class="muted">Each note is split by heading, indexed for keywords (SQLite FTS5) and embedded with a local EmbeddingGemma 2 model, int8, on the CPU. No API key, no network after the first download.</p></div>
+    <div class="card"><h3>A question gets a paragraph and a line range</h3><p class="muted">Keyword and meaning results are fused, judged for confidence, and reranked by what the note declares it is about. The answer ends with <code>read: path:start-end</code>, the exact lines to open.</p></div>
+    <div class="card"><h3>Hooks keep it honest</h3><p class="muted">In Claude Code, a lookup runs before every edit, reads are logged, and the savings counter shows what the printed spans stood in for. A note is drafted when a session changes code and saves none.</p></div>
+  </div>
+
+  <p style="margin-top:28px">A search answer looks like this:</p>
+  <pre class="sample"><code>1. 0.91  memorycastle/journal/2026-10-18-model-precision.md:12 > Decision
+   Choose int8 over q4  (abhi+claude)
+   decision:  int8 is the only setting that finds every gold answer in the top 3;
+              q4 is twice as fast and 120 MB lighter but drops one question.
+   code:      src/embed/ort_rt.rs:41-88  load_model
+read first:
+   1. src/embed/ort_rt.rs:41-88   load_model   1.00  defined in a file the note names</code></pre>
+
+  <h2 id="cost">What it costs to run</h2>
+  <div class="grid">
+    <div class="card"><div class="n">BINARY</div><div class="stat">6 MB</div><p class="muted">Rust, no runtime to install. Model and ONNX runtime download once, 390 MB.</p></div>
+    <div class="card"><div class="n">KEYWORD SEARCH</div><div class="stat">&lt;1 ms<small>5 MB RSS</small></div><p class="muted">Never loads the model.</p></div>
+    <div class="card"><div class="n">MEANING SEARCH</div><div class="stat">90 ms<small>warm</small></div><p class="muted">230 ms cold. 274 MB while the model is loaded, released after 5 minutes idle.</p></div>
+    <div class="card"><div class="n">700 NOTES, 3,619 CHUNKS</div><div class="stat">3 ms<small>vector scan</small></div><p class="muted">19 MB on disk. A bit-packed prefilter keeps the scan linear and small.</p></div>
+  </div>
+  <p class="note">Every number above was measured on an M5 MacBook Air with a release build and is reproduced in the repository's <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/BENCHMARKS.md">BENCHMARKS.md</a>. The engineering rule behind them: do less, allocate less, move less, measure.</p>
+
+  <h2 id="compare">Compared with cognee</h2>
+  <p><a href="https://github.com/topoteretes/cognee">cognee</a> is the best-known open-source memory engine for agents. It solves a broader problem: any documents, conversations and code, for any agent, turned into a knowledge graph plus vectors, with a server, a UI and a cloud. memorycastle solves one narrow problem, a coding team's decisions per repository, and the narrowness is where the architecture differs.</p>
+  <div class="wrap"><table>
+    <thead><tr><th></th><th>memorycastle</th><th>cognee</th></tr></thead>
+    <tbody>
+      <tr><td>What is remembered</td><td>Decisions, rejections, measurements, written by the agent as notes in the repo</td><td>Anything ingested: documents, chats, code, turned into entities and relations</td></tr>
+      <tr><td>How the graph is built</td><td>Declared, not inferred: the files, symbols and notes a note names in backticks, plus a line scan of the checkout. Deterministic, reproducible from the notes.</td><td>Extracted by a model: an LLM, or the local GLiNER model without a key, proposes entities and relations during "cognify"</td></tr>
+      <tr><td>LLM in the loop</td><td>None. One local embedding model (EmbeddingGemma 2, int8) for meaning search; keyword search uses no model at all</td><td>Optional for extraction (GLiNER locally), used for generated answers and some media; provider calls when a key is set</td></tr>
+      <tr><td>Storage</td><td>One SQLite file per machine: notes, chunks, FTS5 index, f16 vectors, links, ledger. The notes themselves live in git.</td><td>Relational metadata plus a vector store plus a graph store (local SQLite, LanceDB, Kuzu; or Postgres, Neo4j and others)</td></tr>
+      <tr><td>Runtime</td><td>A 6 MB binary; CLI and MCP server in the same process. No daemon required; a warm embedding server is optional.</td><td>Python 3.10 to 3.14 library, REST server, Docker Compose with UI and MCP ports, or Cognee Cloud</td></tr>
+      <tr><td>Answer shape</td><td>The note paragraph with a confidence, and <code>path:start-end</code> code spans to read next; a token budget per answer</td><td>Graph and vector search results, or an LLM-generated answer</td></tr>
+      <tr><td>Where it is honest about limits</td><td>Confidence is calibrated on a gold set and "no relevant note" is a real answer; savings are shown as a bound with every input inspectable</td><td>Reports BEAM benchmark scores and states when results are exploratory</td></tr>
+      <tr><td>Multiple agents</td><td>Seven, through MCP; the same note store for all of them, because the notes are files in the repo</td><td>Claude Code, Codex and OpenClaw plugins; Cursor and Cline through MCP; Python, TypeScript and HTTP clients</td></tr>
+      <tr><td>Team sharing</td><td>git: commit the journal, teammates pull it and their agents index it</td><td>A shared server or the cloud</td></tr>
+    </tbody>
+  </table></div>
+  <p style="margin-top:18px">The trade is explicit. cognee can remember a support transcript or a PDF and answer questions a human never wrote down; memorycastle cannot, because nothing is extracted, only what an agent chose to write is stored. In exchange, a memorycastle answer is always traceable to a sentence a person or agent wrote, costs under a second and a few hundred MB at most, and the "graph" cannot hallucinate an edge. For a coding team that wants its agents to stop repeating rejected experiments, that trade is the right one. For a company that wants memory over everything it has, it is not.</p>
+
+  <h2 id="why">Why smaller is also better, for this job</h2>
+  <div class="grid">
+    <div class="card"><h3>Nothing is invented</h3><p class="muted">cognee's graph is proposed by a model, so an edge can be wrong and nobody wrote it. memorycastle's edges are the file names and symbols a note names in backticks. A wrong edge is a typo in a note, and <code>git blame</code> finds who wrote it.</p></div>
+    <div class="card"><h3>Ingest costs no tokens</h3><p class="muted">A cognify run sends every chunk through an extraction model. Saving a note here is a hash check, a heading split, FTS5, and one local embedding per chunk at 0.28 s on a laptop CPU. A 90-chunk journal indexes in 21 s with no API bill.</p></div>
+    <div class="card"><h3>The answer is a place in the code</h3><p class="muted">A coding agent does not want a subgraph; it wants which paragraph to trust and which 40 lines to read. Every answer ends with ranked <code>path:start-end</code> spans, re-anchored when the file has changed since indexing.</p></div>
+    <div class="card"><h3>Reproducible from git alone</h3><p class="muted">Delete the SQLite file and <code>install</code> rebuilds it from the notes in the repo, identically. No store to back up, no server to keep in sync, no cloud account. Teammates share memory by pulling.</p></div>
+    <div class="card"><h3>Offline, and it stays small</h3><p class="muted">After the one model download it never opens a network connection. The store grows at about 2.5 MB of text and 3.5 MB of vectors per 700 notes; search over them is 3 ms and the whole process stays under 300 MB.</p></div>
+    <div class="card"><h3>It knows when it does not know</h3><p class="muted">Confidence is calibrated on a gold set; below the floor the answer is "no relevant note" rather than the nearest wrong one. A note about the same file but a different topic is dropped by a near-miss gate, so an agent is never steered by a plausible neighbour.</p></div>
+  </div>
+  <p style="margin-top:18px">None of this makes memorycastle a replacement for cognee. It makes it the right size for one job: a repository, its agents, and the decisions they should not have to make twice. The resource gap is not an optimisation of the same design; it falls out of not extracting, not inferring and not serving.</p>
+
+  <h2 id="honest">What the numbers mean</h2>
+  <div class="grid">
+    <div class="card"><div class="n">RETRIEVAL, GOLD SET</div><div class="stat">1.000<small>recall@3</small></div><p class="muted">97 questions over two real journals, MRR 0.89 to 0.91. Five absent-topic questions must return nothing, and do.</p></div>
+    <div class="card"><div class="n">CONTROLLED A/B</div><div class="stat">32 to 53%<small>fewer tokens</small></div><p class="muted">Whole Codex runs on the same tasks, with and without the memory. Retrieval tokens 63% fewer on average.</p></div>
+    <div class="card"><div class="n">STATUS LINE</div><div class="stat">~56k<small>this session</small></div><p class="muted">An upper bound: bytes of files a printed span stood in for, minus what was read and the lookup output. Every row is in the ledger.</p></div>
+  </div>
+  <p class="note">A per-task comparison was built and removed the same day because it charged unrelated reads to the tool. The repository keeps that note. If a number cannot be defended row by row, it is not on the status line.</p>
+
+  <h2 id="start">Start</h2>
+  <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
+memcastle install                 # every agent on this machine, from any directory
+cd your-repo && memcastle install # also this repo: journal, code index, past transcripts
+memcastle search "why did we pick int8"
+memcastle links src/store.rs
+memcastle uninstall --purge       # the reverse, notes stay</code></pre>
+  <p class="muted">Prerequisites: macOS Apple silicon or Linux x86_64 (prebuilt), otherwise Rust 1.80 and cargo. The embedding model is EmbeddingGemma 2, downloaded once with a pinned checksum. Everything lands under <code>~/.local/</code>.</p>
+</main>
+
+<footer>
+  memorycastle · <a href="https://github.com/abhksinha/MemoryCastle">source</a> · <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/ARCHITECTURE.md">architecture</a> · <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/BENCHMARKS.md">benchmarks</a> · cognee facts from its README on 2026-10-19; corrections welcome as an issue.
+</footer>
+</body>
+</html>
