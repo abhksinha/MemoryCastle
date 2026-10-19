@@ -1,3 +1,5 @@
+<img src="docs/logo/mark.svg" width="56" align="left" alt="">
+
 # memorycastle
 
 Shared memory for coding agents. One 6 MB Rust binary, one SQLite file, no LLM, no key, no server.

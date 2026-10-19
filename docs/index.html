@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>memorycastle</title>
+<link rel="icon" type="image/svg+xml" href="logo/mark.svg">
 <meta name="description" content="Shared memory for coding agents. One binary, one SQLite file, no LLM. Decisions, rejected attempts and measurements per repository, with the exact lines of code they live in.">
 <style>
   :root {
@@ -51,6 +52,7 @@
   header { position: sticky; top: 0; z-index: 10; backdrop-filter: saturate(180%) blur(18px); -webkit-backdrop-filter: saturate(180%) blur(18px); background: color-mix(in srgb, var(--bg) 72%, transparent); border-bottom: 1px solid var(--line); }
   nav { display: flex; align-items: center; gap: 22px; height: 52px; }
   nav .brand { font-weight: 600; letter-spacing: -.01em; color: var(--fg); margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  nav .brand img { display: block; }
   nav .brand i { width: 10px; height: 10px; border-radius: 50%; background: conic-gradient(from 0deg, hsl(var(--h) 75% 55%), hsl(var(--h2) 80% 55%), hsl(var(--h3) 60% 50%), hsl(var(--h4) 60% 58%), hsl(var(--h) 75% 55%)); }
   nav a { color: var(--muted); font-size: 14px; }
   nav a:hover { color: var(--fg); text-decoration: none; }
@@ -145,7 +147,7 @@
 </head>
 <body>
 <header><div class="wrap"><nav>
-  <a class="brand" href="#"><i></i>memorycastle</a>
+  <a class="brand" href="#"><img src="logo/mark.svg" width="22" height="22" alt="">memorycastle</a>
   <div class="links">
     <a href="#how">How</a><a href="#honest">Numbers</a><a href="#moments">Moments</a><a href="#story">Story</a><a href="#compare">vs cognee</a><a href="#scope">Scope</a><a href="#start">Install</a>
     <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
