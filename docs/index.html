@@ -125,7 +125,7 @@
 <header><div class="wrap"><nav>
   <a class="brand" href="#"><i></i>memorycastle</a>
   <div class="links">
-    <a href="#how">How</a><a href="#honest">Numbers</a><a href="#moments">Moments</a><a href="#compare">vs cognee</a><a href="#scope">Scope</a><a href="#start">Install</a>
+    <a href="#how">How</a><a href="#honest">Numbers</a><a href="#moments">Moments</a><a href="#story">Story</a><a href="#compare">vs cognee</a><a href="#scope">Scope</a><a href="#start">Install</a>
     <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
   </div>
   <button id="theme" aria-label="toggle theme">dark</button>
@@ -210,6 +210,21 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
       <div class="card"><h3>At stop</h3><p>The same hold, once. If no decision was made, the agent says so and stops.</p></div>
     </div>
     <p class="muted" style="margin-top:26px;font-size:15px">Claude Code through its plugin; Codex, Gemini CLI and Cursor through <code>memcastle hook</code>, wired by <code>install</code>. Copilot, OpenCode and Antigravity have no hook surface and get the instructions and the tools.</p>
+  </div></section>
+
+  <section id="story"><div class="wrap">
+    <span class="eyebrow rose">A week on a large project</span>
+    <h2>Mira, a payments monorepo, three agents.</h2>
+    <p class="sub">Hypothetical, but every command and number is what the tool does today. The repo has 4,000 files, a team of nine, and agents that until now started every session from zero.</p>
+    <div class="grid reveal">
+      <div class="card"><h3>Monday: install</h3><p>Mira runs the two lines on her laptop. <code>install</code> finds Claude Code, Codex and Cursor, wires each, and in the repo builds the code index: 4,000 files, 60,000 definitions, four seconds. Her last month of Claude and Codex transcripts go into the ledger so the savings counter has a past. The journal is empty; the status line says <code>0 notes</code>.</p></div>
+      <div class="card"><h3>Monday afternoon: the first note</h3><p>She asks Claude to move settlement retries from a cron job to a queue. Forty minutes in, the fifth file is edited and the prompt hook says a note is owed. Claude writes it: queue chosen over cron because retries must survive a deploy; a Redis stream was tried and rejected for lacking per-tenant ordering; p95 retry latency before and after. <code>save</code> fills the author and date, embeds four chunks in a second, and the note is committed with the code.</p></div>
+      <div class="card"><h3>Tuesday: a teammate's agent</h3><p>Dev pulls, opens Codex, and asks it to "make settlement retries faster by batching". Before Codex answers, the recall hook prints one line: Mira's note, 0.74, section Rejected. Codex opens the section, reads the forty lines the note points to in <code>settlement/retry.rs</code>, and proposes batching inside the queue consumer instead of a second stream. No one told it about Monday.</p></div>
+      <div class="card"><h3>Wednesday: the edit hook</h3><p>Priya edits <code>ledger/post.rs</code>, a 2,400-line file with eleven notes about it. The hook finds the function her edit sits in, <code>post_batch</code>, and prints the two notes that name it, with its span, 180 lines. She reads those, not the file. The read guard blocks her agent's one attempt to read the whole file, once, with the range to read instead. Status line that evening: <code>~41k (58%) this session</code>.</p></div>
+      <div class="card"><h3>Thursday: the code moves on</h3><p>A refactor rewrites <code>post_batch</code>. The next search that returns Priya's note shows <code>code changed since: post_batch</code> and ranks it under a note whose code still matches. Her agent reads the new function before trusting the paragraph, finds the invariant still holds, and writes a one-line note that supersedes nothing but records that it checked. Mira's week-old note on retries is untouched; its function did not change.</p></div>
+      <div class="card"><h3>Friday: compaction and the number</h3><p>A long session hits the context limit mid-task. The hook holds compaction once with the reason and a draft; the agent fills Decision and Measured from facts still in context, saves, and compaction proceeds. The status line shows the week: <code>~310k (66%) last 7 sessions</code>. On Friday it fell by 3k while an agent searched four times for something nobody had written down. The team can see that too, and someone writes the note.</p></div>
+    </div>
+    <p class="muted" style="margin-top:26px">What never happened: a server was stood up, a key was pasted, a transcript was uploaded, a graph was explained. The nine people pulled a directory of Markdown and their agents stopped making the same decision twice. The store on each laptop is one file under <code>~/.local/share/</code>, rebuilt from the repo if deleted.</p>
   </div></section>
 
   <section id="cost" class="alt"><div class="wrap">
