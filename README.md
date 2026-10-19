@@ -1,6 +1,17 @@
 # memorycastle
 
-Shared memory for coding agents. One binary, one SQLite file, no LLM, no server.
+Shared memory for coding agents. One 6 MB Rust binary, one SQLite file, no LLM, no key, no server.
+
+**Lighter, faster, and it knows when to say nothing.** Measured against
+cognee 1.6.5, including its paid OpenAI configuration, on three real
+journals: memorycastle wins 12 of 13 rows without a key. Keyword answers
+in 2.5 ms from a 9 MB process; ten notes indexed in 21 s and 535 MB where
+cognee needs 193 s and 8.8 GB; a note edited and re-indexed in 0.19 s
+against 13 s; four Codex tasks on 38% fewer tokens; and the only one that
+answers "no relevant note" when there is none. The one row it loses is a
+single rank swap on a 10-note journal against a paid embedding model.
+Full tables, with the setup and the caveats, in
+[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 Claude Code, Codex, Gemini CLI, Antigravity, Cursor, GitHub Copilot and
 OpenCode forget everything between sessions. memorycastle gives them one memory per repository: what was
