@@ -137,8 +137,8 @@ fn tool_list() -> Value {
             "inputSchema": {"type": "object", "properties": {
                 "query": {"type": "string"},
                 "k": {"type": "integer", "default": 5},
-                "brief": {"type": "boolean", "default": false, "description": "Only the first line per hit (confidence, note:line, section, date) and the read table, about 25 tokens per hit; use it to pick a note before asking for sections"},
-                "sections": {"type": "boolean", "default": false, "description": "Print each note's Decision, Rejected and Measured sections (bounded, about 2 KB per note) instead of a 3-line snippet; ask for it when the snippet is not enough"},
+                "brief": {"type": "boolean", "default": true, "description": "The default: one line per hit (confidence, note:line, section) plus the note's Decision sentence, then the read table, about 50 tokens per hit; pick a note, then ask for its sections. false gives a 3-line block per hit with a text snippet"},
+                "sections": {"type": "boolean", "default": false, "description": "Print each note's Decision, Rejected and Measured sections (bounded, about 2 KB per note); ask for it on the note you picked, before a design choice"},
                 "related": {"type": "boolean", "description": "Include sibling projects in the same group"},
                 "project": {"type": "string", "description": "Project name glob, when not in a git checkout"},
                 "all": {"type": "boolean"},
@@ -194,7 +194,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 all: args.get("all").and_then(Value::as_bool).unwrap_or(false),
             };
             let sections = args.get("sections").and_then(Value::as_bool).unwrap_or(false);
-            let brief = args.get("brief").and_then(Value::as_bool).unwrap_or(false) && !sections;
+            let brief = args.get("brief").and_then(Value::as_bool).unwrap_or(true) && !sections;
             let (hits, explain) = ctx.search(query, &flags, &SearchOptions { k, mode })?;
             let read = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {

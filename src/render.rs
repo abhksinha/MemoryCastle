@@ -13,7 +13,8 @@ use std::path::Path;
 pub struct Options<'a> {
     pub query: &'a str,
     pub sections: bool,
-    /// Only the first line of each hit and the read table.
+    /// The hit line and the note's Decision sentence per hit, then the read
+    /// table: the default, about 50 tokens per hit.
     pub brief: bool,
     pub explain: bool,
     /// Print absolute paths for spans.
@@ -42,7 +43,8 @@ pub struct Rendered {
 /// (`files`, `text`, `decision`, `rejected`, `measured`, `open`, `code`,
 /// `trace`); a blank line ends the block. The `read first` table follows,
 /// rows lettered `a.` so they never look like hits, or `read first: none`.
-/// `brief` stops after line 1 of each hit and prints no blank lines.
+/// `brief` (the default) prints line 1 and a `decision` field holding the
+/// note's first Decision sentence, no blank lines: enough to pick a note.
 pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) -> Result<Rendered> {
     let mut seen_notes: HashSet<i64> = HashSet::new();
     let mut notes = Vec::new();
@@ -77,6 +79,9 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         let when = if h.dated.is_some() { String::new() } else { format!("  {date}") };
         block.push_str(&format!("{n}. {}:{}   {:.2}   {section}{when}{proj}{sup}\n", h.path, h.line + off, h.trace.confidence));
         if o.brief {
+            if let Some(d) = crate::store::decision_sentence(conn, h.note_id)? {
+                block.push_str(&field("decision", &d));
+            }
             notes.push(h.note_id);
             out.push_str(&block);
             continue;
@@ -187,7 +192,7 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         }
     }
     if read_spans.is_empty() {
-        if !out.is_empty() && !o.brief {
+        if !out.is_empty() {
             out.push_str("read first: none\n");
         }
     } else {

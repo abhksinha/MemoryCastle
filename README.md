@@ -132,8 +132,9 @@ reranks by the graph, and drops anything off topic rather than returning
 the nearest unrelated page. The answer is shaped for the agent's budget:
 
 ```
-$ memcastle search "did we try batching embeddings" --brief
+$ memcastle search "did we try batching embeddings"
 1. memorycastle/journal/2026-10-18-one-chunk-per-call.md:13   0.77   Rejected
+   decision   Embed one chunk per model call, longest first; batching bought no throughput on the CPU.
 read first (2 spans, 1.1 KB; sed -n 'a,bp' path):
    a. src/store.rs:161-232   embed_missing   1.00  named in question
    b. src/limits.rs:130-132  EMBED_BATCH     0.90  named by note #1
@@ -146,8 +147,10 @@ continuations indented to the value column, a blank line ends the hit, and
 the read table rows are lettered so they never look like hits. `--json`
 gives the same answer with every field typed, including the ranking trace.
 
-One line per hit: confidence, note, line, section. `--sections` prints the
-note's Decision, Rejected and Measured. Every answer ends with the code
+The default is one line per hit (confidence, note, line, section) and the
+note's first Decision sentence, about 50 tokens: enough to pick a note.
+`--sections` prints that note's Decision, Rejected and Measured; `--full`
+the older title-and-snippet block. Every answer ends with the code
 spans to read, re-found by their anchor line after edits, so the agent
 reads 60 lines instead of a 110 KB file.
 
@@ -195,7 +198,7 @@ figure to quote; the observed one is a bound you can inspect read by read.
 ## Commands you will actually type
 
 ```sh
-memcastle search "<question>" [--brief | --sections] [--related]
+memcastle search "<question>" [--sections | --full] [--related]
 memcastle links <file | symbol | note>   # notes about it, and where the code is now
 memcastle status                          # counts, savings, notes about files that no longer exist
 memcastle quality --flagged               # notes the store can see are weak

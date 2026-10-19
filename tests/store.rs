@@ -441,6 +441,25 @@ fn owed_follows_edits_after_the_last_note() {
 }
 
 #[test]
+fn brief_prints_the_hit_line_and_the_decision_sentence() {
+    use memorycastle::render;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "b", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-brief.md", "# Pick the brief default\nAuthor: abhi+claude | Date: 2026-10-19\nFiles: `src/render.rs`\n\n## Context\nAgents skim titles.\n\n## Decision\nBrief is the default output. The sections come on request.\n");
+    let scope = Scope::single(p.id);
+    let (hits, _) = search(&conn, &scope, "brief default", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    assert!(!hits.is_empty());
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "brief default", sections: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    let lines: Vec<&str> = r.text.lines().collect();
+    assert!(lines[0].starts_with("1. memorycastle/journal/2026-10-19-brief.md:"), "{}", r.text);
+    assert!(lines[1].starts_with("   decision") && lines[1].contains("Brief is the default output."), "{}", r.text);
+    assert!(!lines[1].contains("The sections come"), "one sentence only: {}", r.text);
+    assert!(!r.text.contains("Pick the brief default"), "no title line in brief: {}", r.text);
+    assert!(r.text.ends_with("read first: none\n"), "{}", r.text);
+    assert_eq!(r.mode, "brief");
+}
+
+#[test]
 fn render_follows_the_fixed_grammar() {
     use memorycastle::render::{self, VALUE_COL};
     let mut conn = db::open_memory().unwrap();

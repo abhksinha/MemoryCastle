@@ -76,9 +76,12 @@ enum Cmd {
         /// After each hit, print the note's Decision, Rejected and Measured sections (once per note, bounded).
         #[arg(long)]
         sections: bool,
-        /// Only the first line per hit (confidence, note:line, section, date) and the read table; about 25 tokens per hit.
-        #[arg(long, conflicts_with = "sections")]
+        /// The default: one line per hit (confidence, note:line, section) plus the note's Decision sentence, then the read table; about 50 tokens per hit.
+        #[arg(long, hide = true, conflicts_with = "sections")]
         brief: bool,
+        /// The 3-line block per hit (title, files, a text snippet) instead of the brief line.
+        #[arg(long, conflicts_with = "sections")]
+        full: bool,
         /// Print `read:` spans with absolute paths (default: repo-relative, absolute when run outside the repo root).
         #[arg(long)]
         abs: bool,
@@ -363,8 +366,10 @@ fn run(cli: Cli) -> Result<()> {
                 println!("added {added}, updated {updated}, unchanged {unchanged}, embedded {embedded} chunks");
             }
         }
-        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, brief, abs } => {
+        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, brief, full, abs } => {
             let mode = if meaning { Mode::Meaning } else if keyword { Mode::Keyword } else { Mode::Auto };
+            // Brief is the default; sections, the full block and explain (which needs the trace field) opt out.
+            let brief = brief || !(sections || full || explain);
             let (hits, ex) = ctx.search(&query, &scope.flags(), &SearchOptions { k, mode })?;
             let read_spans = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {

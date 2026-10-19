@@ -10,7 +10,7 @@ Run `memcastle init` to see the full rules; the short form:
 - Before a design choice, a fix that may have been tried, or resuming work:
   `memcastle search "<question>" --sections`. Read the printed Decision,
   Rejected and Measured sections and the `code:` ranges; do not open the files.
-- `search --brief` (or the MCP `brief` flag) prints one line per hit, about 15 tokens, to choose a note; then `--sections` on that one.
+- A plain `search` (and the MCP tool by default) prints one line per hit plus the note's Decision sentence, about 50 tokens, to choose a note; then `--sections` on that one.
 - Every search ends with a ranked `read first` table (`a. path:start-end  name  score  why`), or `read first: none`. Read those
   ranges with `sed -n 'a,bp' path` first; they are the lines the question
   needs, cheapest first on ties.
