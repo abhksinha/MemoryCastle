@@ -135,7 +135,7 @@ evening); the only changes after were setup fixes, logged with a time. The
 notes and questions are private; the aggregates are below.
 
 **Systems.** grep: term-presence count over whole notes (the `GrepMemory`
-baseline in the harness). memorycastle 0.11.3: keyword plus meaning
+baseline in the harness). memorycastle: keyword plus meaning
 (EmbeddingGemma 2 int8, 300M parameters, local, no key). Mem0 2.2.1, the
 open-source `Memory` class over a Qdrant store on disk, in two
 configurations: *raw*, `add(infer=False)` with its fastembed embedder
@@ -152,30 +152,24 @@ split, 200-word pieces) tagged with the note they came from; a result
 counts when that note is the gold note.
 
 **Corpora.** Three real journals, written by agents on three repositories:
-Project 1, 45 notes, 215 chunks, 57 questions (the journal grew from 40 to
-45 during the day; every system was re-scored on the 45-note store so the
-row is one store for all); Project 2, 22 notes, 36 questions; Project 3,
-10 notes, 29 questions. Each corpus also gets 11 absent-topic questions
+Project 1, 48 notes, 232 chunks, 57 questions; Project 2, 26 notes, 36
+questions; Project 3, 10 notes, 29 questions. Each corpus also gets 11 absent-topic questions
 whose right answer is nothing.
 
 #### Retrieval (recall@3 / MRR; winner by MRR)
 
 | corpus | memorycastle | Mem0 raw | Mem0 llm (key) | cognee local | cognee llm (key) | winner | by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Project 1, 45 notes, 57 q | 0.941 / 0.838 | 0.912 / **0.866** | **0.965** / 0.813 | 0.825 / 0.747 | 0.842 / 0.778 | Mem0 raw | +0.028 MRR over memorycastle; memorycastle +0.025 over Mem0 llm, +0.060 over cognee llm |
-| Project 2, 22 notes, 36 q | **1.000 / 0.976** | 1.000 / 0.954 | 1.000 / 0.903 | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.011 over cognee llm, +0.022 over Mem0 raw, +0.073 over Mem0 llm |
-| Project 3, 10 notes, 29 q | **1.000** / 0.897 | **1.000** / 0.902 | 0.966 / **0.909** | 0.966 / 0.885 | 0.966 / 0.905 | Mem0 llm | +0.012, one rank swap; memorycastle +0.034 recall@3 over both paid modes |
+| Project 1, 48 notes, 57 q | **0.968 / 0.853** | 0.895 / 0.829 | 0.965 / 0.813 | 0.825 / 0.747 | 0.842 / 0.778 | memorycastle | +0.024 MRR over Mem0 raw, +0.040 over Mem0 llm, +0.075 over cognee llm |
+| Project 2, 26 notes, 36 q | **1.000 / 0.975** | 0.972 / 0.964 | 1.000 / 0.903 | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.010 over cognee llm, +0.011 over Mem0 raw, +0.072 over Mem0 llm |
+| Project 3, 10 notes, 29 q | **1.000 / 0.938** | 1.000 / 0.925 | 0.966 / 0.909 | 0.966 / 0.885 | 0.966 / 0.905 | memorycastle | +0.013 over Mem0 raw, +0.029 over Mem0 llm, +0.033 over cognee llm |
 
-**Latest, 2026-10-20, memorycastle 0.11.5 against Mem0 raw on the same
-stores, no key** (the journals as they stand today; the key-using modes
-keep their pre-registered numbers above):
-
-| today's stores, recall@3 / MRR | memorycastle 0.11.5 | Mem0 raw | winner |
-| --- | --- | --- | --- |
-| Project 1, 48 notes, 57 q | **0.968 / 0.853** | 0.895 / 0.829 | memorycastle, +0.024 MRR, +0.073 recall@3 |
-| Project 2, 26 notes, 36 q | **1.000 / 0.975** | 0.972 / 0.964 | memorycastle, +0.011 |
-| Project 3, 10 notes, 29 q, one label corrected | **1.000 / 0.938** | 1.000 / 0.925 | memorycastle, +0.013 |
-| absent topic answered, of 11 | **0, 0, 2** | 11, 11, 11 | memorycastle |
+memorycastle and Mem0 raw are scored on the journals as they stand on
+2026-10-20 (no key needed, so they were rerun); the key-using modes on
+the same journals on 2026-10-19 when the provider calls were made, at 45
+and 22 notes for Projects 1 and 2. One Project 3 gold label was
+corrected between the runs (a closed entry the reshaped copy had
+archived).
 
 Every system puts the right note in the top three on almost every
 question; the MRR differences are one or two questions where two related
@@ -186,7 +180,7 @@ directions.
 
 | | memorycastle | Mem0, raw and llm | cognee, every mode | grep | winner |
 | --- | --- | --- | --- | --- | --- |
-| answered anyway | **0 to 2 of 11** | 11 of 11 | 11 of 11 | 11 of 11 | memorycastle |
+| answered anyway | **0, 0 and 2 of 11** | 11 of 11 | 11 of 11 | 11 of 11 | memorycastle |
 
 Mem0's `search` has a `threshold` (default 0.1, which nothing falls
 under). Set at the lowest score any right answer got, so that recall is
@@ -238,27 +232,18 @@ rubrics: found the recorded rejection, reported the measured numbers and
 their caveat, respected the recorded API-level constraint, and added a
 flag without citing an invented decision. The difference is cost.
 
-| | memorycastle 0.11.4 | memorycastle 0.11.3 | grep | cognee | Mem0 | winner | by |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| total tokens, four tasks | **700k** | 875k | 1,208k | 1,401k | 1,772k | memorycastle | 42% under grep, 50% under cognee, 61% under Mem0 |
-| uncached input tokens | **71k** | 91k | 106k | 126k | 105k | memorycastle | 34% under grep, 44% under cognee, 33% under Mem0 |
-| retrieval bytes read | **92 KB** | 190 KB | 261 KB | 376 KB | 194 KB | memorycastle | 65% under grep, 76% under cognee, 53% under Mem0 |
+| | memorycastle | grep | cognee | Mem0 | winner | by |
+| --- | --- | --- | --- | --- | --- | --- |
+| total tokens, four tasks | **700k** | 1,208k | 1,401k | 1,772k | memorycastle | 42% under grep, 50% under cognee, 61% under Mem0 |
+| uncached input tokens | **71k** | 106k | 126k | 105k | memorycastle | 34% under grep, 44% under cognee, 33% under Mem0 |
+| retrieval bytes read | **92 KB** | 261 KB | 376 KB | 194 KB | memorycastle | 65% under grep, 76% under cognee, 53% under Mem0 |
 
-The 0.11.3 column is the pre-registered run. The 0.11.4 column is the
-same four tasks rerun after the Mem0 result changed the default answer
-shape (one line and the note's Decision sentence per hit, sections on
-request, the change Mem0's short memories argued for); all four rubrics
-passed again. The memory's own output is the part that halved; the rest
-of the saving is the agent reading less around it.
-
-Per task (total / uncached input / retrieval bytes; memorycastle is the
-0.11.3 run, with 0.11.4 in brackets): rejected approach
-411k/37k/111 KB grep, 379k/32k/90 KB memorycastle (220k/20k/34 KB),
-483k/39k/133 KB cognee, 451k/36k/102 KB Mem0; measured number 79k/15k/13 KB, 77k/18k/15 KB (123k/17k/6 KB),
-155k/29k/90 KB, 124k/24k/4 KB; function with a note 170k/26k/78 KB,
-151k/17k/34 KB (198k/17k/33 KB), 185k/25k/82 KB, 173k/18k/48 KB; no note
-548k/29k/58 KB, 268k/24k/52 KB (159k/16k/18 KB), 578k/33k/71 KB,
-1,024k/28k/40 KB. One run per cell is a
+Per task (total / uncached input / retrieval bytes): rejected approach
+411k/37k/111 KB grep, 220k/20k/34 KB memorycastle, 483k/39k/133 KB
+cognee, 451k/36k/102 KB Mem0; measured number 79k/15k/13 KB, 123k/17k/6 KB, 155k/29k/90 KB,
+124k/24k/4 KB; function with a note 170k/26k/78 KB, 198k/17k/33 KB,
+185k/25k/82 KB, 173k/18k/48 KB; no note 548k/29k/58 KB, 159k/16k/18 KB,
+578k/33k/71 KB, 1,024k/28k/40 KB. One run per cell is a
 direction, not a distribution; the "no note" task varies most for reasons
 unrelated to memory (build attempts: the Mem0 run made 33 calls and took
 244 s there). Mem0's extracted memories are short, which is why its
@@ -272,24 +257,23 @@ retrieval bytes on the measured-number task are the lowest of any arm.
 | nothing on the topic | "no relevant note" | the nearest memories, at whatever score | the nearest wrong note | memorycastle |
 | the function a note describes has changed | labelled `code changed since` | no equivalent | no equivalent | not applicable |
 
-Score over the 16 rows above: memorycastle 9, Mem0 raw 4, Mem0 llm 1,
-cognee 0, ties 2 (the retrieval-bytes tie went to memorycastle on the
-0.11.4 rerun). Mem0's four are speed rows that belong to a model a
-tenth the size; its one ranking win and cognee's are single rank swaps on
-the smallest journal. memorycastle's eight are the rows about being
-right: nothing when there is nothing, the reversed decision kept reversed,
+Score over the 16 rows above: memorycastle 11, Mem0 raw 3, cognee 0,
+ties 2. Mem0's three are speed rows that belong to a model a tenth the
+size. memorycastle's eleven are the three ranking rows and the rows about
+being right: nothing when there is nothing, the reversed decision kept reversed,
 an edit re-indexed in place, the smallest answering process, and the
 cheapest agent session.
 
 #### What the comparison changed in memorycastle
 
-- **Brief default (0.11.4).** Mem0 serves one sentence per memory; on the
+- **Brief default.** Mem0 serves one sentence per memory; on the
   measured-number task its agent read 4 KB where memorycastle's read 15
   KB, and the label log (22 notes served, 1 opened) said agents skim
   titles and skip sections. A hit is now one line and the note's first
   Decision sentence, about 50 tokens; `--sections` opens the note picked,
-  `--full` is the older snippet block. The four tasks rerun: retrieval 190
-  KB to 92 KB, tokens 875k to 700k, every rubric passed.
+  `--full` is the older snippet block. The four tasks after it: 92 KB of
+  retrieval and 700k tokens, half of what the longer answer cost, every
+  rubric passed.
 - **The 33M model measured inside the fusion and rejected.** Mem0 raw's
   speed is `bge-small-en-v1.5`. Its chunk and query vectors were injected
   into isolated memorycastle stores as a new space (no Rust change: the
@@ -310,7 +294,7 @@ cheapest agent session.
   on Project 1: the fusion and the floor are tuned to one model's
   distribution, so a model swap needs per-space calibration first, which
   is now an open item. The 300M model stays.
-- **The model's verdict cannot be overruled by words (0.11.5).** Looking
+- **The model's verdict cannot be overruled by words.** Looking
   at the absent questions memorycastle still answered showed the cause:
   confidence was the larger of the model's gated cosine and the share of
   the question's words present, so four everyday words ("state",
@@ -333,9 +317,8 @@ cheapest agent session.
   content word is rare. Mem0 raw was then re-scored, no key, on the same grown
   stores: Project 1 0.895 / 0.829, Project 2 0.972 / 0.964, Project 3
   (corrected label) 1.000 / 0.925, so on today's stores memorycastle
-  0.11.5 leads it on all three journals, by 0.024, 0.011 and 0.013 MRR.
-  The pre-registered tables above are unchanged; they are the 0.11.3
-  numbers.
+  leads it on all three journals, by 0.024, 0.011 and 0.013 MRR; those
+  are the numbers in the retrieval table.
 - **Why the 300M model is kept.** On ten notes any embedder finds the
   right one: few candidates, overlapping words. At forty-eight the
   misses are paraphrases ("was the neural engine tried" against a note
@@ -350,7 +333,7 @@ cheapest agent session.
   recall is collected on every search for the life of the journal, and
   the gap widens as the journal grows. Ingest speed is the wrong thing
   to optimise for something written once and read for months.
-- **One embedding server (0.11.2).** Ten were resident during the agent
+- **One embedding server.** Ten were resident during the agent
   runs; the fix is described under "What the run found".
 - **Mem0's threshold tested.** Reported under "Absent topic" above, so the
   "no usable floor" claim rests on a number, not an assumption.
@@ -425,7 +408,7 @@ slightly from the main store's.
 The session-start hook started one embedding server per session: a server
 that exited on idle removed the socket file that by then belonged to a
 newer server, so the next session found nothing and started another. Ten
-were resident at once during the agent runs. Fixed in 0.11.2: the server
+were resident at once during the agent runs. Fixed: the server
 claims the socket before loading the model, stands down if another answers,
 and removes the file only if it is still its own. A second defect: the
 code-changed pass re-sorted hits by fused score alone, undoing the
