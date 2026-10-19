@@ -4,3 +4,6 @@ target/
 *.db-shm
 .DS_Store
 .enola/
+
+# This repo keeps its own journal local (notes stay in the store; memcastle export rewrites them)
+memorycastle/
