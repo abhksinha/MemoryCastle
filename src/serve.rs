@@ -56,14 +56,41 @@ pub fn spawn_detached() -> Result<bool> {
     Ok(true)
 }
 
-/// Runs until `idle` passes with no request. The model is loaded once, up front.
-pub fn run(mut embedder: Box<dyn Embedder>, idle: Duration) -> Result<()> {
+/// Claims the socket for this process, before the model is loaded so a
+/// second server costs nothing. `None` means another server answers on it
+/// and this one should exit. A socket file nobody answers on is stale and
+/// replaced. Binding before removing is what keeps two servers started in
+/// the same second from each stealing the path from the other.
+pub fn claim() -> Result<Option<UnixListener>> {
     let path = socket_path();
-    let _ = std::fs::remove_file(&path);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let listener = UnixListener::bind(&path)?;
+    match UnixListener::bind(&path) {
+        Ok(l) => Ok(Some(l)),
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            if UnixStream::connect(&path).is_ok() {
+                return Ok(None);
+            }
+            let _ = std::fs::remove_file(&path);
+            Ok(Some(UnixListener::bind(&path)?))
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
+fn inode(path: &std::path::Path) -> Option<u64> {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::metadata(path).ok().map(|m| m.ino())
+}
+
+/// Runs until `idle` passes with no request. The model is loaded once, up front.
+/// On exit the socket file is removed only if it is still this server's: a
+/// newer server may have replaced it, and unlinking that one would leave the
+/// next session unable to find it and starting yet another server.
+pub fn run(listener: UnixListener, mut embedder: Box<dyn Embedder>, idle: Duration) -> Result<()> {
+    let path = socket_path();
+    let own = inode(&path);
     let (tx, rx) = mpsc::channel::<UnixStream>();
     std::thread::spawn(move || {
         for s in listener.incoming().flatten() {
@@ -103,7 +130,9 @@ pub fn run(mut embedder: Box<dyn Embedder>, idle: Duration) -> Result<()> {
         let mut stream = reader.into_inner();
         let _ = stream.write_all(&out);
     }
-    let _ = std::fs::remove_file(&path);
+    if own.is_some() && inode(&path) == own {
+        let _ = std::fs::remove_file(&path);
+    }
     Ok(())
 }
 

@@ -528,3 +528,23 @@ fn recall_asks_nothing_of_a_short_prompt() {
     assert!(content_words("run the tests again").len() < RECALL_MIN_WORDS, "{:?}", content_words("run the tests again"));
     assert!(content_words("make embedding faster by batching chunks").len() >= RECALL_MIN_WORDS);
 }
+
+#[test]
+fn one_embedding_server_owns_the_socket() {
+    // The socket is named by the data dir, so point this test at its own.
+    let dir = std::env::temp_dir().join(format!("mc-serve-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::env::set_var("MEMORYCASTLE_HOME", &dir);
+    let path = memorycastle::serve::socket_path();
+    let _ = std::fs::remove_file(&path);
+    let first = memorycastle::serve::claim().unwrap().expect("first server claims the socket");
+    assert!(memorycastle::serve::claim().unwrap().is_none(), "a second server must stand down while the first answers");
+    drop(first);
+    // The file is still there but nobody answers: stale, replaced.
+    assert!(path.exists());
+    let third = memorycastle::serve::claim().unwrap();
+    assert!(third.is_some(), "a stale socket file is replaced");
+    drop(third);
+    let _ = std::fs::remove_file(&path);
+    std::env::remove_var("MEMORYCASTLE_HOME");
+}

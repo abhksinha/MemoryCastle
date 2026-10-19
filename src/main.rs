@@ -901,9 +901,15 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             let idle = parse_duration(&idle)?;
+            let Some(listener) = serve::claim()? else {
+                if !cli.quiet {
+                    eprintln!("memorycastle: an embedding server already answers on {}", serve::socket_path().display());
+                }
+                return Ok(());
+            };
             let e = embed::open_default(cli.quiet)?;
             eprintln!("memorycastle: serving embeddings on {} (idle {}s)", serve::socket_path().display(), idle.as_secs());
-            serve::run(e, idle)?;
+            serve::run(listener, e, idle)?;
         }
         Cmd::Eval { gold, baseline, meaning, keyword, gate } => {
             let gold_path = gold.unwrap_or_else(|| memorycastle::sys::data_dir().join("gold.json"));
