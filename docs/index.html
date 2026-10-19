@@ -361,15 +361,28 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
   <section id="why" class="alt"><div class="wrap">
     <span class="eyebrow">Design</span>
     <h2>Why smaller is also better, for this job.</h2>
-    <div class="grid reveal">
-      <div class="card"><h3>Written by the one who did the work</h3><p>The note is written by the agent that made the change, in that session, with the rejected approach and the measured number still in hand. An extractor reading the transcript later reconstructs what the author already knew, and guesses where the transcript is silent. The why was never in the code; only the one who decided can write it.</p></div>
-      <div class="card"><h3>Nothing is invented</h3><p>A model-proposed graph can hold an edge nobody wrote. memorycastle's edges are the file names and symbols a note names in backticks. A wrong edge is a typo in a note, and <code>git blame</code> finds who wrote it.</p></div>
-      <div class="card"><h3>Ingest costs no tokens</h3><p>Saving a note is a hash check, a heading split, FTS5, and one local embedding per chunk at 0.28 s on a laptop CPU. A 90-chunk journal indexes in 21 s with no API bill.</p></div>
-      <div class="card"><h3>The answer is a place in the code</h3><p>A coding agent does not want a subgraph; it wants which paragraph to trust and which 40 lines to read. Every answer ends with ranked <code>path:start-end</code> spans, re-anchored when the file has changed since indexing.</p></div>
-      <div class="card"><h3>Reproducible from git alone</h3><p>Delete the SQLite file and <code>install</code> rebuilds it from the notes in the repo, identically. No store to back up, no server to keep in sync, no cloud account. Teammates share memory by pulling.</p></div>
-      <div class="card"><h3>It knows when it does not know</h3><p>Confidence is calibrated on a gold set; below the floor the answer is "no relevant note" rather than the nearest wrong one. A note about the same file but a different topic is dropped by a near-miss gate, so an agent is never steered by a plausible neighbour.</p></div>
+    <p class="sub">Each line is what the larger designs do, what memorycastle does instead, and what that is worth.</p>
+    <div class="changes reveal">
+      <div class="change"><div class="k">They</div><div>Read the transcript later and extract what happened, guessing where it is silent.</div>
+        <div class="k">We</div><div>The agent that made the change writes the note in that session, with the rejected approach and the measured number still in hand.</div>
+        <div class="k">Worth</div><div>The why was never in the code; only the one who decided can write it, and it costs one note instead of a model pass forever.</div></div>
+      <div class="change"><div class="k">They</div><div>A model proposes the graph: entities and relations, including edges nobody wrote.</div>
+        <div class="k">We</div><div>Edges are the file names and symbols a note names in backticks, plus a line scan of the checkout.</div>
+        <div class="k">Worth</div><div>Nothing is invented. A wrong edge is a typo in a note, and <code>git blame</code> finds who wrote it.</div></div>
+      <div class="change"><div class="k">They</div><div>Ingest is one or more LLM calls per chunk: a million tokens for ten notes, minutes per journal.</div>
+        <div class="k">We</div><div>Saving a note is a hash check, a heading split, FTS5, and one local embedding per chunk at 0.2 s.</div>
+        <div class="k">Worth</div><div>Ten notes in 21 s, an edited note in 0.19 s, no key, no bill, so it runs in a hook on every save.</div></div>
+      <div class="change"><div class="k">They</div><div>Answer with a subgraph, a list of memories, or generated prose.</div>
+        <div class="k">We</div><div>Which paragraph to trust and which 40 lines to read: ranked <code>path:start-end</code> spans, re-anchored when the file has changed.</div>
+        <div class="k">Worth</div><div>92 KB of retrieval across four agent tasks against 194 KB and 376 KB, for the same four correct answers.</div></div>
+      <div class="change"><div class="k">They</div><div>A store to back up, a server to keep in sync, or a cloud account, and a team sharing by access.</div>
+        <div class="k">We</div><div>Delete the SQLite file and <code>install</code> rebuilds it from the notes in the repo, identically.</div>
+        <div class="k">Worth</div><div>Reproducible from git alone; teammates share memory by pulling.</div></div>
+      <div class="change"><div class="k">They</div><div>Return the nearest chunk to any question, scored, with no usable floor: 11 of 11 absent questions answered.</div>
+        <div class="k">We</div><div>Confidence calibrated on a gold set, a near-miss gate on the question's rare words, and the model's verdict that words cannot overrule.</div>
+        <div class="k">Worth</div><div>"No relevant note" is a real answer: 0, 0 and 2 of 11. An agent is never steered by a plausible neighbour.</div></div>
     </div>
-    <p class="muted" style="margin-top:22px">None of this makes memorycastle a replacement for cognee. It makes it the right size for one job: a repository, its agents, and the decisions they should not have to make twice. The resource gap is not an optimisation of the same design; it falls out of not extracting, not inferring and not serving.</p>
+    <p class="muted" style="margin-top:22px">None of this makes memorycastle a replacement for Mem0 or cognee. It makes it the right size for one job: a repository, its agents, and the decisions they should not have to make twice. The resource gap is not an optimisation of the same design; it falls out of not extracting, not inferring and not serving.</p>
   </div></section>
 
   <section id="scope"><div class="wrap">
