@@ -23,7 +23,7 @@ if [ -n "$TARGET" ] && [ -n "$TAG" ]; then
     [ -x "$BIN_DIR/memcastle" ] || ln -sf "$BIN_DIR/memorycastle" "$BIN_DIR/memcastle"
     echo "installed memorycastle $TAG to $BIN_DIR"
     case ":$PATH:" in *":$BIN_DIR:"*) ;; *) echo "add $BIN_DIR to PATH";; esac
-    echo "next: cd your-repo && memcastle install"
+    echo "next: memcastle install   (wires every agent on this machine; run it inside a repo to add the section for teammates)"
     exit 0
   fi
 fi
@@ -31,4 +31,4 @@ echo "no binary for $(uname -s)-$(uname -m); building from source (needs cargo, 
 command -v cargo >/dev/null 2>&1 || { echo "install Rust first: https://rustup.rs" >&2; exit 1; }
 git clone -q --depth 1 "https://github.com/$REPO" "$TMP/src"
 cargo install --path "$TMP/src" --locked
-echo "next: cd your-repo && memcastle install"
+echo "next: memcastle install   (wires every agent on this machine; run it inside a repo to add the section for teammates)"

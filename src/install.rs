@@ -49,6 +49,18 @@ impl Agent {
         }
     }
 
+    /// The user-level instruction file this agent reads in every repo, so
+    /// the memory rules apply everywhere once, with no per-repo step.
+    /// Antigravity has none that is documented; it reads the repo file.
+    pub fn user_instruction_file(self, home: &Path) -> Option<PathBuf> {
+        Some(match self {
+            Agent::Claude => home.join(".claude/CLAUDE.md"),
+            Agent::Codex => home.join(".codex/AGENTS.md"),
+            Agent::Gemini => home.join(".gemini/GEMINI.md"),
+            Agent::Antigravity => return None,
+        })
+    }
+
     /// Whether the agent is on this machine: its config dir or binary.
     pub fn detected(self) -> bool {
         let home = home();
@@ -133,23 +145,31 @@ fn write_if(path: &Path, text: &str, dry: bool) -> Result<()> {
     std::fs::write(path, text).map_err(|e| err!("{}: {e}", path.display()))
 }
 
-/// The repo-level part for one agent: its instruction file.
-pub fn install_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
-    let path = root.join(agent.instruction_file());
-    let text = std::fs::read_to_string(&path).unwrap_or_default();
+/// The memory section upserted into one instruction file, repo or user level.
+fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
     match upsert_snippet(&text) {
         Some(new) => {
-            write_if(&path, &new, o.dry_run)?;
-            Ok(Step { what: format!("{}: memory section {}", agent.instruction_file(), if text.is_empty() { "created" } else if text.contains("## Memory (memorycastle)") { "refreshed" } else { "added" }), done: true })
+            write_if(path, &new, o.dry_run)?;
+            Ok(Step { what: format!("{label}: memory section {}", if text.is_empty() { "created" } else if text.contains("## Memory (memorycastle)") { "refreshed" } else { "added" }), done: true })
         }
-        None => Ok(Step { what: format!("{}: memory section current", agent.instruction_file()), done: false }),
+        None => Ok(Step { what: format!("{label}: memory section current"), done: false }),
     }
+}
+
+/// The repo-level part for one agent: its instruction file.
+pub fn install_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
+    install_snippet(&root.join(agent.instruction_file()), agent.instruction_file(), o)
 }
 
 /// Machine-level config for one agent.
 pub fn install_global(agent: Agent, o: &Options) -> Result<Vec<Step>> {
     let home = home();
     let mut steps = Vec::new();
+    if let Some(path) = agent.user_instruction_file(&home) {
+        let label = format!("~/{}", path.strip_prefix(&home).unwrap_or(&path).display());
+        steps.push(install_snippet(&path, &label, o)?);
+    }
     match agent {
         Agent::Claude => {
             steps.push(claude_plugin(o)?);

@@ -13,15 +13,19 @@ journal or repeating the experiment.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
-cd your-repo && memcastle install
+memcastle install
 ```
 
-That is all. `install` finds the agents on your machine and wires each one:
-the tool server in its config, the Claude Code plugin and status line, and
-the memory rules in the file it reads (`CLAUDE.md`, `AGENTS.md`,
-`GEMINI.md`). In the repo it builds the code index, imports your past
-transcripts into the savings ledger and starts the embedding server. Run it
-again any time; it changes only what is missing. Restart the agents.
+That is all, from any directory. `install` finds the agents on your
+machine and wires each one: the tool server in its config, the Claude Code
+plugin and status line, and the memory rules in the user-level file every
+agent reads in every repo (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
+`~/.gemini/GEMINI.md`). From then on memory works in whatever repo you
+open. Run it inside a repo to add the same section to that repo's own
+`CLAUDE.md`/`AGENTS.md`/`GEMINI.md` for teammates, build its code index,
+import your past transcripts into the savings ledger and start the
+embedding server. Run it again any time; it changes only what is missing.
+Restart the agents.
 
 ### Prerequisites
 

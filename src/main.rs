@@ -464,7 +464,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             let Some(repo) = ctx.repo.as_ref().map(|r| r.root.clone()) else {
-                println!("not in a git checkout: machine-level config only; run again inside a repo for its files");
+                println!("done: every agent now follows the memory rules in every repo (user-level instruction files). Inside a repo, `memcastle install` also adds the section to its CLAUDE.md/AGENTS.md for teammates and indexes its notes.");
                 return Ok(());
             };
             let p = ctx.require_project()?.clone();
