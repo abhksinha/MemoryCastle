@@ -464,11 +464,14 @@ pub fn status(conn: &mut Connection, project: Option<&Project>, repo_root: Optio
         if let Some(root) = repo_root {
             st.dangling_files = crate::graph::dangling_files(conn, p.id, root)?;
             st.stale_instructions = stale_instructions(root);
+            // A note counts as changed on disk when it is newer than its save
+            // and its bytes differ: a checkout or a touch moves the mtime of an
+            // identical file, and reading the few that moved is cheap.
             let mut stmt = conn.prepare(
-                "SELECT path, saved_at FROM notes WHERE project_id = ?1 AND deleted_at IS NULL",
+                "SELECT path, saved_at, content_hash FROM notes WHERE project_id = ?1 AND deleted_at IS NULL",
             )?;
-            for row in stmt.query_map([p.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
-                let (path, saved_at) = row?;
+            for row in stmt.query_map([p.id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?, r.get::<_, Vec<u8>>(2)?)))? {
+                let (path, saved_at, hash) = row?;
                 if let Ok(md) = std::fs::metadata(root.join(&path)) {
                     let mtime = md
                         .modified()
@@ -477,7 +480,10 @@ pub fn status(conn: &mut Connection, project: Option<&Project>, repo_root: Optio
                         .map(|d| d.as_secs() as i64)
                         .unwrap_or(0);
                     if mtime > saved_at {
-                        st.notes_newer_on_disk.push(path);
+                        let same = std::fs::read(root.join(&path)).map(|b| Sha256::digest(&b).to_vec() == hash).unwrap_or(false);
+                        if !same {
+                            st.notes_newer_on_disk.push(path);
+                        }
                     }
                 }
             }

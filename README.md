@@ -98,7 +98,9 @@ int8 recall@3 1.000, p50 124 ms. q4 0.958, 58 ms.
 The rules in `CLAUDE.md` say when to write one, and the hooks ask at the
 three moments a note is due: before the context is compacted (the why is
 about to be summarised away), after a `git commit` (a task just closed),
-and when the agent stops. If code was edited since the last note, a draft
+and when the agent stops. Before compaction and at stop the ask is a hold,
+once: the agent gets the reason and writes the note while the facts are
+still in context; the second attempt passes, so nothing can wedge. If code was edited since the last note, a draft
 is written from what was edited; the agent fills in the decision. `save` fills a missing author and date, warns when
 the note skips a file the session touched, and flags a note that holds
 several topics or duplicates another.

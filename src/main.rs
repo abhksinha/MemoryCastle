@@ -127,7 +127,11 @@ enum Cmd {
     /// Print the usage guide for agents (docs/GUIDE.md): when to search, how to read the answer, how to write a note.
     Guide,
     /// One line when this session edited code after its last saved note (called by the hooks at compaction, after `git commit`, and at stop); silent otherwise.
-    Owed,
+    Owed {
+        /// Exit 2 the first time per session for this event (compact, stop) so the hook can block once; exit 0 after.
+        #[arg(long)]
+        once: Option<String>,
+    },
     /// Draft a note from this session's edits when none was saved (called by the stop hook).
     #[command(hide = true)]
     Draft,
@@ -612,14 +616,26 @@ fn run(cli: Cli) -> Result<()> {
             print!("{}", include_str!("../docs/GUIDE.md"));
             return Ok(());
         }
-        Cmd::Owed => {
+        Cmd::Owed { once } => {
             let Some(p) = &ctx.project else { return Ok(()) };
             if let Some(o) = memorycastle::draft::owed(&ctx.conn, p.id)? {
                 let since = match &o.last_note {
                     Some((path, at)) => format!("since {} ({} min ago)", path, (memorycastle::sys::now() - at).max(0) / 60),
                     None => "and saved no note this session".into(),
                 };
-                println!("note owed: {} edited {since}: {}", o.files.len(), o.files.join(", "));
+                let line = format!("note owed: {} edited {since}: {}", o.files.len(), o.files.join(", "));
+                if let Some(event) = once {
+                    // Block once per session and event: the agent gets the reason
+                    // and a second attempt passes, so nothing can wedge.
+                    let key = format!("blocked:{event}:{}", p.id);
+                    let session = store::current_session(&ctx.conn, p.id)?.unwrap_or_default();
+                    if memorycastle::db::meta_get(&ctx.conn, &key)?.as_deref() != Some(session.as_str()) {
+                        memorycastle::db::meta_set(&ctx.conn, &key, &session)?;
+                        eprintln!("{line}");
+                        std::process::exit(2);
+                    }
+                }
+                println!("{line}");
             }
         }
         Cmd::Draft => {
