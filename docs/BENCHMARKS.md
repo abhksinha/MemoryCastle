@@ -294,6 +294,25 @@ cheapest agent session.
   on Project 1: the fusion and the floor are tuned to one model's
   distribution, so a model swap needs per-space calibration first, which
   is now an open item. The 300M model stays.
+- **The model's verdict cannot be overruled by words (0.11.5).** Looking
+  at the absent questions memorycastle still answered showed the cause:
+  confidence was the larger of the model's gated cosine and the share of
+  the question's words present, so four everyday words ("state",
+  "library", "pick") carried a chunk the model had put under the floor to
+  0.50. Coverage is now capped at the model's own rescaled cosine when the
+  model ran. On the current stores (the journals grew to 48 and 26 notes
+  during the day), recall@3 / MRR / absent answered, before and after:
+  Project 1 0.905 / 0.772 / 3 of 11 to 0.968 / 0.853 / 0; Project 2
+  1.000 / 0.989 / 0 to 1.000 / 0.975 / 0; Project 3 1.000 / 0.912 / 4 to
+  0.975 / 0.912 / 2. The false hits had been filling the top ten on the
+  largest journal, which is why recall rose as noise fell; one rank swap
+  was lost on Project 2. The fused score is also scaled by the cosine, so
+  a chunk BM25 ranked first on everyday words with the model near the
+  floor scores at most half of one the model agrees with. A rule that
+  muted BM25 when the question had no rare word was measured the same
+  day and fired on 1 of 68 questions: in a small store almost every
+  content word is rare. The pre-registered tables above are unchanged;
+  they are the 0.11.3 numbers.
 - **One embedding server (0.11.2).** Ten were resident during the agent
   runs; the fix is described under "What the run found".
 - **Mem0's threshold tested.** Reported under "Absent topic" above, so the

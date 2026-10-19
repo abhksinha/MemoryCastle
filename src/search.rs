@@ -200,6 +200,13 @@ pub fn search(
     }
 
     // 4. Fuse.
+    let terms: Vec<String> = fts::terms(query).iter().filter(|t| !is_stopword(t)).map(|t| t.to_ascii_lowercase()).collect();
+    let idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
+    // An acronym written in capitals (NDK, JWT) is rare and topical even at
+    // three letters; everyday short words are not.
+    let acronyms: Vec<String> = fts::terms(query).iter().filter(|t| t.len() >= 3 && t.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())).map(|t| t.to_ascii_lowercase()).collect();
+    let distinctive = distinctive_terms(conn, scope, &terms, &acronyms)?;
+    ex.distinctive = distinctive.clone();
     let mut fused: HashMap<i64, Trace> = HashMap::with_capacity(bm25.len() + vec_hits.len());
     for (i, id) in bm25.iter().enumerate() {
         let t = fused.entry(*id).or_default();
@@ -219,14 +226,7 @@ pub fn search(
     //    confidence, then top k.
     let ids: Vec<i64> = fused.keys().copied().collect();
     let mut hits = fetch_hits(conn, &ids)?;
-    let terms: Vec<String> = fts::terms(query).iter().filter(|t| !is_stopword(t)).map(|t| t.to_ascii_lowercase()).collect();
-    let idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
     let cue = section_cue(query);
-    // An acronym written in capitals (NDK, JWT) is rare and topical even at
-    // three letters; everyday short words are not.
-    let acronyms: Vec<String> = fts::terms(query).iter().filter(|t| t.len() >= 3 && t.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())).map(|t| t.to_ascii_lowercase()).collect();
-    let distinctive = distinctive_terms(conn, scope, &terms, &acronyms)?;
-    ex.distinctive = distinctive.clone();
     for h in hits.iter_mut() {
         let mut t = fused.remove(&h.chunk_id).unwrap_or_default();
         t.weight = scope.weight(h.project_id);
@@ -252,6 +252,9 @@ pub fn search(
         // Without the model, the words are all there is, and a chunk that
         // has them is what a keyword search means.
         let cov = if run_model { t.coverage * (terms.len().min(4) as f32 / 4.0) } else { t.coverage };
+        if run_model {
+            t.score *= crate::limits::COSINE_SCORE_BASE + cos;
+        }
         // A chunk with none of the question's distinctive words (the rare
         // ones, by document frequency) is a near miss whatever the model
         // says: same area, different feature. Its cosine counts for a
@@ -269,7 +272,11 @@ pub fn search(
         // One rare word present is weak evidence (0.25, under the gate); the
         // model's cosine must carry such a hit on its own.
         let cov = if distinctive.is_empty() { cov } else { coverage(&distinctive, &with_heading) * if run_model { distinctive.len().min(4) as f32 / 4.0 } else { 1.0 } };
-        t.confidence = if ident_hit { 1.0 } else { cos.max(cov) };
+        // The model judges relevance when it ran: words can add to its
+        // verdict but not overrule it, so coverage is capped at the raw
+        // rescaled cosine (a chunk the model put under the floor stays there).
+        let raw_cos = t.cosine.map(|c| ((c - COSINE_FLOOR) / (COSINE_CEIL - COSINE_FLOOR)).clamp(0.0, 1.0)).unwrap_or(0.0);
+        t.confidence = if ident_hit { 1.0 } else if run_model { cos.max(cov.min(raw_cos)) } else { cos.max(cov) };
         h.trace = t;
     }
     // Graph rerank: what the note declares it is about, against what the

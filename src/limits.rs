@@ -50,6 +50,15 @@ pub const NO_COVERAGE_FACTOR: f32 = 0.3;
 /// chunks contain it. Such words must appear in a hit for the model's
 /// cosine to count in full.
 pub const DISTINCTIVE_MAX_SHARE: f32 = 0.1;
+/// When the model ran, the fused score is multiplied by this plus the
+/// rescaled cosine (0 to 1): a chunk BM25 ranked first on everyday words
+/// but the model put far down (cosine near the floor) scores at most
+/// half of one the model agrees with. Measured 2026-10-20 on three
+/// journals: recall@3 +0.016 and +0.021 on two, MRR +0.004 and +0.026,
+/// the third unchanged, absent answers unchanged. (Muting BM25 when the
+/// question has no rare word was tried the same day and fired on 1 of 68
+/// questions: in a small store almost every content word is rare.)
+pub const COSINE_SCORE_BASE: f32 = 0.5;
 /// Graph rerank: a note that links a file or symbol the question names is
 /// about it, whatever the words say. Bridge: the question's symbol is
 /// defined (code index) in a file the note links.
