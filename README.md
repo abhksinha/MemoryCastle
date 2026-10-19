@@ -2,8 +2,8 @@
 
 Shared memory for coding agents. One binary, one SQLite file, no LLM, no server.
 
-Claude Code, Codex, Gemini CLI and Antigravity forget everything between
-sessions. memorycastle gives them one memory per repository: what was
+Claude Code, Codex, Gemini CLI, Antigravity, Cursor, GitHub Copilot and
+OpenCode forget everything between sessions. memorycastle gives them one memory per repository: what was
 decided, what was tried and rejected, what was measured, and where in the
 code it lives. The next agent asks a question and gets the right paragraph
 and the exact lines to read, in milliseconds, instead of re-reading the
@@ -20,7 +20,8 @@ That is all, from any directory. `install` finds the agents on your
 machine and wires each one: the tool server in its config, the Claude Code
 plugin and status line, and the memory rules in the user-level file every
 agent reads in every repo (`~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`,
-`~/.gemini/GEMINI.md`). From then on memory works in whatever repo you
+`~/.gemini/GEMINI.md`, `~/.config/opencode/AGENTS.md`; Cursor, Copilot and
+Antigravity keep user rules in the app and read the repo's `AGENTS.md`). From then on memory works in whatever repo you
 open. Run it inside a repo to add the same section to that repo's own
 `CLAUDE.md`/`AGENTS.md`/`GEMINI.md` for teammates, build its code index,
 import your past transcripts into the savings ledger and start the
@@ -50,7 +51,7 @@ Restart the agents.
 | Binaries `memorycastle`, `memcastle` | `~/.local/bin/` (installer), `~/.cargo/bin/` (cargo build); `MEMORYCASTLE_BIN` overrides |
 | Store, model, runtime, your gold sets | `~/.local/share/memorycastle/` (`memory.db`, `models/`, `runtime/`); `MEMORYCASTLE_HOME` overrides |
 | Notes and the derived graph | `memorycastle/journal/`, `memorycastle/graph/` in each repo, under git |
-| Agent config written by `install` | `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.gemini/antigravity/mcp_config.json`, `~/.claude/statusline.sh` and the plugin under `~/.claude/plugins/` |
+| Agent config written by `install` | `~/.codex/config.toml`, `~/.gemini/settings.json`, `~/.gemini/antigravity/mcp_config.json`, `~/.cursor/mcp.json`, `~/.copilot/mcp-config.json`, `~/.config/opencode/opencode.json`, `~/.claude/statusline.sh` and the plugin under `~/.claude/plugins/` |
 | Embedding server socket | the system temp dir, `memorycastle-<hash>.sock`; exits after 30 minutes idle |
 
 Nothing is written outside those paths. Uninstall: delete the two binaries and

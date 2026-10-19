@@ -1,6 +1,7 @@
 //! `memorycastle install`: one command that wires every coding agent on the
 //! machine to this store. Per agent: the MCP server in its config (Codex,
-//! Gemini CLI, Antigravity), the plugin and status line (Claude Code), and
+//! Gemini CLI, Antigravity, Cursor, GitHub Copilot, OpenCode), the plugin
+//! and status line (Claude Code), and
 //! the memory section in the instruction file it reads (`CLAUDE.md`,
 //! `AGENTS.md`, `GEMINI.md`). Per repo: the journal directory, the code
 //! index, notes saved, past transcripts imported into the ledger, and the
@@ -16,10 +17,13 @@ pub enum Agent {
     Codex,
     Gemini,
     Antigravity,
+    Cursor,
+    Copilot,
+    OpenCode,
 }
 
 impl Agent {
-    pub const ALL: [Agent; 4] = [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Antigravity];
+    pub const ALL: [Agent; 7] = [Agent::Claude, Agent::Codex, Agent::Gemini, Agent::Antigravity, Agent::Cursor, Agent::Copilot, Agent::OpenCode];
 
     pub fn parse(s: &str) -> Option<Agent> {
         Some(match s.trim().to_ascii_lowercase().as_str() {
@@ -27,6 +31,9 @@ impl Agent {
             "codex" => Agent::Codex,
             "gemini" | "gemini-cli" => Agent::Gemini,
             "antigravity" | "agy" => Agent::Antigravity,
+            "cursor" => Agent::Cursor,
+            "copilot" | "github-copilot" | "gh" => Agent::Copilot,
+            "opencode" => Agent::OpenCode,
             _ => return None,
         })
     }
@@ -37,6 +44,9 @@ impl Agent {
             Agent::Codex => "Codex",
             Agent::Gemini => "Gemini CLI",
             Agent::Antigravity => "Antigravity",
+            Agent::Cursor => "Cursor",
+            Agent::Copilot => "GitHub Copilot",
+            Agent::OpenCode => "OpenCode",
         }
     }
 
@@ -44,20 +54,22 @@ impl Agent {
     pub fn instruction_file(self) -> &'static str {
         match self {
             Agent::Claude => "CLAUDE.md",
-            Agent::Codex | Agent::Antigravity => "AGENTS.md",
+            Agent::Codex | Agent::Antigravity | Agent::Cursor | Agent::Copilot | Agent::OpenCode => "AGENTS.md",
             Agent::Gemini => "GEMINI.md",
         }
     }
 
     /// The user-level instruction file this agent reads in every repo, so
     /// the memory rules apply everywhere once, with no per-repo step.
-    /// Antigravity has none that is documented; it reads the repo file.
+    /// Antigravity, Cursor and Copilot keep their user-level rules in the
+    /// app, not a file; they read the repo's `AGENTS.md`.
     pub fn user_instruction_file(self, home: &Path) -> Option<PathBuf> {
         Some(match self {
             Agent::Claude => home.join(".claude/CLAUDE.md"),
             Agent::Codex => home.join(".codex/AGENTS.md"),
             Agent::Gemini => home.join(".gemini/GEMINI.md"),
-            Agent::Antigravity => return None,
+            Agent::OpenCode => home.join(".config/opencode/AGENTS.md"),
+            Agent::Antigravity | Agent::Cursor | Agent::Copilot => return None,
         })
     }
 
@@ -69,6 +81,9 @@ impl Agent {
             Agent::Codex => home.join(".codex").is_dir() || on_path("codex"),
             Agent::Gemini => home.join(".gemini/settings.json").is_file() || on_path("gemini"),
             Agent::Antigravity => home.join(".gemini/antigravity").is_dir() || home.join(".antigravity").is_dir() || on_path("agy"),
+            Agent::Cursor => home.join(".cursor").is_dir() || on_path("cursor"),
+            Agent::Copilot => home.join(".copilot").is_dir() || on_path("copilot"),
+            Agent::OpenCode => home.join(".config/opencode").is_dir() || on_path("opencode"),
         }
     }
 }
@@ -190,22 +205,28 @@ pub fn install_global(agent: Agent, o: &Options) -> Result<Vec<Step>> {
                 steps.push(Step { what: "~/.codex/config.toml: MCP server added".into(), done: true });
             }
         }
-        Agent::Gemini => steps.push(json_mcp(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", o)?),
-        Agent::Antigravity => steps.push(json_mcp(&home.join(".gemini/antigravity/mcp_config.json"), "~/.gemini/antigravity/mcp_config.json", o)?),
+        Agent::Gemini => steps.push(json_mcp(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", STDIO_ENTRY, o)?),
+        Agent::Antigravity => steps.push(json_mcp(&home.join(".gemini/antigravity/mcp_config.json"), "~/.gemini/antigravity/mcp_config.json", "mcpServers", STDIO_ENTRY, o)?),
+        Agent::Cursor => steps.push(json_mcp(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", STDIO_ENTRY, o)?),
+        Agent::Copilot => steps.push(json_mcp(&home.join(".copilot/mcp-config.json"), "~/.copilot/mcp-config.json", "mcpServers", r#"{"type": "local", "command": "memorycastle", "args": ["mcp"], "tools": ["*"]}"#, o)?),
+        Agent::OpenCode => steps.push(json_mcp(&home.join(".config/opencode/opencode.json"), "~/.config/opencode/opencode.json", "mcp", r#"{"type": "local", "command": ["memorycastle", "mcp"], "enabled": true}"#, o)?),
     }
     Ok(steps)
 }
 
-/// `mcpServers.memorycastle` in a JSON settings file, other keys untouched.
-fn json_mcp(path: &Path, shown: &str, o: &Options) -> Result<Step> {
+/// The stdio server entry most agents take (`mcpServers.<name>`).
+const STDIO_ENTRY: &str = r#"{"command": "memorycastle", "args": ["mcp"]}"#;
+
+/// `<key>.memorycastle` in a JSON settings file, other keys untouched.
+fn json_mcp(path: &Path, shown: &str, key: &str, entry: &str, o: &Options) -> Result<Step> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into());
     let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("{shown}: not JSON ({e})"))?;
-    let servers = v.as_object_mut().ok_or_else(|| err!("{shown}: top level is not an object"))?.entry("mcpServers").or_insert_with(|| serde_json::json!({}));
-    let servers = servers.as_object_mut().ok_or_else(|| err!("{shown}: mcpServers is not an object"))?;
+    let servers = v.as_object_mut().ok_or_else(|| err!("{shown}: top level is not an object"))?.entry(key).or_insert_with(|| serde_json::json!({}));
+    let servers = servers.as_object_mut().ok_or_else(|| err!("{shown}: {key} is not an object"))?;
     if servers.contains_key("memorycastle") {
         return Ok(Step { what: format!("{shown}: MCP server present"), done: false });
     }
-    servers.insert("memorycastle".into(), serde_json::json!({"command": "memorycastle", "args": ["mcp"]}));
+    servers.insert("memorycastle".into(), serde_json::from_str(entry)?);
     write_if(path, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
     Ok(Step { what: format!("{shown}: MCP server added"), done: true })
 }

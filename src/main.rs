@@ -444,14 +444,14 @@ fn run(cli: Cli) -> Result<()> {
                 Some(list) => {
                     let mut v = Vec::new();
                     for a in list.split(',') {
-                        v.push(Agent::parse(a).ok_or_else(|| format!("unknown agent '{a}' (claude, codex, gemini, antigravity)"))?);
+                        v.push(Agent::parse(a).ok_or_else(|| format!("unknown agent '{a}' (claude, codex, gemini, antigravity, cursor, copilot, opencode)"))?);
                     }
                     v
                 }
                 None => Agent::ALL.into_iter().filter(|a| a.detected()).collect(),
             };
             if chosen.is_empty() {
-                return Err("no coding agent detected; name one: memcastle install claude,codex,gemini,antigravity".into());
+                return Err("no coding agent detected; name one: memcastle install claude,codex,gemini,antigravity,cursor,copilot,opencode".into());
             }
             let o = install::Options { dry_run, repo_only };
             let verb = if dry_run { "would" } else { "did" };
