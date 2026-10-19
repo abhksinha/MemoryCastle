@@ -265,6 +265,40 @@ right: nothing when there is nothing, the reversed decision kept reversed,
 an edit re-indexed in place, the smallest answering process, and the
 cheapest agent session.
 
+#### What the comparison changed in memorycastle
+
+- **Brief default (0.11.4).** Mem0 serves one sentence per memory; on the
+  measured-number task its agent read 4 KB where memorycastle's read 15
+  KB, and the label log (22 notes served, 1 opened) said agents skim
+  titles and skip sections. A hit is now one line and the note's first
+  Decision sentence, about 50 tokens; `--sections` opens the note picked,
+  `--full` is the older snippet block. The four tasks rerun: retrieval 190
+  KB to 92 KB, tokens 875k to 700k, every rubric passed.
+- **The 33M model measured inside the fusion and rejected.** Mem0 raw's
+  speed is `bge-small-en-v1.5`. Its chunk and query vectors were injected
+  into isolated memorycastle stores as a new space (no Rust change: the
+  query cache is checked before the model opens) and scored with BM25,
+  graph rerank and the floor unchanged:
+
+  | recall@3 / MRR | bge-small 33M | with bge's query instruction | EmbeddingGemma 2 int8, 300M |
+  | --- | --- | --- | --- |
+  | Project 1, 45 notes | 0.825 / 0.742 | 0.825 / 0.756 | **0.941 / 0.838** |
+  | Project 2, 26 notes | 0.936 / 0.920 | 0.936 / 0.920 | **0.979 / 0.963** |
+  | Project 3, 10 notes | 0.971 / 0.897 | 0.941 / 0.853 | **1.000 / 0.897** |
+  | absent answered | 2 and 4 of 11 | | 2 and 0 to 1 of 11 |
+
+  It loses the paraphrase questions the larger model was chosen for (the
+  neural engine, the reindex timing, batching, thread count) on every
+  journal, and some right answers fall under a floor calibrated for the
+  larger model's cosines. The same small model bare in Mem0 scored 0.866
+  on Project 1: the fusion and the floor are tuned to one model's
+  distribution, so a model swap needs per-space calibration first, which
+  is now an open item. The 300M model stays.
+- **One embedding server (0.11.2).** Ten were resident during the agent
+  runs; the fix is described under "What the run found".
+- **Mem0's threshold tested.** Reported under "Absent topic" above, so the
+  "no usable floor" claim rests on a number, not an assumption.
+
 #### Why each winner matters
 
 - **Absent topic.** An agent asks memory about something nobody wrote down
