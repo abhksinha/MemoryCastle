@@ -367,7 +367,7 @@ pub use crate::limits::{COSINE_CEIL, COSINE_FLOOR, GRAPH_BRIDGE_WEIGHT, GRAPH_DI
 /// After ranking, with the checkout at hand: a hit whose note names a symbol
 /// whose body changed since the note was saved is labelled and weighted by
 /// `CODE_CHANGED_WEIGHT`, like a superseded note. Deterministic: the hash
-/// then against the hash now. Hits are re-sorted by score.
+/// then against the hash now. The search's order is kept.
 pub fn mark_code_changed(conn: &Connection, root: &std::path::Path, hits: &mut [Hit]) -> Result<()> {
     let mut cache: HashMap<i64, Vec<String>> = HashMap::new();
     for h in hits.iter_mut() {
@@ -384,7 +384,12 @@ pub fn mark_code_changed(conn: &Connection, root: &std::path::Path, hits: &mut [
             h.code_changed = changed;
         }
     }
-    hits.sort_by(|a, b| b.trace.score.partial_cmp(&a.trace.score).unwrap_or(std::cmp::Ordering::Equal));
+    // Keep the search's order (confidence quarters, then fused score): a
+    // stable sort by the weighted score within a quarter only moves a
+    // changed-code hit under its unchanged neighbours. Without the model
+    // every hit is in one quarter and the score orders alone, as before.
+    let bucket = |h: &Hit| if h.trace.cosine.is_some() { (h.trace.confidence * 4.0).floor() as i32 } else { 0 };
+    hits.sort_by(|a, b| bucket(b).cmp(&bucket(a)).then(b.trace.score.total_cmp(&a.trace.score)));
     Ok(())
 }
 
