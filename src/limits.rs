@@ -70,6 +70,13 @@ pub const RECALL_MIN_WORDS: usize = 3;
 /// words still recalls the note that rejected its approach.
 pub const RECALL_MIN_CONFIDENCE: f32 = 0.50;
 pub const RECALL_MAX_NOTES: usize = 3;
+/// Mid-session reminder (the same prompt hook): when this many files were
+/// edited since the last note, or the oldest such edit is this old, one
+/// `note owed` line is printed, then not again for the cooldown. Rare and
+/// true, so the agent does not learn to skip it.
+pub const OWED_REMIND_FILES: usize = 5;
+pub const OWED_REMIND_SECS: i64 = 30 * 60;
+pub const OWED_REMIND_COOLDOWN_SECS: i64 = 30 * 60;
 /// Code spans printed per note in `search --sections` (symbols the note names).
 pub const SEARCH_CODE_SPANS: usize = 4;
 /// Files listed per hit in search output; the rest is "+n more".

@@ -18,6 +18,8 @@ pub struct Owed {
     pub files: Vec<String>,
     /// The last note saved in this session, when there is one.
     pub last_note: Option<(String, i64)>,
+    /// When the oldest owed edit was made.
+    pub first_edit: i64,
 }
 
 /// The edits this session made after its last saved note. None when the
@@ -34,12 +36,14 @@ pub fn owed(conn: &Connection, project_id: i64) -> Result<Option<Owed>> {
         )
         .ok();
     let since = last_note.as_ref().map(|n| n.1).unwrap_or(started);
-    let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 ORDER BY path")?;
-    let files: Vec<String> = stmt.query_map(params![project_id, session, since], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?.into_iter().filter(|p| !p.starts_with("memorycastle/")).collect();
-    if files.is_empty() {
+    let mut stmt = conn.prepare_cached("SELECT path, MIN(at) FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 GROUP BY path ORDER BY path")?;
+    let rows: Vec<(String, i64)> = stmt.query_map(params![project_id, session, since], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let rows: Vec<(String, i64)> = rows.into_iter().filter(|(p, _)| !p.starts_with("memorycastle/")).collect();
+    if rows.is_empty() {
         return Ok(None);
     }
-    Ok(Some(Owed { files, last_note }))
+    let first_edit = rows.iter().map(|r| r.1).min().unwrap_or(0);
+    Ok(Some(Owed { files: rows.into_iter().map(|r| r.0).collect(), last_note, first_edit }))
 }
 
 /// Writes the draft and returns its path, or None when nothing is owed.

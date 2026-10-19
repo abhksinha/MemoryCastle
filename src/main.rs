@@ -131,6 +131,9 @@ enum Cmd {
         /// Exit 2 the first time per session for this event (compact, stop) so the hook can block once; exit 0 after.
         #[arg(long)]
         once: Option<String>,
+        /// Mid-session: print only when enough was edited (files or minutes) and not within the cooldown (for the prompt hook).
+        #[arg(long)]
+        remind: bool,
     },
     /// Recall for a prompt (called by the prompt hook): one line per note the
     /// store is confident about, each once per session; nothing otherwise.
@@ -665,9 +668,20 @@ fn run(cli: Cli) -> Result<()> {
                 store::record_usage(&ctx.conn, pid, "recall", out.len(), 0)?;
             }
         }
-        Cmd::Owed { once } => {
+        Cmd::Owed { once, remind } => {
             let Some(p) = &ctx.project else { return Ok(()) };
             if let Some(o) = memorycastle::draft::owed(&ctx.conn, p.id)? {
+                if remind {
+                    use memorycastle::limits::{OWED_REMIND_COOLDOWN_SECS, OWED_REMIND_FILES, OWED_REMIND_SECS};
+                    let now = memorycastle::sys::now();
+                    let enough = o.files.len() >= OWED_REMIND_FILES || now - o.first_edit >= OWED_REMIND_SECS;
+                    let key = format!("reminded:{}", p.id);
+                    let last: i64 = memorycastle::db::meta_get(&ctx.conn, &key)?.and_then(|v| v.parse().ok()).unwrap_or(0);
+                    if !enough || now - last < OWED_REMIND_COOLDOWN_SECS {
+                        return Ok(());
+                    }
+                    memorycastle::db::meta_set(&ctx.conn, &key, &now.to_string())?;
+                }
                 let since = match &o.last_note {
                     Some((path, at)) => format!("since {} ({} min ago)", path, (memorycastle::sys::now() - at).max(0) / 60),
                     None => "and saved no note this session".into(),

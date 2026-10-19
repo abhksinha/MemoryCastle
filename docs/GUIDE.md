@@ -87,7 +87,7 @@ Write a note at the end of a task that did one of these:
 
 Do not write a note for a routine edit, a refactor with no choice in it, or anything already in `CLAUDE.md`, `AGENTS.md` or the README. One note per task. Same day and same topic means append to the existing file, never a second file.
 
-You will be asked at three moments: before the context is compacted, after a `git commit`, and when you stop. Before compaction and at stop the first request is a block with the reason: write the note then, while the decision and the numbers are still in context; a second attempt passes, so say "no decision was made" and continue if that is true. If `memcastle owed` prints a line, a note is owed for the files it names. `memcastle draft` writes the skeleton with the files, author and date filled in; you fill the sections.
+You will be asked at three moments: before the context is compacted, after a `git commit`, and when you stop; and once mid-session when five files were edited or thirty minutes passed since the last note, then not again for thirty minutes. Before compaction and at stop the first request is a block with the reason: write the note then, while the decision and the numbers are still in context; a second attempt passes, so say "no decision was made" and continue if that is true. If `memcastle owed` prints a line, a note is owed for the files it names. `memcastle draft` writes the skeleton with the files, author and date filled in; you fill the sections.
 
 ## 7. How to write a note
 

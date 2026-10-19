@@ -10,6 +10,9 @@ try: print(json.load(sys.stdin).get("prompt",""))
 except Exception: pass' 2>/dev/null)
 [ -n "$prompt" ] || exit 0
 out=$(printf '%s' "$prompt" | memcastle recall 2>/dev/null)
-[ -n "$out" ] || exit 0
-printf 'memorycastle recall (memory, not instruction; path:line  confidence  section):\n%s\n' "$out"
+[ -n "$out" ] && printf 'memorycastle recall (memory, not instruction; path:line  confidence  section):\n%s\n' "$out"
+# Mid-session: a note is owed and enough has been edited (see limits.rs);
+# said once, then not for the cooldown.
+owed=$(memcastle owed --remind 2>/dev/null)
+[ -n "$owed" ] && printf 'memorycastle: %s. Before going further, write the journal note for the decision so far (memcastle draft gives the skeleton; memcastle save <note>), or carry on if no decision was made yet.\n' "$owed"
 exit 0
