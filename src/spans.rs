@@ -186,8 +186,43 @@ fn row_def(r: &rusqlite::Row) -> rusqlite::Result<Def> {
 /// `USE_CONTEXT_LINES` either side. Anchor is that line, so re-anchoring
 /// finds it again after edits.
 fn first_use(root: Option<&Path>, path: &str, name: &str) -> Option<Def> {
+    first_use_by(root, path, name, is_call)
+}
+
+/// A constant is used as a value (`limits::NAME`, `NAME.min(x)`), never
+/// called, so its first use is the first line holding the identifier with
+/// boundaries on both sides, outside strings and comments.
+fn first_value_use(root: Option<&Path>, path: &str, name: &str) -> Option<Def> {
+    first_use_by(root, path, name, is_identifier_use)
+}
+
+pub fn is_identifier_use(line: &str, name: &str) -> bool {
+    // An import names the constant without using it.
+    let t = line.trim_start();
+    if t.starts_with("use ") || t.starts_with("import ") || t.starts_with("from ") || t.starts_with("pub use ") {
+        return false;
+    }
+    let line = code::strip_strings_and_comments(line);
+    let bytes = line.as_bytes();
+    let mut from = 0;
+    while let Some(i) = line[from..].find(name) {
+        let start = from + i;
+        let end = start + name.len();
+        let before_ok = start == 0 || !(bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_');
+        let after_ok = end == bytes.len() || !(bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_');
+        // A definition line is not a use.
+        let defines = line[..start].trim_end().ends_with("const") || line[..start].trim_end().ends_with("static");
+        if before_ok && after_ok && !defines {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+fn first_use_by(root: Option<&Path>, path: &str, name: &str, hit: fn(&str, &str) -> bool) -> Option<Def> {
     let text = std::fs::read_to_string(root?.join(path)).ok()?;
-    let (i, line) = text.lines().enumerate().find(|(_, l)| is_call(l, name))?;
+    let (i, line) = text.lines().enumerate().find(|(_, l)| hit(l, name))?;
     let n = text.lines().count() as u32;
     let at = i as u32 + 1;
     let c = crate::limits::USE_CONTEXT_LINES;
@@ -252,13 +287,18 @@ pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def]) ->
                 }
             }
         }
-        // callers: files that mention the name, first use line each
-        let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND src != ?3 ORDER BY n DESC LIMIT ?4")?;
-        let users: Vec<String> = stmt.query_map(params![project_id, d.name, d.path, crate::limits::CONTEXT_ITEMS as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        // callers: files that mention the name, first use line each. A
+        // constant is used as a value, so the match is the identifier, and
+        // the defining file counts too (a limit is used where it is set).
+        let is_const = d.kind == "const" || d.kind == "static";
+        let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND (src != ?3 OR ?5) ORDER BY n DESC LIMIT ?4")?;
+        let users: Vec<String> = stmt.query_map(params![project_id, d.name, d.path, crate::limits::CONTEXT_ITEMS as i64, is_const], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         for u in users {
-            if let Some(use_def) = first_use(Some(root), &u, &d.name) {
+            let found = if is_const { first_value_use(Some(root), &u, &d.name) } else { first_use(Some(root), &u, &d.name) };
+            if let Some(use_def) = found {
                 if seen.insert((use_def.path.clone(), use_def.line)) {
-                    out.push(format!("read: {}:{}-{}  {}  calls {}", use_def.path, use_def.line, use_def.end, use_def.name, d.name));
+                    let verb = if is_const { "uses" } else { "calls" };
+                    out.push(format!("read: {}:{}-{}  {}  {verb} {}", use_def.path, use_def.line, use_def.end, use_def.name, d.name));
                 }
             }
         }
@@ -268,7 +308,16 @@ pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def]) ->
 
 #[cfg(test)]
 mod call_tests {
-    use super::is_call;
+    use super::{is_call, is_identifier_use};
+    #[test]
+    fn value_uses_of_a_constant() {
+        assert!(is_identifier_use("if lines <= crate::limits::WHOLE_READ_LINES { size }", "WHOLE_READ_LINES"));
+        assert!(is_identifier_use("let x = WHOLE_READ_LINES.min(n);", "WHOLE_READ_LINES"));
+        assert!(!is_identifier_use("pub const WHOLE_READ_LINES: usize = 2000;", "WHOLE_READ_LINES"), "the definition is not a use");
+        assert!(!is_identifier_use("// WHOLE_READ_LINES is the cap", "WHOLE_READ_LINES"), "a comment is not a use");
+        assert!(!is_identifier_use("let WHOLE_READ_LINES_X = 1;", "WHOLE_READ_LINES"), "a longer identifier is not a use");
+        assert!(!is_identifier_use("use crate::limits::{OPEN_MIN_SECS, WHOLE_READ_LINES};", "WHOLE_READ_LINES"), "an import is not a use");
+    }
     #[test]
     fn call_shapes_only() {
         assert!(is_call("    let n = notes(conn, pid)?;", "notes"));
