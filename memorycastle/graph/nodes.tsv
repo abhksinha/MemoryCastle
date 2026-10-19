@@ -1,0 +1,590 @@
+id	kind	label	key	date	superseded	author	community	degree	sections	exists	loc	code	summary
+0	note	Embed chunks in batches of sixteen	memorycastle/journal/2026-10-18-batch-embedding.md	1792315215	1	abhi+claude	2	3	10	1	memorycastle/journal/2026-10-18-batch-embedding.md	0	`embed_missing` sorts pending chunks by length and sends batches of sixteen to the model so padding stays small and session setup is amortised
+1	note	Choose int8 over q4 for EmbeddingGemma 2	memorycastle/journal/2026-10-18-model-precision.md	1792315215	0	abhi+claude	8	2	27	1	memorycastle/journal/2026-10-18-model-precision.md	0	int8 stays the default
+2	note	Replace the HuggingFace tokenizer crate with a compact BPE	memorycastle/journal/2026-10-18-tokenizer-replacement.md	1792315215	0	abhi+claude	0	4	31	1	memorycastle/journal/2026-10-18-tokenizer-replacement.md	0	Own tokenizer: Gemma's tokenizer.json is Replace(space, ▁) + BPE over the whole text + byte fallback + bos/eos
+3	note	No Bloom or XOR filters until the store is large	memorycastle/journal/2026-10-18-no-bloom-filters-yet.md	1792315480	0	abhi+claude	2	2	23	1	memorycastle/journal/2026-10-18-no-bloom-filters-yet.md	0	Not now
+4	note	Scale test at 3,619 chunks and the vectors table layout	memorycastle/journal/2026-10-18-scale-test-3600-chunks.md	1792316739	0	abhi+claude	2	2	31	1	memorycastle/journal/2026-10-18-scale-test-3600-chunks.md	0	`vectors` became a rowid table (schema v4 migration)
+5	note	GPU via CoreML measured slower than CPU	memorycastle/journal/2026-10-18-gpu-not-faster.md	1792317537	0	abhi+claude	1	2	23	1	memorycastle/journal/2026-10-18-gpu-not-faster.md	0	CPU stays the only path
+6	note	Embed one chunk per model call	memorycastle/journal/2026-10-18-one-chunk-per-call.md	1792319370	0	abhi+claude	2	3	15	1	memorycastle/journal/2026-10-18-one-chunk-per-call.md	0	One chunk per call, longest first, and chunk targets of 200 words (max 280)
+7	note	Interlinkage graph from declared lines, bit-packed vector prefilter, limits module	memorycastle/journal/2026-10-18-interlinkages-and-bit-prefilter.md	1792319933	0	abhi+claude	2	10	31	1	memorycastle/journal/2026-10-18-interlinkages-and-bit-prefilter.md	0	`links` table (schema v5) filled at save from `Files:`, `Supersedes:`, backticked paths and symbols, and mentions of other notes
+8	note	Code graph layer under the note graph	memorycastle/journal/2026-10-18-code-graph-layer.md	1792325867	0	abhi+claude	2	6	31	1	memorycastle/journal/2026-10-18-code-graph-layer.md	0	`graph --code` indexes the checkout by line scanning (definitions by keyword-before-name, imports resolved by file name, mentions as identifier tokens matching …
+9	note	Precision, citations and the reviewer's list	memorycastle/journal/2026-10-18-precision-and-citations.md	1792331923	0	abhi+claude	2	9	31	1	memorycastle/journal/2026-10-18-precision-and-citations.md	0	Confidence per hit: rescaled cosine (floor 0.60, ceiling 0.80) when the model ran, content-word coverage otherwise, 1.0 for a verbatim identifier
+10	note	Graph signals rerank search hits	memorycastle/journal/2026-10-18-graph-rerank.md	1792333732	0	abhi+claude	2	3	31	1	memorycastle/journal/2026-10-18-graph-rerank.md	0	A hit's note is weighted 1.5x when its declared links hold a file or symbol the question names, 1.2x when a question symbol is defined (code index) in a file th…
+11	note	Agent token savings measured with Codex, and search --sections	memorycastle/journal/2026-10-18-agent-token-savings.md	1792335413	0	abhi+claude	2	6	31	1	memorycastle/journal/2026-10-18-agent-token-savings.md	0	`search --sections` prints each hit's note Decision, Rejected and Measured sections once per note, bounded to `SECTION_LINES` (30) each, so an agent answers fro…
+12	note	Code spans in results, re-anchored when the file changes	memorycastle/journal/2026-10-18-code-spans.md	1792335793	0	abhi+claude	2	6	31	1	memorycastle/journal/2026-10-18-code-spans.md	0	Every definition stores its end line and its anchor line (schema v9)
+13	note	status warns when an instruction file's memorycastle section is outdated	memorycastle/journal/2026-10-18-snippet-version-warning.md	1792336200	0	abhi+claude	2	6	31	1	memorycastle/journal/2026-10-18-snippet-version-warning.md	0	The snippet ends with an HTML comment marker `<!-- memorycastle snippet N -->` (`app::SNIPPET_MARKER`), bumped when the snippet changes
+14	note	Claude Code plugin with edit hook, and a savings counter in bytes	memorycastle/journal/2026-10-18-plugin-and-savings-counter.md	1792336577	0	abhi+claude	2	8	31	1	memorycastle/journal/2026-10-18-plugin-and-savings-counter.md	0	`plugin/` holds a Claude Code plugin: MCP server, a skill with the rules, hooks
+15	note	Observed savings from a silent read ledger, beside the estimate	memorycastle/journal/2026-10-18-observed-savings.md	1792338511	0	abhi+claude	2	9	31	1	memorycastle/journal/2026-10-18-observed-savings.md	0	A `PostToolUse` hook on Read and Bash parses the tool input and response and calls `memorycastle read <path> --bytes N`, printing nothing
+16	note	Ranked lines to read after every search, and savings per session	memorycastle/journal/2026-10-18-ranked-read-spans.md	1792339123	0	abhi+claude	2	14	31	1	memorycastle/journal/2026-10-18-ranked-read-spans.md	0	`search` ends with `read first:` lines from `spans::ranked`: question symbol defined in the code index 1.0
+17	note	Expert review batch: near-miss gate, shared render, honest savings, note dates, links --context	memorycastle/journal/2026-10-18-review-batch-render-and-honest-savings.md	1792341684	0	abhi+claude	2	26	31	1	memorycastle/journal/2026-10-18-review-batch-render-and-honest-savings.md	0	Near-miss gate: a question's rare words (`search::distinctive_terms`, document
+18	file	Cargo.toml	Cargo.toml	0	0		0	1	0	1	Cargo.toml	0	
+19	file	examples/bench_embed.rs	examples/bench_embed.rs	0	0		1	22	0	1	examples/bench_embed.rs	1	
+20	file	graph.html	graph.html	0	0		2	1	0	1	src/graph.html	0	
+21	file	journal/	journal/	0	0		3	2	0	0	journal/	0	
+22	file	memorycastle/graph/	memorycastle/graph/	0	0		4	1	0	1	memorycastle/graph/	0	
+23	file	memorycastle/journal/	memorycastle/journal/	0	0		5	1	0	1	memorycastle/journal/	0	
+24	file	plugin/	plugin/	0	0		6	1	0	1	plugin/	0	
+25	file	plugin/hooks/after-read.py	plugin/hooks/after-read.py	0	0		7	8	0	1	plugin/hooks/after-read.py	1	
+26	file	plugin/hooks/before-edit.sh	plugin/hooks/before-edit.sh	0	0		7	1	0	1	plugin/hooks/before-edit.sh	0	
+27	file	plugin/hooks/hooks.json	plugin/hooks/hooks.json	0	0		7	3	0	1	plugin/hooks/hooks.json	0	
+28	file	plugin/hooks/session-start.sh	plugin/hooks/session-start.sh	0	0		7	1	0	1	plugin/hooks/session-start.sh	0	
+29	file	src/app.rs	src/app.rs	0	0		2	93	0	1	src/app.rs	1	
+30	file	src/chunk.rs	src/chunk.rs	0	0		2	60	0	1	src/chunk.rs	1	
+31	file	src/code.rs	src/code.rs	0	0		2	88	0	1	src/code.rs	1	
+32	file	src/db.rs	src/db.rs	0	0		2	58	0	1	src/db.rs	1	
+33	file	src/embed/download.rs	src/embed/download.rs	0	0		8	47	0	1	src/embed/download.rs	1	
+34	file	src/embed/mod.rs	src/embed/mod.rs	0	0		8	62	0	1	src/embed/mod.rs	1	
+35	file	src/embed/ort_rt.rs	src/embed/ort_rt.rs	0	0		8	42	0	1	src/embed/ort_rt.rs	1	
+36	file	src/embed/tokenizer.rs	src/embed/tokenizer.rs	0	0		8	46	0	1	src/embed/tokenizer.rs	1	
+37	file	src/eval.rs	src/eval.rs	0	0		2	29	0	1	src/eval.rs	1	
+38	file	src/fts.rs	src/fts.rs	0	0		2	13	0	1	src/fts.rs	1	
+39	file	src/graph.html	src/graph.html	0	0		2	2	0	1	src/graph.html	0	
+40	file	src/graph.rs	src/graph.rs	0	0		2	104	0	1	src/graph.rs	1	
+41	file	src/limits.rs	src/limits.rs	0	0		2	88	0	1	src/limits.rs	1	
+42	file	src/main.rs	src/main.rs	0	0		2	136	0	1	src/main.rs	1	
+43	file	src/main.rs:491-497	src/main.rs:491-497	0	0		2	1	0	0	src/main.rs:491-497	0	
+44	file	src/mcp.rs	src/mcp.rs	0	0		2	69	0	1	src/mcp.rs	1	
+45	file	src/project.rs	src/project.rs	0	0		2	59	0	1	src/project.rs	1	
+46	file	src/render.rs	src/render.rs	0	0		2	47	0	1	src/render.rs	1	
+47	file	src/search.rs	src/search.rs	0	0		2	128	0	1	src/search.rs	1	
+48	file	src/spans.rs	src/spans.rs	0	0		2	42	0	1	src/spans.rs	1	
+49	file	src/store.rs	src/store.rs	0	0		2	116	0	1	src/store.rs	1	
+50	file	src/store.rs:468-486	src/store.rs:468-486	0	0		2	1	0	0	src/store.rs:468-486	0	
+51	file	tokenizer.bin	tokenizer.bin	0	0		0	1	0	0	tokenizer.bin	0	
+52	symbol	CHUNK_VERSION	CHUNK_VERSION	0	0		2	3	0	1	src/chunk.rs:19	1	const
+53	symbol	CONTEXT_ITEMS	CONTEXT_ITEMS	0	0		2	3	0	1	src/limits.rs:65	1	const
+54	symbol	COSINE_CEIL	COSINE_CEIL	0	0		2	3	0	1	src/limits.rs:40	1	const
+55	symbol	COSINE_FLOOR	COSINE_FLOOR	0	0		2	3	0	1	src/limits.rs:39	1	const
+56	symbol	GENERIC_WORDS	GENERIC_WORDS	0	0		2	2	0	1	src/search.rs:406	1	const
+57	symbol	LINKS_VERSION	LINKS_VERSION	0	0		2	2	0	1	src/graph.rs:205	1	const
+58	symbol	MIN_CONFIDENCE	MIN_CONFIDENCE	0	0		2	6	0	1	src/limits.rs:41	1	const
+59	symbol	NO_COVERAGE_FACTOR	NO_COVERAGE_FACTOR	0	0		2	3	0	1	src/limits.rs:48	1	const
+60	symbol	Observed.lookup_tokens	Observed.lookup_tokens	0	0		2	1	0	0		0	
+61	symbol	Observed.rereads	Observed.rereads	0	0		2	1	0	0		0	
+62	symbol	PostToolUse	PostToolUse	0	0		2	1	0	0		0	
+63	symbol	PreToolUse	PreToolUse	0	0		7	2	0	1	plugin/hooks/hooks.json:13	0	
+64	symbol	RANGE_READ_LINES	RANGE_READ_LINES	0	0		2	4	0	1	src/limits.rs:84	1	const
+65	symbol	READ_SPANS	READ_SPANS	0	0		2	3	0	1	src/limits.rs:63	1	const
+66	symbol	RecordType::DeliveryWatermark	RecordType::DeliveryWatermark	0	0		2	1	0	0		0	
+67	symbol	SECTION_LINES	SECTION_LINES	0	0		2	3	0	1	src/limits.rs:23	1	const
+68	symbol	SPAN_FOLLOW_SECS	SPAN_FOLLOW_SECS	0	0		2	3	0	1	src/limits.rs:79	1	const
+69	symbol	SessionStart	SessionStart	0	0		7	2	0	1	plugin/hooks/hooks.json:3	0	
+70	symbol	app::SNIPPET_MARKER	app::SNIPPET_MARKER	0	0		2	2	0	1	src/app.rs:193	0	
+71	symbol	cache_read_tokens	cache_read_tokens	0	0		2	1	0	0		0	
+72	symbol	chunk::dated	chunk::dated	0	0		2	2	0	1	src/chunk.rs:79	0	
+73	symbol	code::paths_ending_with	code::paths_ending_with	0	0		2	2	0	1	src/code.rs:592	0	
+74	symbol	current_span	current_span	0	0		2	5	0	1	src/code.rs:415-434	1	fn
+75	symbol	embed_missing	embed_missing	0	0		2	8	0	1	src/store.rs:161-227	1	fn
+76	symbol	limits::X	limits::X	0	0		2	2	0	1	src/code.rs:273	0	
+77	symbol	notes.dated	notes.dated	0	0		2	1	0	0		0	
+78	symbol	record_read	record_read	0	0		2	2	0	1	src/store.rs:703-705	1	fn
+79	symbol	render::parse_date	render::parse_date	0	0		2	2	0	1	src/render.rs:219	0	
+80	symbol	search::distinctive_terms	search::distinctive_terms	0	0		2	2	0	1	src/search.rs:374	0	
+81	symbol	served_spans	served_spans	0	0		2	2	0	1	src/db.rs:207	0	
+82	symbol	spans::context	spans::context	0	0		2	2	0	1	src/spans.rs:191	0	
+83	symbol	spans::ranked	spans::ranked	0	0		2	2	0	1	src/spans.rs:39	0	
+84	symbol	tidy_files	tidy_files	0	0		2	2	0	1	src/render.rs:177-190	1	fn
+85	symbol	vector_bits	vector_bits	0	0		2	2	0	1	src/db.rs:130	0	
+86	file	examples/inspect_model.rs	examples/inspect_model.rs	0	0		1	11	0	1	examples/inspect_model.rs	1	
+87	file	examples/tok_ratio.rs	examples/tok_ratio.rs	0	0		1	10	0	1	examples/tok_ratio.rs	1	
+88	file	examples/tok_rss.rs	examples/tok_rss.rs	0	0		1	13	0	1	examples/tok_rss.rs	1	
+89	file	src/error.rs	src/error.rs	0	0		2	16	0	1	src/error.rs	1	
+90	file	src/importlog.rs	src/importlog.rs	0	0		2	18	0	1	src/importlog.rs	1	
+91	file	src/lib.rs	src/lib.rs	0	0		2	39	0	1	src/lib.rs	1	
+92	file	src/secrets.rs	src/secrets.rs	0	0		2	5	0	1	src/secrets.rs	1	
+93	file	src/serve.rs	src/serve.rs	0	0		2	23	0	1	src/serve.rs	1	
+94	file	src/sys.rs	src/sys.rs	0	0		2	7	0	1	src/sys.rs	1	
+95	file	tests/spans.rs	tests/spans.rs	0	0		9	33	0	1	tests/spans.rs	1	
+96	file	tests/store.rs	tests/store.rs	0	0		9	104	0	1	tests/store.rs	1	
+97	symbol	main	main	0	0		1	1	0	1	examples/bench_embed.rs:8-45	1	fn
+98	symbol	main	main	0	0		1	6	0	1	examples/inspect_model.rs:2-13	1	fn
+99	symbol	main	main	0	0		1	6	0	1	examples/tok_ratio.rs:4-20	1	fn
+100	symbol	main	main	0	0		1	6	0	1	examples/tok_rss.rs:3-13	1	fn
+101	symbol	Context	Context	0	0		2	7	0	1	src/app.rs:13-22	1	type
+102	symbol	open	open	0	0		2	10	0	1	src/app.rs:27-52	1	fn
+103	symbol	require_project	require_project	0	0		2	3	0	1	src/app.rs:54-61	1	fn
+104	symbol	scope	scope	0	0		2	9	0	1	src/app.rs:63-65	1	fn
+105	symbol	embedder	embedder	0	0		2	8	0	1	src/app.rs:69-79	1	fn
+106	symbol	parts	parts	0	0		2	2	0	1	src/app.rs:82-86	1	fn
+107	symbol	unload_embedder	unload_embedder	0	0		2	2	0	1	src/app.rs:86-88	1	fn
+108	symbol	search	search	0	0		2	18	0	1	src/app.rs:90-110	1	fn
+109	symbol	save_files	save_files	0	0		2	2	0	1	src/app.rs:114-133	1	fn
+110	symbol	save_text	save_text	0	0		2	2	0	1	src/app.rs:136-141	1	fn
+111	symbol	embed_pending	embed_pending	0	0		2	1	0	1	src/app.rs:144-164	1	fn
+112	symbol	reindex	reindex	0	0		2	7	0	1	src/app.rs:168-187	1	fn
+113	symbol	SNIPPET_MARKER	SNIPPET_MARKER	0	0		2	2	0	1	src/app.rs:193	1	const
+114	symbol	AGENT_SNIPPET	AGENT_SNIPPET	0	0		2	2	0	1	src/app.rs:195	1	const
+115	symbol	Chunk	Chunk	0	0		2	1	0	1	src/chunk.rs:10-15	1	type
+116	symbol	title_of	title_of	0	0		2	2	0	1	src/chunk.rs:25-35	1	fn
+117	symbol	header	header	0	0		2	8	0	1	src/chunk.rs:38-40	1	fn
+118	symbol	supersedes	supersedes	0	0		2	4	0	1	src/chunk.rs:46-63	1	fn
+119	symbol	author	author	0	0		2	4	0	1	src/chunk.rs:66-76	1	fn
+120	symbol	dated	dated	0	0		2	8	0	1	src/chunk.rs:79-89	1	fn
+121	symbol	has_files_line	has_files_line	0	0		2	2	0	1	src/chunk.rs:92-94	1	fn
+122	symbol	split	split	0	0		2	8	0	1	src/chunk.rs:97-159	1	fn
+123	symbol	is_header_line	is_header_line	0	0		2	1	0	1	src/chunk.rs:161-164	1	fn
+124	symbol	entry_id	entry_id	0	0		2	2	0	1	src/chunk.rs:168-178	1	fn
+125	symbol	heading_path	heading_path	0	0		2	5	0	1	src/chunk.rs:180-189	1	fn
+126	symbol	parse_heading	parse_heading	0	0		2	1	0	1	src/chunk.rs:191-205	1	fn
+127	symbol	word_count	word_count	0	0		2	1	0	1	src/chunk.rs:207-209	1	fn
+128	symbol	split_by_size	split_by_size	0	0		2	1	0	1	src/chunk.rs:217-272	1	fn
+129	symbol	sentences	sentences	0	0		2	1	0	1	src/chunk.rs:278-314	1	fn
+130	symbol	raw_sentences	raw_sentences	0	0		2	1	0	1	src/chunk.rs:316-342	1	fn
+131	symbol	TRAIL	TRAIL	0	0		2	1	0	1	src/chunk.rs:344	1	const
+132	symbol	LEAD	LEAD	0	0		2	1	0	1	src/chunk.rs:345	1	const
+133	symbol	index_text	index_text	0	0		2	3	0	1	src/chunk.rs:350-363	1	fn
+134	symbol	section	section	0	0		2	9	0	1	src/chunk.rs:367-368	1	fn
+135	symbol	sections	sections	0	0		2	10	0	1	src/chunk.rs:391-413	1	fn
+136	symbol	line_offsets	line_offsets	0	0		2	1	0	1	src/chunk.rs:415-422	1	fn
+137	symbol	headings_make_paths_and_fences_are_ignored	headings_make_paths_and_fences_are_ignored	0	0		2	1	0	1	src/chunk.rs:429-438	1	fn
+138	symbol	long_sections_split_with_overlap	long_sections_split_with_overlap	0	0		2	1	0	1	src/chunk.rs:441-452	1	fn
+139	symbol	tables_without_terminators_still_split	tables_without_terminators_still_split	0	0		2	1	0	1	src/chunk.rs:455-469	1	fn
+140	symbol	index_text_strips_wrapping_punctuation	index_text_strips_wrapping_punctuation	0	0		2	1	0	1	src/chunk.rs:472-474	1	fn
+141	symbol	heading_only_note_keeps_one_chunk	heading_only_note_keeps_one_chunk	0	0		2	1	0	1	src/chunk.rs:477-483	1	fn
+142	symbol	supersedes_header	supersedes_header	0	0		2	1	0	1	src/chunk.rs:486-495	1	fn
+143	symbol	title	title	0	0		2	9	0	1	src/chunk.rs:498-501	1	fn
+144	symbol	section_returns_body_until_next_heading	section_returns_body_until_next_heading	0	0		2	1	0	1	src/chunk.rs:504-509	1	fn
+145	symbol	chunks_carry_lines_and_entry_ids	chunks_carry_lines_and_entry_ids	0	0		2	1	0	1	src/chunk.rs:512-522	1	fn
+146	symbol	table_pieces_repeat_the_header	table_pieces_repeat_the_header	0	0		2	1	0	1	src/chunk.rs:525-536	1	fn
+147	symbol	CODE_EXTS	CODE_EXTS	0	0		2	1	0	1	src/code.rs:15	1	const
+148	symbol	MAX_FILE_BYTES	MAX_FILE_BYTES	0	0		2	1	0	1	src/code.rs:17	1	const
+149	symbol	MAX_FILES	MAX_FILES	0	0		2	1	0	1	src/code.rs:19	1	const
+150	symbol	MAX_MENTIONS_PER_FILE	MAX_MENTIONS_PER_FILE	0	0		2	1	0	1	src/code.rs:21	1	const
+151	symbol	MIN_MENTION_LEN	MIN_MENTION_LEN	0	0		2	1	0	1	src/code.rs:23	1	const
+152	symbol	PROMISCUOUS_DEFS	PROMISCUOUS_DEFS	0	0		2	1	0	1	src/code.rs:26	1	const
+153	symbol	MAX_MENTION_USERS	MAX_MENTION_USERS	0	0		2	1	0	1	src/code.rs:29	1	const
+154	symbol	NAME_STOPLIST	NAME_STOPLIST	0	0		2	1	0	1	src/code.rs:31	1	const
+155	symbol	CODE_VERSION	CODE_VERSION	0	0		2	1	0	1	src/code.rs:33	1	const
+156	symbol	MAX_VARIANTS_PER_ENUM	MAX_VARIANTS_PER_ENUM	0	0		2	1	0	1	src/code.rs:35	1	const
+157	symbol	MAX_SPAN_LINES	MAX_SPAN_LINES	0	0		2	1	0	1	src/code.rs:37	1	const
+158	symbol	SKIP_DIRS	SKIP_DIRS	0	0		2	1	0	1	src/code.rs:39	1	const
+159	symbol	Stats	Stats	0	0		2	1	0	1	src/code.rs:42-51	1	type
+160	symbol	Def	Def	0	0		2	1	0	1	src/code.rs:54-63	1	type
+161	symbol	index	index	0	0		2	11	0	1	src/code.rs:67-180	1	fn
+162	symbol	ext_of	ext_of	0	0		2	1	0	1	src/code.rs:182-184	1	fn
+163	symbol	walk	walk	0	0		2	2	0	1	src/code.rs:187-214	1	fn
+164	symbol	DEF_KEYWORDS	DEF_KEYWORDS	0	0		2	1	0	1	src/code.rs:216	1	const
+165	symbol	MODIFIERS	MODIFIERS	0	0		2	1	0	1	src/code.rs:221	1	const
+166	symbol	definitions	definitions	0	0		2	8	0	1	src/code.rs:225-322	1	fn
+167	symbol	span_end	span_end	0	0		2	1	0	1	src/code.rs:328-375	1	fn
+168	symbol	strip_strings_and_comments	strip_strings_and_comments	0	0		2	1	0	1	src/code.rs:379-410	1	fn
+169	symbol	imports	imports	0	0		2	4	0	1	src/code.rs:438-534	1	fn
+170	symbol	common_prefix	common_prefix	0	0		2	1	0	1	src/code.rs:536-538	1	fn
+171	symbol	identifiers	identifiers	0	0		2	3	0	1	src/code.rs:541-543	1	fn
+172	symbol	def_name	def_name	0	0		2	1	0	1	src/code.rs:550-564	1	fn
+173	symbol	doc_start	doc_start	0	0		2	1	0	1	src/code.rs:569-580	1	fn
+174	symbol	refresh	refresh	0	0		2	4	0	1	src/code.rs:584-589	1	fn
+175	symbol	paths_ending_with	paths_ending_with	0	0		2	2	0	1	src/code.rs:592-597	1	fn
+176	symbol	kind_str	kind_str	0	0		2	2	0	1	src/code.rs:600-608	1	fn
+177	symbol	defs_named	defs_named	0	0		2	7	0	1	src/code.rs:611-626	1	fn
+178	symbol	has_index	has_index	0	0		2	3	0	1	src/code.rs:629-631	1	fn
+179	symbol	finds_definitions_across_languages	finds_definitions_across_languages	0	0		2	1	0	1	src/code.rs:638-650	1	fn
+180	symbol	resolves_imports_against_the_checkout	resolves_imports_against_the_checkout	0	0		2	1	0	1	src/code.rs:653-662	1	fn
+181	symbol	spans_end_where_the_brace_closes_or_the_indent_returns	spans_end_where_the_brace_closes_or_the_indent_returns	0	0		2	1	0	1	src/code.rs:665-679	1	fn
+182	symbol	SCHEMA_VERSION	SCHEMA_VERSION	0	0		2	1	0	1	src/db.rs:11	1	const
+183	symbol	db_path	db_path	0	0		2	5	0	1	src/db.rs:13-15	1	fn
+184	symbol	open	open	0	0		2	10	0	1	src/db.rs:18-20	1	fn
+185	symbol	open_at	open_at	0	0		2	2	0	1	src/db.rs:22-51	1	fn
+186	symbol	is_readonly	is_readonly	0	0		2	5	0	1	src/db.rs:54-56	1	fn
+187	symbol	open_memory	open_memory	0	0		2	4	0	1	src/db.rs:59-64	1	fn
+188	symbol	configure	configure	0	0		2	1	0	1	src/db.rs:66-75	1	fn
+189	symbol	migrate	migrate	0	0		2	1	0	1	src/db.rs:77-278	1	fn
+190	symbol	SCHEMA_V1	SCHEMA_V1	0	0		2	1	0	1	src/db.rs:282	1	const
+191	symbol	meta_get	meta_get	0	0		2	5	0	1	src/db.rs:377-384	1	fn
+192	symbol	meta_set	meta_set	0	0		2	5	0	1	src/db.rs:386-392	1	fn
+193	symbol	placeholders	placeholders	0	0		2	3	0	1	src/db.rs:396-408	1	fn
+194	symbol	Pinned	Pinned	0	0		8	1	0	1	src/embed/download.rs:10-14	1	type
+195	symbol	ModelVariant	ModelVariant	0	0		8	2	0	1	src/embed/download.rs:21-28	1	type
+196	symbol	Int8	Int8	0	0		8	1	0	1	src/embed/download.rs:23	1	variant
+197	symbol	Q4	Q4	0	0		8	1	0	1	src/embed/download.rs:25	1	variant
+198	symbol	Q4F16	Q4F16	0	0		8	1	0	1	src/embed/download.rs:27	1	variant
+199	symbol	from_precision	from_precision	0	0		8	2	0	1	src/embed/download.rs:31-38	1	fn
+200	symbol	precision	precision	0	0		8	6	0	1	src/embed/download.rs:40-45	1	fn
+201	symbol	stem	stem	0	0		8	3	0	1	src/embed/download.rs:48-53	1	fn
+202	symbol	graph_name	graph_name	0	0		8	2	0	1	src/embed/download.rs:56-58	1	fn
+203	symbol	data_name	data_name	0	0		8	2	0	1	src/embed/download.rs:60-62	1	fn
+204	symbol	graph	graph	0	0		8	16	0	1	src/embed/download.rs:64-82	1	fn
+205	symbol	data	data	0	0		8	10	0	1	src/embed/download.rs:84-102	1	fn
+206	symbol	TOKENIZER	TOKENIZER	0	0		8	2	0	1	src/embed/download.rs:105-109	1	const
+207	symbol	ORT_VERSION	ORT_VERSION	0	0		8	1	0	1	src/embed/download.rs:111	1	const
+208	symbol	ORT_ARCHIVE	ORT_ARCHIVE	0	0		8	1	0	1	src/embed/download.rs:114-118	1	const
+209	symbol	ORT_ARCHIVE	ORT_ARCHIVE	0	0		8	1	0	1	src/embed/download.rs:120-124	1	const
+210	symbol	ORT_ARCHIVE	ORT_ARCHIVE	0	0		8	1	0	1	src/embed/download.rs:129	1	const
+211	symbol	model_dir	model_dir	0	0		8	6	0	1	src/embed/download.rs:133-135	1	fn
+212	symbol	runtime_dir	runtime_dir	0	0		8	1	0	1	src/embed/download.rs:137-139	1	fn
+213	symbol	dylib_name	dylib_name	0	0		8	1	0	1	src/embed/download.rs:142-147	1	fn
+214	symbol	ensure_file	ensure_file	0	0		8	2	0	1	src/embed/download.rs:153-175	1	fn
+215	symbol	download_to	download_to	0	0		8	1	0	1	src/embed/download.rs:178-197	1	fn
+216	symbol	hex	hex	0	0		8	1	0	1	src/embed/download.rs:199-206	1	fn
+217	symbol	ensure_runtime	ensure_runtime	0	0		8	3	0	1	src/embed/download.rs:210-239	1	fn
+218	symbol	find_file	find_file	0	0		8	1	0	1	src/embed/download.rs:241-253	1	fn
+219	symbol	Embedder	Embedder	0	0		8	9	0	1	src/embed/mod.rs:18-21	1	type
+220	symbol	dims	dims	0	0		8	1	0	1	src/embed/mod.rs:19	1	fn
+221	symbol	embed	embed	0	0		8	1	0	1	src/embed/mod.rs:20	1	fn
+222	symbol	SpaceDef	SpaceDef	0	0		8	1	0	1	src/embed/mod.rs:25-32	1	type
+223	symbol	gemma2_default	gemma2_default	0	0		8	2	0	1	src/embed/mod.rs:38-48	1	fn
+224	symbol	query_text	query_text	0	0		8	3	0	1	src/embed/mod.rs:50-55	1	fn
+225	symbol	doc_text	doc_text	0	0		8	3	0	1	src/embed/mod.rs:58-64	1	fn
+226	symbol	Space	Space	0	0		8	3	0	1	src/embed/mod.rs:68-72	1	type
+227	symbol	SpaceDef	SpaceDef	0	0		8	1	0	1	src/embed/mod.rs:70-74	1	fn
+228	symbol	row_to_space	row_to_space	0	0		8	1	0	1	src/embed/mod.rs:74-87	1	fn
+229	symbol	SpaceDef	SpaceDef	0	0		8	3	0	1	src/embed/mod.rs:77-84	1	fn
+230	symbol	SPACE_COLS	SPACE_COLS	0	0		8	1	0	1	src/embed/mod.rs:89	1	const
+231	symbol	active_space	active_space	0	0		8	3	0	1	src/embed/mod.rs:91-99	1	fn
+232	symbol	space_by_status	space_by_status	0	0		8	2	0	1	src/embed/mod.rs:101-109	1	fn
+233	symbol	insert_space	insert_space	0	0		8	2	0	1	src/embed/mod.rs:111-118	1	fn
+234	symbol	activate_space	activate_space	0	0		8	2	0	1	src/embed/mod.rs:122-132	1	fn
+235	symbol	ensure_space	ensure_space	0	0		8	3	0	1	src/embed/mod.rs:136-147	1	fn
+236	symbol	encode_f16	encode_f16	0	0		8	2	0	1	src/embed/mod.rs:150-156	1	fn
+237	symbol	decode_f16	decode_f16	0	0		8	1	0	1	src/embed/mod.rs:159-165	1	fn
+238	symbol	truncate_normalise	truncate_normalise	0	0		8	3	0	1	src/embed/mod.rs:168-176	1	fn
+239	symbol	cached_query	cached_query	0	0		8	2	0	1	src/embed/mod.rs:181-195	1	fn
+240	symbol	cache_query	cache_query	0	0		8	2	0	1	src/embed/mod.rs:198-217	1	fn
+241	symbol	HashEmbedder	HashEmbedder	0	0		8	2	0	1	src/embed/mod.rs:222-224	1	type
+242	symbol	dims	dims	0	0		8	7	0	1	src/embed/mod.rs:227-229	1	fn
+243	symbol	embed	embed	0	0		8	12	0	1	src/embed/mod.rs:230-250	1	fn
+244	symbol	space_def	space_def	0	0		8	2	0	1	src/embed/mod.rs:254-263	1	fn
+245	symbol	open_default	open_default	0	0		8	3	0	1	src/embed/mod.rs:268-279	1	fn
+246	symbol	default_space_def	default_space_def	0	0		8	2	0	1	src/embed/mod.rs:281-290	1	fn
+247	symbol	f16_roundtrip	f16_roundtrip	0	0		8	1	0	1	src/embed/mod.rs:297-305	1	fn
+248	symbol	truncate_and_normalise	truncate_and_normalise	0	0		8	1	0	1	src/embed/mod.rs:308-312	1	fn
+249	symbol	doc_text_uses_none_without_heading	doc_text_uses_none_without_heading	0	0		8	1	0	1	src/embed/mod.rs:315-320	1	fn
+250	symbol	query_cache_is_bounded	query_cache_is_bounded	0	0		8	1	0	1	src/embed/mod.rs:323-334	1	fn
+251	symbol	MEDIA_DIM	MEDIA_DIM	0	0		8	1	0	1	src/embed/ort_rt.rs:14	1	const
+252	symbol	OrtOptions	OrtOptions	0	0		8	2	0	1	src/embed/ort_rt.rs:18-29	1	type
+253	symbol	default	default	0	0		8	14	0	1	src/embed/ort_rt.rs:34-48	1	fn
+254	symbol	OrtEmbedder	OrtEmbedder	0	0		8	3	0	1	src/embed/ort_rt.rs:51-60	1	type
+255	symbol	open	open	0	0		8	10	0	1	src/embed/ort_rt.rs:63-65	1	fn
+256	symbol	open_with	open_with	0	0		8	2	0	1	src/embed/ort_rt.rs:67-133	1	fn
+257	symbol	dims	dims	0	0		8	7	0	1	src/embed/ort_rt.rs:137-139	1	fn
+258	symbol	embed	embed	0	0		8	12	0	1	src/embed/ort_rt.rs:141-202	1	fn
+259	symbol	MAGIC	MAGIC	0	0		8	1	0	1	src/embed/tokenizer.rs:17	1	const
+260	symbol	VERSION	VERSION	0	0		8	1	0	1	src/embed/tokenizer.rs:18	1	const
+261	symbol	SPACE_PIECE	SPACE_PIECE	0	0		8	1	0	1	src/embed/tokenizer.rs:19	1	const
+262	symbol	GemmaTokenizer	GemmaTokenizer	0	0		8	4	0	1	src/embed/tokenizer.rs:22-33	1	type
+263	symbol	u32_at	u32_at	0	0		8	1	0	1	src/embed/tokenizer.rs:36-38	1	fn
+264	symbol	load	load	0	0		8	8	0	1	src/embed/tokenizer.rs:42-55	1	fn
+265	symbol	from_buf	from_buf	0	0		8	1	0	1	src/embed/tokenizer.rs:57-82	1	fn
+266	symbol	piece	piece	0	0		8	3	0	1	src/embed/tokenizer.rs:85-89	1	fn
+267	symbol	piece_id	piece_id	0	0		8	1	0	1	src/embed/tokenizer.rs:92-104	1	fn
+268	symbol	merge	merge	0	0		8	3	0	1	src/embed/tokenizer.rs:109-125	1	fn
+269	symbol	encode	encode	0	0		8	5	0	1	src/embed/tokenizer.rs:129-199	1	fn
+270	symbol	Sym	Sym	0	0		8	1	0	1	src/embed/tokenizer.rs:203-207	1	type
+271	symbol	Pending	Pending	0	0		8	1	0	1	src/embed/tokenizer.rs:210-216	1	type
+272	symbol	cmp	cmp	0	0		8	1	0	1	src/embed/tokenizer.rs:220-222	1	fn
+273	symbol	partial_cmp	partial_cmp	0	0		8	2	0	1	src/embed/tokenizer.rs:225-227	1	fn
+274	symbol	Scratch	Scratch	0	0		8	6	0	1	src/embed/tokenizer.rs:232-236	1	type
+275	symbol	build	build	0	0		8	9	0	1	src/embed/tokenizer.rs:239-329	1	fn
+276	symbol	Merge	Merge	0	0		8	2	0	1	src/embed/tokenizer.rs:244-247	1	type
+277	symbol	Pair	Pair	0	0		8	1	0	1	src/embed/tokenizer.rs:245	1	variant
+278	symbol	Line	Line	0	0		8	2	0	1	src/embed/tokenizer.rs:246	1	variant
+279	symbol	Model	Model	0	0		8	1	0	1	src/embed/tokenizer.rs:249-252	1	type
+280	symbol	File	File	0	0		8	8	0	1	src/embed/tokenizer.rs:254-256	1	type
+281	symbol	json_path	json_path	0	0		8	1	0	1	src/embed/tokenizer.rs:335-338	1	fn
+282	symbol	matches_reference_tokenizer	matches_reference_tokenizer	0	0		8	1	0	1	src/embed/tokenizer.rs:342-372	1	fn
+283	symbol	Error	Error	0	0		2	3	0	1	src/error.rs:5-10	1	type
+284	symbol	Db	Db	0	0		2	1	0	1	src/error.rs:6	1	variant
+285	symbol	Io	Io	0	0		2	1	0	1	src/error.rs:7	1	variant
+286	symbol	Msg	Msg	0	0		2	1	0	1	src/error.rs:9	1	variant
+287	symbol	Result	Result	0	0		2	22	0	1	src/error.rs:12	1	type
+288	symbol	fmt	fmt	0	0		2	1	0	1	src/error.rs:15-20	1	fn
+289	symbol	from	from	0	0		2	1	0	1	src/error.rs:27-29	1	fn
+290	symbol	from	from	0	0		2	1	0	1	src/error.rs:32-34	1	fn
+291	symbol	from	from	0	0		2	1	0	1	src/error.rs:37-39	1	fn
+292	symbol	from	from	0	0		2	1	0	1	src/error.rs:42-44	1	fn
+293	symbol	from	from	0	0		2	23	0	1	src/error.rs:47-49	1	fn
+294	symbol	err	err	0	0		2	1	0	1	src/error.rs:54-56	1	fn
+295	symbol	GoldQuestion	GoldQuestion	0	0		2	1	0	1	src/eval.rs:11-18	1	type
+296	symbol	GoldSet	GoldSet	0	0		2	1	0	1	src/eval.rs:21-23	1	type
+297	symbol	Report	Report	0	0		2	2	0	1	src/eval.rs:26-40	1	type
+298	symbol	load_gold	load_gold	0	0		2	2	0	1	src/eval.rs:42-45	1	fn
+299	symbol	run	run	0	0		2	1	0	1	src/eval.rs:49-114	1	fn
+300	symbol	gate	gate	0	0		2	3	0	1	src/eval.rs:119-135	1	fn
+301	symbol	terms	terms	0	0		2	3	0	1	src/fts.rs:9-27	1	fn
+302	symbol	push_term	push_term	0	0		2	1	0	1	src/fts.rs:29-32	1	fn
+303	symbol	build	build	0	0		2	9	0	1	src/fts.rs:39-59	1	fn
+304	symbol	is_identifier	is_identifier	0	0		2	3	0	1	src/fts.rs:64-84	1	fn
+305	symbol	quotes_every_term	quotes_every_term	0	0		2	1	0	1	src/fts.rs:91-99	1	fn
+306	symbol	identifiers	identifiers	0	0		2	3	0	1	src/fts.rs:102-111	1	fn
+307	symbol	Kind	Kind	0	0		2	9	0	1	src/graph.rs:18-25	1	type
+308	symbol	File	File	0	0		2	8	0	1	src/graph.rs:20	1	variant
+309	symbol	Note	Note	0	0		2	7	0	1	src/graph.rs:22	1	variant
+310	symbol	Symbol	Symbol	0	0		2	8	0	1	src/graph.rs:24	1	variant
+311	symbol	from_i64	from_i64	0	0		2	1	0	1	src/graph.rs:28-34	1	fn
+312	symbol	name	name	0	0		2	18	0	1	src/graph.rs:35-40	1	fn
+313	symbol	resolve_note_ref	resolve_note_ref	0	0		2	2	0	1	src/graph.rs:50-65	1	fn
+314	symbol	extract	extract	0	0		2	2	0	1	src/graph.rs:68-131	1	fn
+315	symbol	looks_like_symbol	looks_like_symbol	0	0		2	1	0	1	src/graph.rs:136-149	1	fn
+316	symbol	FILE_EXTS	FILE_EXTS	0	0		2	1	0	1	src/graph.rs:153	1	const
+317	symbol	looks_like_path	looks_like_path	0	0		2	1	0	1	src/graph.rs:159-175	1	fn
+318	symbol	store_links	store_links	0	0		2	2	0	1	src/graph.rs:178-201	1	fn
+319	symbol	ensure_links	ensure_links	0	0		2	6	0	1	src/graph.rs:210-238	1	fn
+320	symbol	NoteRef	NoteRef	0	0		2	1	0	1	src/graph.rs:241-251	1	type
+321	symbol	notes_for	notes_for	0	0		2	4	0	1	src/graph.rs:256-287	1	fn
+322	symbol	history	history	0	0		2	5	0	1	src/graph.rs:291-340	1	fn
+323	symbol	links_of	links_of	0	0		2	4	0	1	src/graph.rs:344-359	1	fn
+324	symbol	dangling_files	dangling_files	0	0		2	4	0	1	src/graph.rs:363-377	1	fn
+325	symbol	Node	Node	0	0		2	1	0	1	src/graph.rs:382-403	1	type
+326	symbol	SECTION_CONTEXT	SECTION_CONTEXT	0	0		2	1	0	1	src/graph.rs:405	1	const
+327	symbol	SECTION_DECISION	SECTION_DECISION	0	0		2	2	0	1	src/graph.rs:406	1	const
+328	symbol	SECTION_REJECTED	SECTION_REJECTED	0	0		2	1	0	1	src/graph.rs:407	1	const
+329	symbol	SECTION_MEASURED	SECTION_MEASURED	0	0		2	1	0	1	src/graph.rs:408	1	const
+330	symbol	SECTION_OPEN	SECTION_OPEN	0	0		2	1	0	1	src/graph.rs:409	1	const
+331	symbol	summarise	summarise	0	0		2	1	0	1	src/graph.rs:412-453	1	fn
+332	symbol	first_sentence	first_sentence	0	0		2	1	0	1	src/graph.rs:455-467	1	fn
+333	symbol	CHECKOUT_INDEX_MAX	CHECKOUT_INDEX_MAX	0	0		2	1	0	1	src/graph.rs:470	1	const
+334	symbol	checkout_index	checkout_index	0	0		2	1	0	1	src/graph.rs:475-502	1	fn
+335	symbol	SYMBOL_SCAN_MAX_BYTES	SYMBOL_SCAN_MAX_BYTES	0	0		2	1	0	1	src/graph.rs:505	1	const
+336	symbol	locate_symbol	locate_symbol	0	0		2	1	0	1	src/graph.rs:510-534	1	fn
+337	symbol	Edge	Edge	0	0		2	1	0	1	src/graph.rs:537-541	1	type
+338	symbol	Graph	Graph	0	0		2	3	0	1	src/graph.rs:544-554	1	type
+339	symbol	build	build	0	0		2	9	0	1	src/graph.rs:558-858	1	fn
+340	symbol	find	find	0	0		2	10	0	1	src/graph.rs:780-786	1	fn
+341	symbol	tsv_escape	tsv_escape	0	0		2	1	0	1	src/graph.rs:860-862	1	fn
+342	symbol	HTML_MIN_USERS	HTML_MIN_USERS	0	0		2	1	0	1	src/graph.rs:866	1	const
+343	symbol	HTML_MENTIONS_PER_FILE	HTML_MENTIONS_PER_FILE	0	0		2	1	0	1	src/graph.rs:868	1	const
+344	symbol	navigation_view	navigation_view	0	0		2	1	0	1	src/graph.rs:873-926	1	fn
+345	symbol	write	write	0	0		2	10	0	1	src/graph.rs:930-954	1	fn
+346	symbol	HTML	HTML	0	0		2	1	0	1	src/graph.rs:957	1	const
+347	symbol	query_entities	query_entities	0	0		2	3	0	1	src/graph.rs:961-976	1	fn
+348	symbol	same_file	same_file	0	0		2	2	0	1	src/graph.rs:980-982	1	fn
+349	symbol	extracts_declared_edges_only	extracts_declared_edges_only	0	0		2	1	0	1	src/graph.rs:989-1001	1	fn
+350	symbol	summary_and_sections	summary_and_sections	0	0		2	1	0	1	src/graph.rs:1004-1011	1	fn
+351	symbol	symbol_location_prefers_definitions	symbol_location_prefers_definitions	0	0		2	1	0	1	src/graph.rs:1014-1027	1	fn
+352	symbol	note_refs_resolve_relative_to_the_note	note_refs_resolve_relative_to_the_note	0	0		2	1	0	1	src/graph.rs:1030-1035	1	fn
+353	symbol	import	import	0	0		2	4	0	1	src/importlog.rs:13-61	1	fn
+354	symbol	rel	rel	0	0		2	1	0	1	src/importlog.rs:63-65	1	fn
+355	symbol	parse_span	parse_span	0	0		2	1	0	1	src/importlog.rs:68-78	1	fn
+356	symbol	reads_in	reads_in	0	0		2	1	0	1	src/importlog.rs:81-117	1	fn
+357	symbol	is_path	is_path	0	0		2	1	0	1	src/importlog.rs:119-122	1	fn
+358	symbol	unquote	unquote	0	0		2	1	0	1	src/importlog.rs:124-126	1	fn
+359	symbol	bytes_of	bytes_of	0	0		2	1	0	1	src/importlog.rs:128-138	1	fn
+360	symbol	shell_reads_are_recognised	shell_reads_are_recognised	0	0		2	1	0	1	src/importlog.rs:145-152	1	fn
+361	symbol	CHUNK_TARGET_WORDS	CHUNK_TARGET_WORDS	0	0		2	2	0	1	src/limits.rs:10	1	const
+362	symbol	CHUNK_MAX_WORDS	CHUNK_MAX_WORDS	0	0		2	2	0	1	src/limits.rs:12	1	const
+363	symbol	EMBED_MAX_TOKENS	EMBED_MAX_TOKENS	0	0		2	2	0	1	src/limits.rs:15	1	const
+364	symbol	GRAPH_MAX_SYMBOLS_PER_NOTE	GRAPH_MAX_SYMBOLS_PER_NOTE	0	0		2	2	0	1	src/limits.rs:18	1	const
+365	symbol	HEADER_LINES	HEADER_LINES	0	0		2	1	0	1	src/limits.rs:20	1	const
+366	symbol	SEARCH_CHUNK_BYTES	SEARCH_CHUNK_BYTES	0	0		2	2	0	1	src/limits.rs:26	1	const
+367	symbol	SEARCH_OUTPUT_BYTES	SEARCH_OUTPUT_BYTES	0	0		2	2	0	1	src/limits.rs:29	1	const
+368	symbol	SEARCH_CHUNKS_PER_NOTE	SEARCH_CHUNKS_PER_NOTE	0	0		2	2	0	1	src/limits.rs:31	1	const
+369	symbol	SECTION_CUE_WEIGHT	SECTION_CUE_WEIGHT	0	0		2	2	0	1	src/limits.rs:44	1	const
+370	symbol	DISTINCTIVE_MAX_SHARE	DISTINCTIVE_MAX_SHARE	0	0		2	2	0	1	src/limits.rs:52	1	const
+371	symbol	GRAPH_DIRECT_WEIGHT	GRAPH_DIRECT_WEIGHT	0	0		2	3	0	1	src/limits.rs:56	1	const
+372	symbol	GRAPH_BRIDGE_WEIGHT	GRAPH_BRIDGE_WEIGHT	0	0		2	2	0	1	src/limits.rs:57	1	const
+373	symbol	SEARCH_CODE_SPANS	SEARCH_CODE_SPANS	0	0		2	2	0	1	src/limits.rs:59	1	const
+374	symbol	SEARCH_FILES_SHOWN	SEARCH_FILES_SHOWN	0	0		2	2	0	1	src/limits.rs:61	1	const
+375	symbol	USE_CONTEXT_LINES	USE_CONTEXT_LINES	0	0		2	2	0	1	src/limits.rs:67	1	const
+376	symbol	BYTES_PER_TOKEN	BYTES_PER_TOKEN	0	0		2	2	0	1	src/limits.rs:72	1	const
+377	symbol	USAGE_FILE_CAP	USAGE_FILE_CAP	0	0		2	2	0	1	src/limits.rs:76	1	const
+378	symbol	DECISION_MIN_WORDS	DECISION_MIN_WORDS	0	0		2	2	0	1	src/limits.rs:86	1	const
+379	symbol	NOTE_MAX_WORDS	NOTE_MAX_WORDS	0	0		2	2	0	1	src/limits.rs:88	1	const
+380	symbol	_	_	0	0		2	1	0	1	src/limits.rs:89	1	const
+381	symbol	CHANNEL_TOP	CHANNEL_TOP	0	0		2	2	0	1	src/limits.rs:95	1	const
+382	symbol	BITS_MIN_ROWS	BITS_MIN_ROWS	0	0		2	2	0	1	src/limits.rs:98	1	const
+383	symbol	BITS_CANDIDATES	BITS_CANDIDATES	0	0		2	2	0	1	src/limits.rs:101	1	const
+384	symbol	bits_bytes_per_vector	bits_bytes_per_vector	0	0		2	1	0	1	src/limits.rs:103-105	1	fn
+385	symbol	bits_pack_bytes	bits_pack_bytes	0	0		2	1	0	1	src/limits.rs:108-110	1	fn
+386	symbol	QUERY_CACHE_MAX	QUERY_CACHE_MAX	0	0		2	2	0	1	src/limits.rs:113	1	const
+387	symbol	RRF_K	RRF_K	0	0		2	2	0	1	src/limits.rs:115	1	const
+388	symbol	SUPERSEDED_WEIGHT	SUPERSEDED_WEIGHT	0	0		2	2	0	1	src/limits.rs:117	1	const
+389	symbol	SIBLING_WEIGHT	SIBLING_WEIGHT	0	0		2	3	0	1	src/limits.rs:119	1	const
+390	symbol	EMBED_DIMS	EMBED_DIMS	0	0		2	2	0	1	src/limits.rs:125	1	const
+391	symbol	ORT_THREADS	ORT_THREADS	0	0		2	2	0	1	src/limits.rs:128	1	const
+392	symbol	EMBED_BATCH	EMBED_BATCH	0	0		2	2	0	1	src/limits.rs:131	1	const
+393	symbol	IDLE_UNLOAD_SECS	IDLE_UNLOAD_SECS	0	0		2	2	0	1	src/limits.rs:134	1	const
+394	symbol	BUDGET_KEYWORD_RSS_MB	BUDGET_KEYWORD_RSS_MB	0	0		2	1	0	1	src/limits.rs:140	1	const
+395	symbol	BUDGET_MEANING_RSS_MB	BUDGET_MEANING_RSS_MB	0	0		2	1	0	1	src/limits.rs:142	1	const
+396	symbol	BUDGET_REINDEX_RSS_MB	BUDGET_REINDEX_RSS_MB	0	0		2	1	0	1	src/limits.rs:144	1	const
+397	symbol	_	_	0	0		2	1	0	1	src/limits.rs:147-159	1	const
+398	symbol	Cli	Cli	0	0		2	1	0	1	src/main.rs:12-24	1	type
+399	symbol	ScopeArgs	ScopeArgs	0	0		2	1	0	1	src/main.rs:27-37	1	type
+400	symbol	flags	flags	0	0		2	6	0	1	src/main.rs:40-42	1	fn
+401	symbol	Cmd	Cmd	0	0		2	1	0	1	src/main.rs:46-198	1	type
+402	symbol	Save	Save	0	0		2	4	0	1	src/main.rs:48-59	1	variant
+403	symbol	Search	Search	0	0		2	3	0	1	src/main.rs:61-82	1	variant
+404	symbol	Forget	Forget	0	0		2	1	0	1	src/main.rs:84-96	1	variant
+405	symbol	Project	Project	0	0		2	6	0	1	src/main.rs:98-101	1	variant
+406	symbol	Reindex	Reindex	0	0		2	1	0	1	src/main.rs:103-110	1	variant
+407	symbol	Status	Status	0	0		2	4	0	1	src/main.rs:112	1	variant
+408	symbol	Lint	Lint	0	0		2	1	0	1	src/main.rs:114-117	1	variant
+409	symbol	Session	Session	0	0		2	3	0	1	src/main.rs:120-122	1	variant
+410	symbol	Read	Read	0	0		2	6	0	1	src/main.rs:125-134	1	variant
+411	symbol	ImportLog	ImportLog	0	0		2	1	0	1	src/main.rs:138-140	1	variant
+412	symbol	Serve	Serve	0	0		2	1	0	1	src/main.rs:142-146	1	variant
+413	symbol	Mcp	Mcp	0	0		2	1	0	1	src/main.rs:148	1	variant
+414	symbol	Eval	Eval	0	0		2	1	0	1	src/main.rs:150-164	1	variant
+415	symbol	Export	Export	0	0		2	1	0	1	src/main.rs:166-170	1	variant
+416	symbol	Links	Links	0	0		2	2	0	1	src/main.rs:172-178	1	variant
+417	symbol	History	History	0	0		2	1	0	1	src/main.rs:180-183	1	variant
+418	symbol	Graph	Graph	0	0		2	3	0	1	src/main.rs:185-195	1	variant
+419	symbol	Init	Init	0	0		2	1	0	1	src/main.rs:197	1	variant
+420	symbol	ProjectCmd	ProjectCmd	0	0		2	1	0	1	src/main.rs:201-209	1	type
+421	symbol	Add	Add	0	0		2	1	0	1	src/main.rs:203	1	variant
+422	symbol	List	List	0	0		2	3	0	1	src/main.rs:204	1	variant
+423	symbol	Group	Group	0	0		2	1	0	1	src/main.rs:206	1	variant
+424	symbol	Relink	Relink	0	0		2	1	0	1	src/main.rs:208	1	variant
+425	symbol	main	main	0	0		2	6	0	1	src/main.rs:211-222	1	fn
+426	symbol	run	run	0	0		2	1	0	1	src/main.rs:224-624	1	fn
+427	symbol	parse_duration	parse_duration	0	0		2	1	0	1	src/main.rs:626-636	1	fn
+428	symbol	fmt_date	fmt_date	0	0		2	1	0	1	src/main.rs:639-641	1	fn
+429	symbol	fmt_tokens	fmt_tokens	0	0		2	1	0	1	src/main.rs:644-652	1	fn
+430	symbol	IDLE_UNLOAD	IDLE_UNLOAD	0	0		2	1	0	1	src/mcp.rs:16	1	const
+431	symbol	run	run	0	0		2	1	0	1	src/mcp.rs:18-110	1	fn
+432	symbol	write_msg	write_msg	0	0		2	1	0	1	src/mcp.rs:112-118	1	fn
+433	symbol	ok_reply	ok_reply	0	0		2	1	0	1	src/mcp.rs:120-122	1	fn
+434	symbol	error_reply	error_reply	0	0		2	1	0	1	src/mcp.rs:124-126	1	fn
+435	symbol	tool_error	tool_error	0	0		2	1	0	1	src/mcp.rs:128-130	1	fn
+436	symbol	tool_list	tool_list	0	0		2	1	0	1	src/mcp.rs:132-178	1	fn
+437	symbol	call_tool	call_tool	0	0		2	1	0	1	src/mcp.rs:180-261	1	fn
+438	symbol	Repo	Repo	0	0		2	7	0	1	src/project.rs:16-23	1	type
+439	symbol	discover	discover	0	0		2	4	0	1	src/project.rs:27-52	1	fn
+440	symbol	identity	identity	0	0		2	2	0	1	src/project.rs:55-60	1	fn
+441	symbol	id	id	0	0		2	1	0	1	src/project.rs:62-64	1	fn
+442	symbol	default_name	default_name	0	0		2	1	0	1	src/project.rs:66-71	1	fn
+443	symbol	resolve_relative	resolve_relative	0	0		2	1	0	1	src/project.rs:74-76	1	fn
+444	symbol	normalise_path	normalise_path	0	0		2	1	0	1	src/project.rs:79-92	1	fn
+445	symbol	read_remote	read_remote	0	0		2	1	0	1	src/project.rs:95-124	1	fn
+446	symbol	normalise_remote	normalise_remote	0	0		2	1	0	1	src/project.rs:128-163	1	fn
+447	symbol	project_id_of	project_id_of	0	0		2	4	0	1	src/project.rs:166-171	1	fn
+448	symbol	Project	Project	0	0		2	6	0	1	src/project.rs:174-179	1	type
+449	symbol	row_to_project	row_to_project	0	0		2	1	0	1	src/project.rs:181-189	1	fn
+450	symbol	by_id	by_id	0	0		2	1	0	1	src/project.rs:191-195	1	fn
+451	symbol	by_name	by_name	0	0		2	5	0	1	src/project.rs:197-201	1	fn
+452	symbol	list	list	0	0		2	10	0	1	src/project.rs:203-207	1	fn
+453	symbol	by_path	by_path	0	0		2	1	0	1	src/project.rs:210-213	1	fn
+454	symbol	ensure	ensure	0	0		2	3	0	1	src/project.rs:218-247	1	fn
+455	symbol	relink	relink	0	0		2	4	0	1	src/project.rs:251-272	1	fn
+456	symbol	set_group	set_group	0	0		2	2	0	1	src/project.rs:274-276	1	fn
+457	symbol	Scope	Scope	0	0		2	9	0	1	src/project.rs:281-284	1	type
+458	symbol	single	single	0	0		2	5	0	1	src/project.rs:287-289	1	fn
+459	symbol	add	add	0	0		2	1	0	1	src/project.rs:291-296	1	fn
+460	symbol	is_empty	is_empty	0	0		2	18	0	1	src/project.rs:298-300	1	fn
+461	symbol	weight	weight	0	0		2	5	0	1	src/project.rs:302-307	1	fn
+462	symbol	ids	ids	0	0		2	1	0	1	src/project.rs:309	1	fn
+463	symbol	placeholders	placeholders	0	0		2	3	0	1	src/project.rs:314-316	1	fn
+464	symbol	bind	bind	0	0		2	3	0	1	src/project.rs:318	1	fn
+465	symbol	ScopeFlags	ScopeFlags	0	0		2	6	0	1	src/project.rs:325-329	1	type
+466	symbol	resolve_scope	resolve_scope	0	0		2	4	0	1	src/project.rs:335-380	1	fn
+467	symbol	glob_match	glob_match	0	0		2	1	0	1	src/project.rs:383-394	1	fn
+468	symbol	go	go	0	0		2	1	0	1	src/project.rs:384-392	1	fn
+469	symbol	remotes_normalise_to_one_id	remotes_normalise_to_one_id	0	0		2	1	0	1	src/project.rs:401-409	1	fn
+470	symbol	glob	glob	0	0		2	4	0	1	src/project.rs:412-417	1	fn
+471	symbol	scope_dedups_and_keeps_max_weight	scope_dedups_and_keeps_max_weight	0	0		2	1	0	1	src/project.rs:420-426	1	fn
+472	symbol	Options	Options	0	0		2	3	0	1	src/render.rs:13-22	1	type
+473	symbol	Rendered	Rendered	0	0		2	1	0	1	src/render.rs:22-28	1	type
+474	symbol	search	search	0	0		2	18	0	1	src/render.rs:32-160	1	fn
+475	symbol	record	record	0	0		2	5	0	1	src/render.rs:164-173	1	fn
+476	symbol	empty_line	empty_line	0	0		2	3	0	1	src/render.rs:193-199	1	fn
+477	symbol	fmt_date	fmt_date	0	0		2	1	0	1	src/render.rs:202-215	1	fn
+478	symbol	parse_date	parse_date	0	0		2	2	0	1	src/render.rs:219-237	1	fn
+479	symbol	dates_round_trip_and_files_collapse	dates_round_trip_and_files_collapse	0	0		2	1	0	1	src/render.rs:244-249	1	fn
+480	symbol	Mode	Mode	0	0		2	7	0	1	src/search.rs:17-24	1	type
+481	symbol	Auto	Auto	0	0		2	4	0	1	src/search.rs:19	1	variant
+482	symbol	Keyword	Keyword	0	0		2	7	0	1	src/search.rs:21	1	variant
+483	symbol	Meaning	Meaning	0	0		2	4	0	1	src/search.rs:23	1	variant
+484	symbol	SearchOptions	SearchOptions	0	0		2	7	0	1	src/search.rs:27-30	1	type
+485	symbol	Trace	Trace	0	0		2	1	0	1	src/search.rs:35-50	1	type
+486	symbol	Hit	Hit	0	0		2	1	0	1	src/search.rs:53-72	1	type
+487	symbol	Explain	Explain	0	0		2	4	0	1	src/search.rs:76-95	1	type
+488	symbol	Memory	Memory	0	0		2	5	0	1	src/search.rs:98-100	1	type
+489	symbol	search	search	0	0		2	1	0	1	src/search.rs:99	1	fn
+490	symbol	ModelSource	ModelSource	0	0		2	4	0	1	src/search.rs:103-115	1	type
+491	symbol	Warm	Warm	0	0		2	3	0	1	src/search.rs:105	1	variant
+492	symbol	Lazy	Lazy	0	0		2	3	0	1	src/search.rs:106	1	variant
+493	symbol	search	search	0	0		2	1	0	1	src/search.rs:109-347	1	fn
+494	symbol	bm25_channel	bm25_channel	0	0		2	1	0	1	src/search.rs:350-359	1	fn
+495	symbol	STOPWORDS	STOPWORDS	0	0		2	2	0	1	src/search.rs:364	1	const
+496	symbol	is_stopword	is_stopword	0	0		2	1	0	1	src/search.rs:366-368	1	fn
+497	symbol	distinctive_terms	distinctive_terms	0	0		2	1	0	1	src/search.rs:374-402	1	fn
+498	symbol	coverage	coverage	0	0		2	3	0	1	src/search.rs:410-417	1	fn
+499	symbol	stem	stem	0	0		2	3	0	1	src/search.rs:421-430	1	fn
+500	symbol	section_cue	section_cue	0	0		2	2	0	1	src/search.rs:434-435	1	fn
+501	symbol	dedupe_key	dedupe_key	0	0		2	1	0	1	src/search.rs:452-458	1	fn
+502	symbol	is_dated	is_dated	0	0		2	1	0	1	src/search.rs:461-464	1	fn
+503	symbol	focus	focus	0	0		2	2	0	1	src/search.rs:468-497	1	fn
+504	symbol	exact_identifier_hit	exact_identifier_hit	0	0		2	1	0	1	src/search.rs:500-507	1	fn
+505	symbol	vector_channel	vector_channel	0	0		2	1	0	1	src/search.rs:516-596	1	fn
+506	symbol	build_bits	build_bits	0	0		2	1	0	1	src/search.rs:600-632	1	fn
+507	symbol	invalidate_bits	invalidate_bits	0	0		2	2	0	1	src/search.rs:635-638	1	fn
+508	symbol	exact_scan	exact_scan	0	0		2	1	0	1	src/search.rs:640-673	1	fn
+509	symbol	dot_f16	dot_f16	0	0		2	1	0	1	src/search.rs:679-693	1	fn
+510	symbol	fetch_hits	fetch_hits	0	0		2	1	0	1	src/search.rs:695-722	1	fn
+511	symbol	StoreMemory	StoreMemory	0	0		2	2	0	1	src/search.rs:725-731	1	type
+512	symbol	search	search	0	0		2	1	0	1	src/search.rs:731-737	1	fn
+513	symbol	GrepMemory	GrepMemory	0	0		2	2	0	1	src/search.rs:742-747	1	type
+514	symbol	search	search	0	0		2	18	0	1	src/search.rs:747-796	1	fn
+515	symbol	suspicious_name	suspicious_name	0	0		2	2	0	1	src/secrets.rs:4-16	1	fn
+516	symbol	suspicious_content	suspicious_content	0	0		2	2	0	1	src/secrets.rs:19-22	1	fn
+517	symbol	detects	detects	0	0		2	1	0	1	src/secrets.rs:45-54	1	fn
+518	symbol	socket_path	socket_path	0	0		2	2	0	1	src/serve.rs:20-24	1	fn
+519	symbol	Request	Request	0	0		2	1	0	1	src/serve.rs:27-29	1	type
+520	symbol	Reply	Reply	0	0		2	1	0	1	src/serve.rs:32-37	1	type
+521	symbol	run	run	0	0		2	1	0	1	src/serve.rs:40-88	1	fn
+522	symbol	RemoteEmbedder	RemoteEmbedder	0	0		2	2	0	1	src/serve.rs:92-94	1	type
+523	symbol	connect	connect	0	0		2	2	0	1	src/serve.rs:97-110	1	fn
+524	symbol	dims	dims	0	0		2	7	0	1	src/serve.rs:114-116	1	fn
+525	symbol	embed	embed	0	0		2	12	0	1	src/serve.rs:117-140	1	fn
+526	symbol	ReadSpan	ReadSpan	0	0		2	2	0	1	src/spans.rs:22-36	1	type
+527	symbol	ranked	ranked	0	0		2	7	0	1	src/spans.rs:39-155	1	fn
+528	symbol	row_def	row_def	0	0		2	1	0	1	src/spans.rs:157-167	1	fn
+529	symbol	first_use	first_use	0	0		2	1	0	1	src/spans.rs:172-186	1	fn
+530	symbol	context	context	0	0		2	7	0	1	src/spans.rs:191-226	1	fn
+531	symbol	SaveOutcome	SaveOutcome	0	0		2	3	0	1	src/store.rs:14-18	1	type
+532	symbol	Unchanged	Unchanged	0	0		2	4	0	1	src/store.rs:15	1	variant
+533	symbol	Added	Added	0	0		2	3	0	1	src/store.rs:16	1	variant
+534	symbol	Updated	Updated	0	0		2	3	0	1	src/store.rs:17	1	variant
+535	symbol	SaveOptions	SaveOptions	0	0		2	4	0	1	src/store.rs:20-34	1	type
+536	symbol	save_note	save_note	0	0		2	4	0	1	src/store.rs:28-149	1	fn
+537	symbol	chunk_key	chunk_key	0	0		2	1	0	1	src/store.rs:151-157	1	fn
+538	symbol	forget	forget	0	0		2	4	0	1	src/store.rs:232-256	1	fn
+539	symbol	forget_project	forget_project	0	0		2	2	0	1	src/store.rs:259-265	1	fn
+540	symbol	verify_clean	verify_clean	0	0		2	3	0	1	src/store.rs:269-279	1	fn
+541	symbol	ensure_chunk_version	ensure_chunk_version	0	0		2	2	0	1	src/store.rs:286-293	1	fn
+542	symbol	rechunk	rechunk	0	0		2	2	0	1	src/store.rs:295-348	1	fn
+543	symbol	Observed	Observed	0	0		2	2	0	1	src/store.rs:355-374	1	type
+544	symbol	Usage	Usage	0	0		2	2	0	1	src/store.rs:379-401	1	type
+545	symbol	Status	Status	0	0		2	4	0	1	src/store.rs:404-422	1	type
+546	symbol	status	status	0	0		2	16	0	1	src/store.rs:426-486	1	fn
+547	symbol	export	export	0	0		2	10	0	1	src/store.rs:491-510	1	fn
+548	symbol	relative_note_path	relative_note_path	0	0		2	2	0	1	src/store.rs:513-520	1	fn
+549	symbol	stale_instructions	stale_instructions	0	0		2	2	0	1	src/store.rs:524-545	1	fn
+550	symbol	record_usage	record_usage	0	0		2	3	0	1	src/store.rs:550-560	1	fn
+551	symbol	usage_summary	usage_summary	0	0		2	1	0	1	src/store.rs:562-608	1	fn
+552	symbol	observed	observed	0	0		2	3	0	1	src/store.rs:610-657	1	fn
+553	symbol	current_session	current_session	0	0		2	1	0	1	src/store.rs:660-662	1	fn
+554	symbol	set_session	set_session	0	0		2	2	0	1	src/store.rs:664-669	1	fn
+555	symbol	record_span	record_span	0	0		2	3	0	1	src/store.rs:673-682	1	fn
+556	symbol	guiding_rank	guiding_rank	0	0		2	1	0	1	src/store.rs:687-699	1	fn
+557	symbol	record_read_lines	record_read_lines	0	0		2	3	0	1	src/store.rs:709-730	1	fn
+558	symbol	note_bytes	note_bytes	0	0		2	3	0	1	src/store.rs:733-735	1	fn
+559	symbol	SECTION_NAMES	SECTION_NAMES	0	0		2	1	0	1	src/store.rs:738	1	const
+560	symbol	write_sections	write_sections	0	0		2	1	0	1	src/store.rs:741-750	1	fn
+561	symbol	canonical_section	canonical_section	0	0		2	1	0	1	src/store.rs:755-756	1	fn
+562	symbol	section_body	section_body	0	0		2	2	0	1	src/store.rs:762-766	1	fn
+563	symbol	ensure_sections	ensure_sections	0	0		2	2	0	1	src/store.rs:769-783	1	fn
+564	symbol	lint	lint	0	0		2	3	0	1	src/store.rs:787-824	1	fn
+565	symbol	data_dir	data_dir	0	0		2	5	0	1	src/sys.rs:7-13	1	fn
+566	symbol	now	now	0	0		2	1	0	1	src/sys.rs:15-17	1	fn
+567	symbol	peak_rss_bytes	peak_rss_bytes	0	0		2	3	0	1	src/sys.rs:20-32	1	fn
+568	symbol	current_rss_bytes	current_rss_bytes	0	0		2	2	0	1	src/sys.rs:35-68	1	fn
+569	symbol	question_symbol_then_note_symbols_then_uses	question_symbol_then_note_symbols_then_uses	0	0		9	1	0	1	tests/spans.rs:9-40	1	fn
+570	symbol	project	project	0	0		9	16	0	1	tests/store.rs:11-19	1	fn
+571	symbol	save	save	0	0		9	9	0	1	tests/store.rs:21-23	1	fn
+572	symbol	kw	kw	0	0		9	1	0	1	tests/store.rs:25-28	1	fn
+573	symbol	isolation_project_a_never_sees_project_b	isolation_project_a_never_sees_project_b	0	0		9	1	0	1	tests/store.rs:31-66	1	fn
+574	symbol	identifiers_are_found_through_fts5	identifiers_are_found_through_fts5	0	0		9	1	0	1	tests/store.rs:69-79	1	fn
+575	symbol	save_update_forget_roundtrip	save_update_forget_roundtrip	0	0		9	1	0	1	tests/store.rs:82-102	1	fn
+576	symbol	secrets_are_refused_unless_forced	secrets_are_refused_unless_forced	0	0		9	1	0	1	tests/store.rs:105-114	1	fn
+577	symbol	fusion_keeps_vectors_for_unchanged_chunks_and_traces_channels	fusion_keeps_vectors_for_unchanged_chunks_and_traces_channels	0	0		9	1	0	1	tests/store.rs:117-139	1	fn
+578	symbol	cold_model_skipped_on_exact_identifier_hit	cold_model_skipped_on_exact_identifier_hit	0	0		9	1	0	1	tests/store.rs:142-159	1	fn
+579	symbol	relink_moves_memory_to_the_new_id	relink_moves_memory_to_the_new_id	0	0		9	1	0	1	tests/store.rs:162-182	1	fn
+580	symbol	worktree_resolves_to_main_repo	worktree_resolves_to_main_repo	0	0		9	1	0	1	tests/store.rs:185-200	1	fn
+581	symbol	newer_note_supersedes_older_in_either_save_order	newer_note_supersedes_older_in_either_save_order	0	0		9	1	0	1	tests/store.rs:203-228	1	fn
+582	symbol	author_becomes_source_and_export_restores_files	author_becomes_source_and_export_restores_files	0	0		9	1	0	1	tests/store.rs:231-245	1	fn
+583	symbol	links_history_and_graph_from_declared_lines	links_history_and_graph_from_declared_lines	0	0		9	1	0	1	tests/store.rs:248-301	1	fn
+584	symbol	bit_prefilter_matches_exact_scan	bit_prefilter_matches_exact_scan	0	0		9	1	0	1	tests/store.rs:304-341	1	fn
+585	symbol	file_links_match_bare_partial_and_full_paths_and_say_the_name_used	file_links_match_bare_partial_and_full_paths_and_say_the_name_used	0	0		9	1	0	1	tests/store.rs:344-358	1	fn
+586	symbol	off_topic_question_returns_nothing_and_says_why	off_topic_question_returns_nothing_and_says_why	0	0		9	1	0	1	tests/store.rs:361-375	1	fn
+587	symbol	number_questions_prefer_the_measured_section_and_duplicates_collapse	number_questions_prefer_the_measured_section_and_duplicates_collapse	0	0		9	1	0	1	tests/store.rs:378-394	1	fn
+588	symbol	graph_rerank_lifts_the_note_that_links_the_named_file_or_symbol	graph_rerank_lifts_the_note_that_links_the_named_file_or_symbol	0	0		9	1	0	1	tests/store.rs:397-413	1	fn

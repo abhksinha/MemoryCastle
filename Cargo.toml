@@ -1,0 +1,45 @@
+[package]
+name = "memorycastle"
+version = "0.10.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/abhksinha/MemoryCastle"
+description = "Per-project memory of decisions, rejected attempts, measurements and preferences for coding agents"
+rust-version = "1.85"
+
+[[bin]]
+name = "memorycastle"
+path = "src/main.rs"
+
+# Short alias: the same CLI, built from src/bin/memcastle.rs (which includes main.rs).
+[[bin]]
+name = "memcastle"
+path = "src/bin/memcastle.rs"
+
+[dependencies]
+rusqlite = { version = "0.40", features = ["bundled"] }
+clap = { version = "4.6", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+half = "2.7"
+sha2 = "0.11"
+libc = "0.2"
+
+# Embedding runtime (stage 3). Keyword search never touches these.
+ort = { version = "=2.0.0-rc.14", default-features = false, features = ["std", "load-dynamic", "coreml"], optional = true }
+ureq = { version = "3", optional = true }
+
+[dev-dependencies]
+# Reference tokenizer, used only to prove parity of embed::tokenizer.
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
+
+[features]
+default = ["ort"]
+ort = ["dep:ort", "dep:ureq"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true

@@ -1,0 +1,20 @@
+{
+  "questions": [
+    {
+      "project": "repo1",
+      "question": "why does the exported picture come out sideways",
+      "answer": "notes/decisions.md"
+    },
+    {
+      "project": "repo1",
+      "question": "what was parked about Hindi fonts",
+      "answer": "notes/journal.md"
+    },
+    {
+      "project": "repo1",
+      "question": "which bug tracked the overlay clipping in the sister app",
+      "answer": "notes/decisions.md",
+      "related": true
+    }
+  ]
+}

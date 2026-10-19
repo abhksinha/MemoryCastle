@@ -1,0 +1,185 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>memorycastle graph</title>
+<style>
+  :root { --bg:#0f1115; --fg:#d6d8de; --dim:#8a8f9a; --panel:#171a21; --line:#2a2f3a; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg); font:13px/1.4 -apple-system,Segoe UI,Helvetica,Arial,sans-serif; }
+  #top { position:fixed; top:0; left:0; right:0; display:flex; gap:8px; align-items:center; padding:8px 12px; background:var(--panel); border-bottom:1px solid var(--line); z-index:2; flex-wrap:wrap; }
+  #top input { background:var(--bg); color:var(--fg); border:1px solid var(--line); padding:4px 8px; border-radius:4px; width:240px; }
+  #top label { color:var(--dim); }
+  #top b { color:var(--fg); }
+  canvas { display:block; width:100vw; height:100vh; }
+  #side { position:fixed; right:0; top:44px; bottom:0; width:340px; max-width:90vw; overflow:auto; background:var(--panel); border-left:1px solid var(--line); padding:12px 14px; display:none; z-index:2; }
+  #side h2 { font-size:15px; margin:0 0 6px; }
+  #side .k { color:var(--dim); }
+  #side ul { padding-left:18px; margin:4px 0 10px; }
+  #side li { cursor:pointer; }
+  #side li:hover { text-decoration:underline; }
+  .sup { color:#d7a449; }
+  .miss { color:#e06c75; }
+  .chip { display:inline-block; font-size:11px; padding:1px 6px; border:1px solid var(--line); border-radius:10px; margin:2px 4px 2px 0; color:var(--dim); }
+  .chip.on { color:var(--fg); border-color:#4a5568; }
+  #side p { margin:8px 0; }
+  #side a { color:#7fb3ff; text-decoration:none; }
+  #side a:hover { text-decoration:underline; }
+</style>
+<div id="top">
+  <b>memorycastle graph</b>
+  <input id="q" placeholder="filter: file, note, symbol…">
+  <label><input type="checkbox" id="showsym"> symbols</label>
+  <label><input type="checkbox" id="showsup" checked> superseded</label>
+  <label id="codelayer" style="display:none"><input type="checkbox" id="showcode" checked> code files</label>
+  <label id="mentionlayer" style="display:none"><input type="checkbox" id="showmentions"> mentions</label>
+  <span id="stats" style="color:var(--dim)"></span>
+</div>
+<canvas id="c"></canvas>
+<div id="side"></div>
+<script>
+const G = /*DATA*/;
+const PALETTE = ['#5b9cf6','#f6a35b','#62c48d','#e06c75','#c678dd','#56b6c2','#e5c07b','#98c379','#d19a66','#61afef'];
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const side = document.getElementById('side'), q = document.getElementById('q');
+const showsym = document.getElementById('showsym'), showsup = document.getElementById('showsup');
+const showcode = document.getElementById('showcode'), showmentions = document.getElementById('showmentions');
+if (G.has_code) { document.getElementById('codelayer').style.display=''; document.getElementById('mentionlayer').style.display=''; }
+// Nodes a note touches, so the code layer can be hidden without losing them.
+const noteTouched = new Uint8Array(G.nodes.length);
+for (const e of G.edges) if (G.nodes[e.src].kind==='note') noteTouched[e.dst]=1;
+for (let i=0;i<G.nodes.length;i++) if (G.nodes[i].kind==='note') noteTouched[i]=1;
+let W, H, dpr = window.devicePixelRatio || 1;
+function resize(){ W = innerWidth; H = innerHeight; cv.width = W*dpr; cv.height = H*dpr; cv.style.width=W+'px'; cv.style.height=H+'px'; ctx.setTransform(dpr,0,0,dpr,0,0); }
+addEventListener('resize', resize); resize();
+
+const N = G.nodes, E = G.edges;
+const adj = N.map(()=>[]);
+for (const e of E) { adj[e.src].push(e.dst); adj[e.dst].push(e.src); }
+// Layout state in typed arrays: x, y, vx, vy.
+const n = N.length, X = new Float32Array(n), Y = new Float32Array(n), VX = new Float32Array(n), VY = new Float32Array(n);
+for (let i=0;i<n;i++){ const a = (i*2.399963)%(2*Math.PI), r = 120+ (i%7)*40; X[i]=W/2+Math.cos(a)*r; Y[i]=H/2+Math.sin(a)*r; }
+let visible = new Uint8Array(n), filter = '';
+function recomputeVisible(){
+  const f = filter.toLowerCase();
+  for (let i=0;i<n;i++){
+    const nd = N[i];
+    let v = true;
+    if (nd.kind==='symbol' && !showsym.checked && !(nd.code && showcode.checked && showmentions.checked)) v = false;
+    if (nd.superseded && !showsup.checked) v = false;
+    if (nd.code && !noteTouched[i] && !showcode.checked) v = false;
+    if (nd.kind==='symbol' && nd.code && !noteTouched[i] && !showsym.checked) v = false;
+    if (v && f) v = nd.label.toLowerCase().includes(f) || nd.key.toLowerCase().includes(f) || adj[i].some(j => N[j].label.toLowerCase().includes(f) || N[j].key.toLowerCase().includes(f));
+    visible[i] = v?1:0;
+  }
+  const vis = visible.reduce((a,b)=>a+b,0);
+  const missing = N.filter(x => x.kind==='file' && !x.exists).length;
+  document.getElementById('stats').textContent = `${vis} of ${n} nodes · ${E.length} edges · ${G.communities} communities${missing ? ` · ${missing} files missing from checkout` : ''}`;
+  heat = 1;
+}
+let heat = 1, dragging = -1, panX = 0, panY = 0, zoom = 1, panning = false, lastMX = 0, lastMY = 0;
+function step(){
+  if (heat < 0.01) return;
+  const k = 60, rep = 2200;
+  // Repulsion: all pairs for small graphs, sampled for large ones.
+  const sample = n > 1200 ? 48 : n;
+  for (let i=0;i<n;i++){
+    if(!visible[i]) continue;
+    let fx=0, fy=0;
+    for (let s=0;s<sample;s++){
+      const j = n > 1200 ? (Math.random()*n)|0 : s;
+      if (j===i || !visible[j]) continue;
+      let dx = X[i]-X[j], dy = Y[i]-Y[j]; let d2 = dx*dx+dy*dy+0.01;
+      if (d2 > 160000) continue;
+      const f = rep/d2; fx += dx*f; fy += dy*f;
+    }
+    VX[i] = (VX[i]+fx)*0.5; VY[i] = (VY[i]+fy)*0.5;
+  }
+  for (const e of E){
+    const a=e.src, b=e.dst; if(!visible[a]||!visible[b]) continue;
+    if (e.kind==='mentions' && !showmentions.checked) continue;
+    let dx = X[b]-X[a], dy = Y[b]-Y[a]; const d = Math.sqrt(dx*dx+dy*dy)+0.01;
+    const f = (d-k)*(e.kind==='mentions' ? 0.004 : e.kind==='imports' ? 0.01 : 0.02); dx*=f/d; dy*=f/d;
+    VX[a]+=dx; VY[a]+=dy; VX[b]-=dx; VY[b]-=dy;
+  }
+  for (let i=0;i<n;i++){
+    if(!visible[i] || i===dragging) continue;
+    VX[i] += (W/2 - X[i])*0.002; VY[i] += (H/2 - Y[i])*0.002;
+    X[i] += VX[i]*heat; Y[i] += VY[i]*heat;
+  }
+  heat *= 0.985;
+}
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.translate(panX,panY); ctx.scale(zoom,zoom);
+  ctx.lineWidth = 1/zoom;
+  for (const e of E){
+    if(!visible[e.src]||!visible[e.dst]) continue;
+    if (e.kind==='mentions' && !showmentions.checked) continue;
+    ctx.strokeStyle = e.kind==='note' ? 'rgba(215,164,73,0.7)' : e.kind==='symbol' ? 'rgba(140,140,160,0.25)' : e.kind==='in' ? 'rgba(98,196,141,0.35)' : e.kind==='imports' ? 'rgba(120,130,150,0.22)' : e.kind==='mentions' ? 'rgba(120,130,150,0.10)' : 'rgba(120,140,180,0.45)';
+    ctx.beginPath(); ctx.moveTo(X[e.src],Y[e.src]); ctx.lineTo(X[e.dst],Y[e.dst]); ctx.stroke();
+  }
+  for (let i=0;i<n;i++){
+    if(!visible[i]) continue;
+    const nd = N[i]; const r = nd.kind==='note' ? 5 + Math.min(6, nd.degree*0.4) : nd.kind==='file' ? 4 + Math.min(5, nd.degree*0.5) : 2.5;
+    ctx.fillStyle = !nd.exists ? '#e06c75' : nd.kind==='note' ? PALETTE[nd.community % PALETTE.length] : nd.kind==='file' ? '#aab4c4' : '#5c6270';
+    if (nd.superseded) ctx.globalAlpha = 0.45;
+    ctx.beginPath();
+    if (nd.kind==='file') ctx.rect(X[i]-r, Y[i]-r, 2*r, 2*r); else ctx.arc(X[i],Y[i],r,0,2*Math.PI);
+    ctx.fill(); ctx.globalAlpha = 1;
+    if (zoom > 0.8 && (nd.kind!=='symbol' || zoom > 1.6)) {
+      ctx.fillStyle = nd.kind==='note' ? '#e8eaf0' : '#9aa3b2'; ctx.font = `${11/zoom}px sans-serif`;
+      ctx.fillText(nd.label.length > 42 ? nd.label.slice(0,40)+'…' : nd.label, X[i]+r+3, Y[i]+4/zoom);
+    }
+  }
+  ctx.restore();
+}
+function loop(){ step(); draw(); requestAnimationFrame(loop); }
+function pick(mx,my){
+  const x = (mx-panX)/zoom, y = (my-panY)/zoom; let best=-1, bd=100;
+  for (let i=0;i<n;i++){ if(!visible[i]) continue; const dx=X[i]-x, dy=Y[i]-y, d=dx*dx+dy*dy; if(d<bd){bd=d;best=i;} }
+  return best;
+}
+const SECTIONS = [[1,'Context'],[2,'Decision'],[4,'Rejected'],[8,'Measured'],[16,'Open']];
+function openLink(loc){
+  if (!G.root || !loc) return '';
+  const [path, line] = loc.split(/:(\d+)$/);
+  const url = 'file://' + G.root.replace(/\/$/,'') + '/' + path + (line ? '#L'+line : '');
+  return ` <a href="${esc(url)}" title="open in the checkout">open</a>`;
+}
+function show(i){
+  const nd = N[i]; side.style.display='block';
+  const by = (kind) => adj[i].filter(j=>N[j].kind===kind);
+  let h = `<h2>${esc(nd.label)}</h2><div class="k">${nd.kind} · ${esc(nd.loc || nd.key)}${openLink(nd.loc)}</div>`;
+  if (!nd.exists) h += `<div class="miss">${nd.kind==='symbol' ? 'not found in the files its notes name' : 'not in the checkout any more'}</div>`;
+  if (nd.kind==='note') {
+    h += `<div class="k">${nd.date ? new Date(nd.date*1000).toISOString().slice(0,10) : ''} · ${esc(nd.author)}${nd.superseded ? ' · <span class="sup">superseded</span>' : ''}</div>`;
+    if (nd.summary) h += `<p>${esc(nd.summary)}</p>`;
+    h += `<div>${SECTIONS.map(([b,name]) => `<span class="chip ${(nd.sections & b) ? 'on' : ''}">${name}</span>`).join('')}</div>`;
+  }
+  if (G.community_names && G.community_names.length) h += `<div class="k">area: ${esc(G.community_names[nd.community] || '')}</div>`;
+  const sec = (title, items) => items.length ? `<div class="k" style="margin-top:8px">${title}</div><ul>${items.map(j=>`<li data-i="${j}" class="${N[j].superseded?'sup':''} ${N[j].exists?'':'miss'}" title="${esc(N[j].summary || N[j].loc || '')}">${esc(N[j].label)}</li>`).join('')}</ul>` : '';
+  if (nd.kind==='note') {
+    h += sec('files', by('file')) + sec('related notes', by('note')) + sec('symbols', by('symbol'));
+  } else if (nd.kind==='file') {
+    const imp = adj[i].filter(j => N[j].kind==='file' && E.some(e => e.kind==='imports' && e.src===i && e.dst===j));
+    const by_ = adj[i].filter(j => N[j].kind==='file' && E.some(e => e.kind==='imports' && e.src===j && e.dst===i));
+    h += sec('notes', by('note')) + sec('imports', imp) + sec('imported by', by_) + sec('defines', adj[i].filter(j => N[j].kind==='symbol' && E.some(e => e.kind==='in' && e.src===j && e.dst===i)));
+  } else {
+    const users = adj[i].filter(j => N[j].kind==='file' && E.some(e => e.kind==='mentions' && e.src===j && e.dst===i));
+    h += (nd.summary ? `<div class="k">${esc(nd.summary)}</div>` : '') + sec('defined in', adj[i].filter(j => N[j].kind==='file' && E.some(e => e.kind==='in' && e.src===i && e.dst===j))) + sec('notes', by('note')) + sec('used in', users.slice(0,40));
+  }
+  side.innerHTML = h;
+  side.querySelectorAll('li').forEach(li => li.onclick = () => { const j = +li.dataset.i; visible[j]=1; show(j); });
+}
+function esc(s){ return String(s).replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+cv.addEventListener('mousedown', e => { const i = pick(e.clientX,e.clientY); if (i>=0){ dragging=i; } else { panning=true; } lastMX=e.clientX; lastMY=e.clientY; });
+addEventListener('mousemove', e => {
+  if (dragging>=0){ X[dragging]=(e.clientX-panX)/zoom; Y[dragging]=(e.clientY-panY)/zoom; heat=Math.max(heat,0.3); }
+  else if (panning){ panX += e.clientX-lastMX; panY += e.clientY-lastMY; }
+  lastMX=e.clientX; lastMY=e.clientY;
+});
+addEventListener('mouseup', e => { if (dragging>=0 && Math.abs(e.clientX-lastMX)<3) show(dragging); dragging=-1; panning=false; });
+cv.addEventListener('click', e => { const i = pick(e.clientX,e.clientY); if (i>=0) show(i); else side.style.display='none'; });
+cv.addEventListener('wheel', e => { e.preventDefault(); const f = Math.exp(-e.deltaY*0.001); const mx=e.clientX, my=e.clientY; panX = mx - (mx-panX)*f; panY = my - (my-panY)*f; zoom*=f; }, {passive:false});
+q.addEventListener('input', () => { filter = q.value.trim(); recomputeVisible(); });
+showsym.onchange = showsup.onchange = showcode.onchange = showmentions.onchange = recomputeVisible;
+recomputeVisible(); loop();
+</script>
