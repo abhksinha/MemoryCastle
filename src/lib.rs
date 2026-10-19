@@ -22,6 +22,7 @@ pub mod error;
 pub mod eval;
 pub mod fts;
 pub mod graph;
+pub mod hook;
 pub mod importlog;
 pub mod install;
 pub mod limits;

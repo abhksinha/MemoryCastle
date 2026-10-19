@@ -204,14 +204,128 @@ pub fn install_global(agent: Agent, o: &Options) -> Result<Vec<Step>> {
                 write_if(&path, &new, o.dry_run)?;
                 steps.push(Step { what: "~/.codex/config.toml: MCP server added".into(), done: true });
             }
+            steps.push(hooks_grouped(&home.join(".codex/hooks.json"), "~/.codex/hooks.json", crate::hook::Agent::Codex, false, o)?);
+            steps.push(Step { what: "Codex: run /hooks once in the CLI to trust the memorycastle hooks".into(), done: false });
         }
-        Agent::Gemini => steps.push(json_mcp(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", STDIO_ENTRY, o)?),
+        Agent::Gemini => {
+            steps.push(json_mcp(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", STDIO_ENTRY, o)?);
+            steps.push(hooks_grouped(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", crate::hook::Agent::Gemini, true, o)?);
+        }
         Agent::Antigravity => steps.push(json_mcp(&home.join(".gemini/antigravity/mcp_config.json"), "~/.gemini/antigravity/mcp_config.json", "mcpServers", STDIO_ENTRY, o)?),
-        Agent::Cursor => steps.push(json_mcp(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", STDIO_ENTRY, o)?),
+        Agent::Cursor => {
+            steps.push(json_mcp(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", STDIO_ENTRY, o)?);
+            steps.push(hooks_flat(&home.join(".cursor/hooks.json"), "~/.cursor/hooks.json", o)?);
+        }
         Agent::Copilot => steps.push(json_mcp(&home.join(".copilot/mcp-config.json"), "~/.copilot/mcp-config.json", "mcpServers", r#"{"type": "local", "command": "memorycastle", "args": ["mcp"], "tools": ["*"]}"#, o)?),
         Agent::OpenCode => steps.push(json_mcp(&home.join(".config/opencode/opencode.json"), "~/.config/opencode/opencode.json", "mcp", r#"{"type": "local", "command": ["memorycastle", "mcp"], "enabled": true}"#, o)?),
     }
     Ok(steps)
+}
+
+/// Hook entries in the grouped shape Codex and Gemini share:
+/// `hooks.<Event>[] = {matcher?, hooks: [{type: command, command}]}`. Ours
+/// are recognised by their command (`memcastle hook`), so a rerun replaces
+/// them and other hooks in the file are untouched. Gemini wants a `name`
+/// and milliseconds; Codex seconds.
+fn hooks_grouped(path: &Path, shown: &str, agent: crate::hook::Agent, named: bool, o: &Options) -> Result<Step> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into());
+    let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("{shown}: not JSON ({e})"))?;
+    let hooks = v.as_object_mut().ok_or_else(|| err!("{shown}: top level is not an object"))?.entry("hooks").or_insert_with(|| serde_json::json!({}));
+    let hooks = hooks.as_object_mut().ok_or_else(|| err!("{shown}: hooks is not an object"))?;
+    let before = serde_json::to_string(&hooks)?;
+    strip_ours(hooks);
+    for (ours, name, matcher, command) in crate::hook::entries(agent) {
+        let mut h = serde_json::json!({"type": "command", "command": command});
+        if named {
+            h["name"] = serde_json::json!(format!("memorycastle-{ours}"));
+            h["timeout"] = serde_json::json!(30000);
+        } else {
+            h["timeout"] = serde_json::json!(30);
+        }
+        let mut group = serde_json::json!({"hooks": [h]});
+        if let Some(m) = matcher {
+            group["matcher"] = serde_json::json!(m);
+        }
+        hooks.entry(name).or_insert_with(|| serde_json::json!([])).as_array_mut().ok_or_else(|| err!("{shown}: hooks.{name} is not a list"))?.push(group);
+    }
+    if serde_json::to_string(&hooks)? == before {
+        return Ok(Step { what: format!("{shown}: hooks present"), done: false });
+    }
+    write_if(path, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
+    Ok(Step { what: format!("{shown}: hooks written"), done: true })
+}
+
+/// Removes every group whose only hooks are ours, and our hooks from mixed groups.
+fn strip_ours(hooks: &mut serde_json::Map<String, serde_json::Value>) {
+    let ours = |h: &serde_json::Value| h.get("command").and_then(|c| c.as_str()).map(|c| c.contains("memcastle hook")).unwrap_or(false);
+    let empty: Vec<String> = hooks
+        .iter_mut()
+        .filter_map(|(k, groups)| {
+            let list = groups.as_array_mut()?;
+            for g in list.iter_mut() {
+                if let Some(hs) = g.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                    hs.retain(|h| !ours(h));
+                }
+            }
+            list.retain(|g| g.get("hooks").and_then(|h| h.as_array()).map(|h| !h.is_empty()).unwrap_or(true));
+            list.is_empty().then(|| k.clone())
+        })
+        .collect();
+    for k in empty {
+        hooks.remove(&k);
+    }
+}
+
+/// Cursor's flat shape: `{version: 1, hooks: {<event>: [{command}]}}`.
+fn hooks_flat(path: &Path, shown: &str, o: &Options) -> Result<Step> {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|_| "{}".into());
+    let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("{shown}: not JSON ({e})"))?;
+    let top = v.as_object_mut().ok_or_else(|| err!("{shown}: top level is not an object"))?;
+    top.entry("version").or_insert(serde_json::json!(1));
+    let hooks = top.entry("hooks").or_insert_with(|| serde_json::json!({}));
+    let hooks = hooks.as_object_mut().ok_or_else(|| err!("{shown}: hooks is not an object"))?;
+    let before = serde_json::to_string(&hooks)?;
+    strip_ours_flat(hooks);
+    for (_, name, _, command) in crate::hook::entries(crate::hook::Agent::Cursor) {
+        hooks.entry(name).or_insert_with(|| serde_json::json!([])).as_array_mut().ok_or_else(|| err!("{shown}: hooks.{name} is not a list"))?.push(serde_json::json!({"command": command, "timeout": 30}));
+    }
+    if serde_json::to_string(&hooks)? == before {
+        return Ok(Step { what: format!("{shown}: hooks present"), done: false });
+    }
+    write_if(path, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
+    Ok(Step { what: format!("{shown}: hooks written"), done: true })
+}
+
+fn strip_ours_flat(hooks: &mut serde_json::Map<String, serde_json::Value>) {
+    let ours = |h: &serde_json::Value| h.get("command").and_then(|c| c.as_str()).map(|c| c.contains("memcastle hook")).unwrap_or(false);
+    let empty: Vec<String> = hooks
+        .iter_mut()
+        .filter_map(|(k, list)| {
+            let list = list.as_array_mut()?;
+            list.retain(|h| !ours(h));
+            list.is_empty().then(|| k.clone())
+        })
+        .collect();
+    for k in empty {
+        hooks.remove(&k);
+    }
+}
+
+/// Removes our hook entries from a grouped or flat hooks file; other hooks stay.
+fn hooks_remove(path: &Path, shown: &str, flat: bool, o: &Options) -> Result<Step> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Ok(Step { what: format!("{shown}: no hooks"), done: false }) };
+    let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("{shown}: not JSON ({e})"))?;
+    let Some(hooks) = v.get_mut("hooks").and_then(|h| h.as_object_mut()) else { return Ok(Step { what: format!("{shown}: no hooks"), done: false }) };
+    let before = serde_json::to_string(&hooks)?;
+    if flat { strip_ours_flat(hooks) } else { strip_ours(hooks) }
+    if serde_json::to_string(&hooks)? == before {
+        return Ok(Step { what: format!("{shown}: no hooks"), done: false });
+    }
+    if hooks.is_empty() {
+        v.as_object_mut().map(|t| t.remove("hooks"));
+    }
+    write_if(path, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
+    Ok(Step { what: format!("{shown}: hooks removed"), done: true })
 }
 
 /// The stdio server entry most agents take (`mcpServers.<name>`).
@@ -375,10 +489,17 @@ pub fn uninstall_global(agent: Agent, o: &Options) -> Result<Vec<Step>> {
                 }
                 None => steps.push(Step { what: "~/.codex/config.toml: no MCP server".into(), done: false }),
             }
+            steps.push(hooks_remove(&home.join(".codex/hooks.json"), "~/.codex/hooks.json", false, o)?);
         }
-        Agent::Gemini => steps.push(json_mcp_remove(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", o)?),
+        Agent::Gemini => {
+            steps.push(json_mcp_remove(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", o)?);
+            steps.push(hooks_remove(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", false, o)?);
+        }
         Agent::Antigravity => steps.push(json_mcp_remove(&home.join(".gemini/antigravity/mcp_config.json"), "~/.gemini/antigravity/mcp_config.json", "mcpServers", o)?),
-        Agent::Cursor => steps.push(json_mcp_remove(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", o)?),
+        Agent::Cursor => {
+            steps.push(json_mcp_remove(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", o)?);
+            steps.push(hooks_remove(&home.join(".cursor/hooks.json"), "~/.cursor/hooks.json", true, o)?);
+        }
         Agent::Copilot => steps.push(json_mcp_remove(&home.join(".copilot/mcp-config.json"), "~/.copilot/mcp-config.json", "mcpServers", o)?),
         Agent::OpenCode => steps.push(json_mcp_remove(&home.join(".config/opencode/opencode.json"), "~/.config/opencode/opencode.json", "mcp", o)?),
     }
@@ -441,6 +562,31 @@ fn claude_statusline_remove(home: &Path, o: &Options) -> Result<Step> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn hooks_are_written_once_and_removed_cleanly() {
+        let dir = std::env::temp_dir().join(format!("mc-hooks-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let o = super::Options { dry_run: false, repo_only: false };
+        let p = dir.join("hooks.json");
+        std::fs::write(&p, r#"{"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "theirs.sh"}]}]}}"#).unwrap();
+        assert!(super::hooks_grouped(&p, "h", crate::hook::Agent::Codex, false, &o).unwrap().done);
+        assert!(!super::hooks_grouped(&p, "h", crate::hook::Agent::Codex, false, &o).unwrap().done, "a rerun changes nothing");
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert!(v["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"].as_str().unwrap().contains("memcastle hook codex prompt"));
+        assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 2, "theirs kept, ours added");
+        assert!(super::hooks_remove(&p, "h", false, &o).unwrap().done);
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(v["hooks"]["PreToolUse"].as_array().unwrap().len(), 1, "only theirs remains");
+        assert!(v["hooks"].get("UserPromptSubmit").is_none());
+        let c = dir.join("cursor.json");
+        assert!(super::hooks_flat(&c, "c", &o).unwrap().done);
+        let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&c).unwrap()).unwrap();
+        assert_eq!(v["version"], 1);
+        assert!(v["hooks"]["sessionStart"][0]["command"].as_str().unwrap().contains("memcastle hook cursor session-start"));
+        assert!(super::hooks_remove(&c, "c", true, &o).unwrap().done);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     use super::*;
 
     #[test]

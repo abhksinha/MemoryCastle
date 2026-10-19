@@ -137,7 +137,9 @@ note's Decision, Rejected and Measured. Every answer ends with the code
 spans to read, re-found by their anchor line after edits, so the agent
 reads 60 lines instead of a 110 KB file.
 
-**4. Hooks keep it honest.** In Claude Code, a hook recalls on every
+**4. Hooks keep it honest.** In Claude Code, Codex, Gemini CLI and Cursor
+(`install` wires each one; Codex asks you to trust them once with `/hooks`),
+a hook recalls on every
 prompt: when the journal is confident about the topic, one line per note
 (about 15 tokens, each note once per session) and nothing otherwise, so the
 session that would not have searched still meets the note that rejected
@@ -146,7 +148,12 @@ edited, before it is edited; one blocks a whole-file read once when a
 lookup already printed the range; one logs every read silently. A note
 that names a function whose body changed since the note was written is
 labelled `code changed since` and ranked under one whose code still
-matches: memory that says "check me" instead of being trusted blindly. From that
+matches: memory that says "check me" instead of being trusted blindly.
+The note itself is asked for at the moments it is due, without the user:
+once mid-session when five files were edited or thirty minutes passed
+since the last note, after a `git commit`, before compaction and at stop
+(the last two hold once). Copilot, OpenCode and Antigravity have no hook
+surface; they get the instruction text and the tools. From that
 ledger `status` reports savings two ways: the controlled A/B on fixed
 questions, and the observed figure (bytes of files a printed span stood in
 for, minus what was read and the lookup output; an upper bound, so the

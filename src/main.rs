@@ -142,6 +142,14 @@ enum Cmd {
         /// The prompt text; read from stdin when absent.
         text: Option<String>,
     },
+    /// Hook entry point for Codex, Gemini CLI and Cursor (written by `install`): reads the agent's JSON, answers in its shape.
+    #[command(hide = true)]
+    Hook {
+        /// codex, gemini (also antigravity) or cursor.
+        agent: String,
+        /// session-start, prompt, before-edit, after-edit, after-bash, pre-compact or stop.
+        event: String,
+    },
     /// Draft a note from this session's edits when none was saved (called by the stop hook).
     #[command(hide = true)]
     Draft,
@@ -624,6 +632,11 @@ fn run(cli: Cli) -> Result<()> {
                 println!("binaries left for you to remove: rm {dir}/memorycastle {dir}/memcastle   (or: cargo uninstall memorycastle)");
             }
             println!("restart the agents so they drop the old config.");
+        }
+        Cmd::Hook { agent, event } => {
+            let Some(a) = memorycastle::hook::Agent::parse(&agent) else { return Err(format!("unknown agent {agent}: codex, gemini or cursor").into()) };
+            let code = memorycastle::hook::run_hook(a, &event)?;
+            std::process::exit(code);
         }
         Cmd::Guide => {
             print!("{}", include_str!("../docs/GUIDE.md"));
