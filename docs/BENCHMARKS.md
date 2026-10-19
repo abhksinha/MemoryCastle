@@ -121,140 +121,191 @@ pays for that in moving parts and in per-token cost.
 | Where the memory lives | markdown in your repo, under git | the framework's stores |
 | Multi-hop reasoning over a graph | no, by design | yes |
 
-### Measured against cognee and grep (2026-10-19)
+### Measured against Mem0, cognee and grep (2026-10-19)
 
 A pre-registered, single-session run on an M5 MacBook Air. The plan, with
-the questions, tasks and pass criteria, was written before any cognee
-number was seen; the only changes after were setup fixes, logged with a
-time. The notes and questions are private; the aggregates are below.
+the questions, tasks and pass criteria, was written before any competitor
+number was seen (cognee in the morning, Mem0 as an addendum in the
+evening); the only changes after were setup fixes, logged with a time. The
+notes and questions are private; the aggregates are below.
 
 **Systems.** grep: term-presence count over whole notes (the `GrepMemory`
-baseline in the harness). memorycastle 0.11.x: keyword plus meaning
-(EmbeddingGemma 2 int8, local, no key). cognee 1.6.5 in two
-configurations: *local*, GLiNER extractor and fastembed embeddings, no key,
-the apples-to-apples comparison; and *llm*, cognee's defaults (an OpenAI
-chat model for extraction, `text-embedding-3-large`) with a key. cognee's
-best search type per cell is shown (CHUNKS_LEXICAL throughout; CHUNKS was
-lower everywhere). A result counts when the note file it came from is the
-gold note.
+baseline in the harness). memorycastle 0.11.3: keyword plus meaning
+(EmbeddingGemma 2 int8, 300M parameters, local, no key). Mem0 2.2.1, the
+open-source `Memory` class over a Qdrant store on disk, in two
+configurations: *raw*, `add(infer=False)` with its fastembed embedder
+(`bge-small-en-v1.5`, 33M parameters), no key and no LLM, so each chunk is
+stored verbatim, the apples-to-apples comparison; and *llm*, Mem0's
+intended mode, `infer=True`, an LLM extracting facts from each chunk and
+updating the memories already stored (`gpt-4o-mini`, because Mem0's default
+model rejects Mem0's own sampling parameters at the OpenAI API, and
+`text-embedding-3-small`). cognee 1.6.5 in two configurations: *local*,
+GLiNER extractor and fastembed embeddings, no key; and *llm*, cognee's
+defaults with a key; its best search type per cell is shown
+(CHUNKS_LEXICAL throughout). Every system got the same chunks (heading
+split, 200-word pieces) tagged with the note they came from; a result
+counts when that note is the gold note.
 
 **Corpora.** Three real journals, written by agents on three repositories:
-Project 1, 40 notes, 193 chunks, 57 questions; Project 2, 22 notes, 36
-questions; Project 3, 10 notes, 29 questions. Each corpus also gets 11
-absent-topic questions whose right answer is nothing.
+Project 1, 45 notes, 215 chunks, 57 questions (the journal grew from 40 to
+45 during the day; every system was re-scored on the 45-note store so the
+row is one store for all); Project 2, 22 notes, 36 questions; Project 3,
+10 notes, 29 questions. Each corpus also gets 11 absent-topic questions
+whose right answer is nothing.
 
 #### Retrieval (recall@3 / MRR; winner by MRR)
 
-| corpus | memorycastle | cognee local | cognee llm (key) | winner | by |
-| --- | --- | --- | --- | --- | --- |
-| Project 1, 40 notes, 57 q | **0.965 / 0.851** | 0.860 / 0.753 | 0.860 / 0.787 | memorycastle | +0.064 MRR vs llm, +0.098 vs local |
-| Project 2, 22 notes, 36 q | **1.000 / 0.976** | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.011 vs llm, +0.059 vs local |
-| Project 3, 10 notes, 29 q | **1.000** / 0.897 | 0.966 / 0.885 | 0.966 / **0.905** | cognee llm | +0.008, one rank swap; memorycastle +0.034 recall@3 vs both |
+| corpus | memorycastle | Mem0 raw | Mem0 llm (key) | cognee local | cognee llm (key) | winner | by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Project 1, 45 notes, 57 q | 0.941 / 0.838 | 0.912 / **0.866** | **0.965** / 0.813 | 0.825 / 0.747 | 0.842 / 0.778 | Mem0 raw | +0.028 MRR over memorycastle; memorycastle +0.025 over Mem0 llm, +0.060 over cognee llm |
+| Project 2, 22 notes, 36 q | **1.000 / 0.976** | 1.000 / 0.954 | 1.000 / 0.903 | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.011 over cognee llm, +0.022 over Mem0 raw, +0.073 over Mem0 llm |
+| Project 3, 10 notes, 29 q | **1.000** / 0.897 | **1.000** / 0.902 | 0.966 / **0.909** | 0.966 / 0.885 | 0.966 / 0.905 | Mem0 llm | +0.012, one rank swap; memorycastle +0.034 recall@3 over both paid modes |
+
+Every system puts the right note in the top three on almost every
+question; the MRR differences are one or two questions where two related
+notes swap rank 1 and rank 2. Within noise on these sizes, in both
+directions.
 
 #### Absent topic (11 questions per corpus that should return nothing)
 
-| | memorycastle | cognee, every mode | grep | winner |
-| --- | --- | --- | --- | --- |
-| answered anyway | 0 to 1 of 11 | 11 of 11 | 11 of 11 | memorycastle |
+| | memorycastle | Mem0, raw and llm | cognee, every mode | grep | winner |
+| --- | --- | --- | --- | --- | --- |
+| answered anyway | **0 to 2 of 11** | 11 of 11 | 11 of 11 | 11 of 11 | memorycastle |
+
+Mem0's `search` has a `threshold` (default 0.1, which nothing falls
+under). Set at the lowest score any right answer got, so that recall is
+untouched, it would still answer 1 to 2 of 11 absent questions on the two
+small corpora in raw mode and 11 of 11 on Project 1 (a right answer there
+scored 0.335); in llm mode 0, 5 and 7 of 11. The scores do not separate
+"nothing on this" from "a right answer phrased differently"; a floor has to
+be calibrated, which is what memorycastle's confidence is.
 
 #### Speed and size
 
-| | memorycastle | cognee local | cognee llm | winner | by |
-| --- | --- | --- | --- | --- | --- |
-| query p50 | 52 ms warm, 0.23 s cold, 2.5 ms keyword | 30 to 190 ms after model load | 40 ms lexical, 0.6 to 1.0 s CHUNKS | memorycastle | tie with cognee lexical on small corpora; 12 to 20x vs llm CHUNKS |
-| resident size of the answering process | 9 MB keyword, 300 MB meaning | 730 to 760 MB | 520 to 610 MB | memorycastle | 2.4x vs local, 1.7x vs llm |
-| ingest, 10 notes, from empty | 21 s, 535 MB peak, 0 tokens | 193 s, 8.8 GB | 135 s, 511 MB, 74k prompt + 53k completion + 56k embedding tokens | memorycastle | 9x faster and 16x less memory vs local; 6x faster vs llm, no tokens |
-| ingest, 40 notes | 55 s, 471 MB | 164 s, 4.7 GB | 82 s, 604 MB, 275k tokens | memorycastle | 3x vs local, 1.5x vs llm |
-| one note edited, re-ingest | 0.19 s | 13.1 s, 3.0 GB | not measured | memorycastle | 68x |
-| store on disk, 10 notes | under 1 MB | 25 MB | 70 MB | memorycastle | 25x |
-| left running after a session | one `serve` process, 270 MB, 66 MB after 5 min idle, exits after 30 min | none (the agent starts and stops the MCP server) | none | tie | |
+| | memorycastle | Mem0 raw | Mem0 llm | cognee local | cognee llm | winner | by |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| query p50 | 52 ms warm, 0.23 s cold, **2.5 ms keyword** | **4.5 to 6 ms** in process, model loaded | 0.4 to 0.7 s, one provider call per query | 30 to 190 ms | 40 ms lexical | Mem0 raw on meaning queries | 10x over memorycastle's warm meaning query; memorycastle's keyword path is the fastest of all |
+| resident size of the answering process | **9 MB keyword, 300 MB meaning** | 300 to 316 MB, no keyword path | 200 to 235 MB plus the network | 730 to 760 MB | 520 to 610 MB | memorycastle | 33x on keyword answers; tie with Mem0 on meaning |
+| ingest, 10 notes, from empty | 21 s, 535 MB, 0 tokens | **2.9 s, 300 MB, 0 tokens** | 685 s, 213 MB, 970k prompt + 30k completion + 43k embedding tokens | 193 s, 8.8 GB | 135 s, 511 MB, 183k tokens | Mem0 raw | 7x over memorycastle; memorycastle 33x over Mem0 llm and 6 to 9x over cognee |
+| ingest, 45 notes, from empty | 68 s, 472 MB, 0 tokens | **3.3 s, 308 MB, 0 tokens** | 1,393 s, 235 MB, 2.35M prompt + 39k + 48k tokens | 72 s, 4.9 GB | 86 s, 586 MB | Mem0 raw | 20x over memorycastle; memorycastle 20x over Mem0 llm |
+| one note edited, re-ingest | **0.19 s, old chunks replaced** | 0.15 s, but no content hash: the old chunks stay, every edit adds copies | not measured; about 6.5 s per chunk from the ingest rate, so about 30 s | 13.1 s, 3.0 GB | not measured | memorycastle | the only one that is both fast and correct |
+| store on disk, 10 / 45 notes | **under 1 MB / 1.1 MB** | 0.9 MB / 1.5 MB | 7.7 MB / 8.9 MB | 25 MB / 28 MB | 70 MB / 118 MB | tie, memorycastle and Mem0 raw | |
+| left running after a session | one `serve` process, 270 MB, 66 MB after 5 min idle, exits after 30 min | none (the MCP server is per session, 300 MB while it runs) | none | none | none | tie | |
+
+Mem0 raw's speed is its embedding model: 33M parameters against 300M.
+The same model inside memorycastle's fusion is the obvious experiment and
+is listed under open items; what it would cost is the paraphrase recall
+that the gold sets were used to choose the larger model for.
 
 #### Agents end to end
 
-Codex 0.163, `codex exec`, a fresh session per run, three homes that differ
+Codex 0.163, `codex exec`, a fresh session per run, four homes that differ
 only in the memory: grep (no memory section, no tools), memorycastle (MCP
-server, hooks, the installed instruction section) and cognee (its MCP
-server with `recall`, an instruction section of the same length). Same
-clone of Project 3's repository, four pre-registered tasks, one run each.
-All three arms passed all four rubrics: found the recorded rejection,
-reported the measured numbers and their caveat, respected the recorded
-API-level constraint, and added a flag without citing an invented
-decision. The difference is cost.
+server, hooks, the installed instruction section), cognee (its MCP server
+with `recall`) and Mem0 (a 40-line stdio MCP server over the open-source
+`Memory.search`, tool `search_memory`, on the llm store of Project 3's
+original journal), the last two with an instruction section of the same
+length as memorycastle's. Same clone of Project 3's repository, four
+pre-registered tasks, one run each. All four arms passed all four
+rubrics: found the recorded rejection, reported the measured numbers and
+their caveat, respected the recorded API-level constraint, and added a
+flag without citing an invented decision. The difference is cost.
 
-| | memorycastle | grep | cognee | winner | by |
-| --- | --- | --- | --- | --- | --- |
-| total tokens, four tasks | **875k** | 1,208k | 1,401k | memorycastle | 28% under grep, 38% under cognee |
-| uncached input tokens | **91k** | 106k | 126k | memorycastle | 14% under grep, 28% under cognee |
-| retrieval bytes read | **190 KB** | 261 KB | 376 KB | memorycastle | 27% under grep, 49% under cognee |
+| | memorycastle | grep | cognee | Mem0 | winner | by |
+| --- | --- | --- | --- | --- | --- | --- |
+| total tokens, four tasks | **875k** | 1,208k | 1,401k | 1,772k | memorycastle | 28% under grep, 38% under cognee, 51% under Mem0 |
+| uncached input tokens | **91k** | 106k | 126k | 105k | memorycastle | 14% under grep, 28% under cognee, 13% under Mem0 |
+| retrieval bytes read | **190 KB** | 261 KB | 376 KB | 194 KB | tie, memorycastle and Mem0 | 27% under grep, 49% under cognee |
 
 Per task (total / uncached input / retrieval bytes): rejected approach
-411k/37k/111 KB grep, 379k/32k/90 KB memorycastle, 483k/39k/133 KB cognee;
-measured number 79k/15k/13 KB, 77k/18k/15 KB, 155k/29k/90 KB; function with
-a note 170k/26k/78 KB, 151k/17k/34 KB, 185k/25k/82 KB; no note 548k/29k/58
-KB, 268k/24k/52 KB, 578k/33k/71 KB. One run per cell is a direction, not a
-distribution; the "no note" task varies most for reasons unrelated to
-memory (build attempts).
+411k/37k/111 KB grep, 379k/32k/90 KB memorycastle, 483k/39k/133 KB cognee,
+451k/36k/102 KB Mem0; measured number 79k/15k/13 KB, 77k/18k/15 KB,
+155k/29k/90 KB, 124k/24k/4 KB; function with a note 170k/26k/78 KB,
+151k/17k/34 KB, 185k/25k/82 KB, 173k/18k/48 KB; no note 548k/29k/58 KB,
+268k/24k/52 KB, 578k/33k/71 KB, 1,024k/28k/40 KB. One run per cell is a
+direction, not a distribution; the "no note" task varies most for reasons
+unrelated to memory (build attempts: the Mem0 run made 33 calls and took
+244 s there). Mem0's extracted memories are short, which is why its
+retrieval bytes on the measured-number task are the lowest of any arm.
 
 #### Honesty
 
-| | memorycastle | cognee | winner |
-| --- | --- | --- | --- |
-| superseded note | labelled `superseded`, ranked below the note that replaced it | served first, unlabelled, in both modes | memorycastle |
-| nothing on the topic | "no relevant note" | the nearest wrong note | memorycastle |
-| the function a note describes has changed | labelled `code changed since` | no equivalent | not applicable |
+| | memorycastle | Mem0 | cognee | winner |
+| --- | --- | --- | --- | --- |
+| superseded note | labelled `superseded`, ranked below the note that replaced it | unlabelled; raw mode served the superseded note first (0.911 to 0.904), llm mode the successor first (0.819 to 0.796): the order is the score, which is chance | served first, unlabelled, in both modes | memorycastle |
+| nothing on the topic | "no relevant note" | the nearest memories, at whatever score | the nearest wrong note | memorycastle |
+| the function a note describes has changed | labelled `code changed since` | no equivalent | no equivalent | not applicable |
 
-Score: memorycastle wins 12 rows, cognee 1, by a single rank swap on the
-smallest corpus with a paid key.
+Score over the 16 rows above: memorycastle 8, Mem0 raw 4, Mem0 llm 1,
+cognee 0, ties 3. Mem0's four are speed rows that belong to a model a
+tenth the size; its one ranking win and cognee's are single rank swaps on
+the smallest journal. memorycastle's eight are the rows about being
+right: nothing when there is nothing, the reversed decision kept reversed,
+an edit re-indexed in place, the smallest answering process, and the
+cheapest agent session.
 
 #### Why each winner matters
 
 - **Absent topic.** An agent asks memory about something nobody wrote down
-  several times per session. cognee returns the nearest chunk every time,
-  with a score and no floor, so the agent reads it, weighs it, and often
-  acts on it: a wrong constraint applied, a rejected approach revived. The
-  "no relevant note" answer is the one that reduces work. It is also what
-  makes the workflow deterministic: the same question gives the same
-  nothing, not a different plausible neighbour per embedding run.
+  several times per session. Mem0 and cognee return the nearest chunk
+  every time, with a score and no usable floor, so the agent reads it,
+  weighs it, and often acts on it: a wrong constraint applied, a rejected
+  approach revived. The "no relevant note" answer is the one that reduces
+  work. It is also what makes the workflow deterministic: the same
+  question gives the same nothing, not a different plausible neighbour per
+  embedding run.
 - **Superseded note.** The one place a memory can actively mislead. A
   tool that serves the reversed decision first, unlabelled, is worse than
-  no tool: the agent re-implements what the team already undid. The label
-  and the rank come from a declared `Supersedes:` line, which is why it
-  cannot be wrong.
-- **Ranking on a growing journal.** The gap widens with corpus size (0.008
-  behind at 10 notes, 0.011 ahead at 22, 0.064 ahead at 40, against the
-  paid configuration). A journal grows every day; the result that matters
-  is the one at 40 notes and beyond. Rank 1 versus rank 2 is the
-  difference between one section read and two.
+  no tool: the agent re-implements what the team already undid. Mem0 and
+  cognee order the two by similarity, which is a coin toss between a
+  decision and its reversal. The label and the rank in memorycastle come
+  from a declared `Supersedes:` line, which is why they cannot be wrong.
+- **Ranking.** A tie, and a tie is the honest result: every system finds
+  the right note in the top three, and the rank-1 differences are one
+  question each way. Rank 1 against rank 2 is one section read instead of
+  two. Sessions are not won here; they are won on the rows above and
+  below.
 - **Ingest and re-ingest.** A note is edited or added at the end of every
-  task. 0.19 s means `save` runs in a hook without anyone noticing; 13 s
-  and 3 GB means it runs in batches, and the memory is stale between them.
-  Zero tokens means no bill, no key, no network, and a laptop on a train.
+  task. 0.19 s means `save` runs in a hook without anyone noticing and
+  replaces what was there; Mem0 raw is as fast but keeps the old copies,
+  so a journal edited daily fills with stale duplicates; Mem0 llm and
+  cognee need seconds to minutes and a provider, so re-ingest runs in
+  batches and the memory is stale between them. Zero tokens means no bill,
+  no key, no network, and a laptop on a train.
 - **Process size.** 9 MB for a keyword answer is the difference between a
-  hook that can run before every edit and one that cannot. 300 MB for a
-  meaning answer, released after 5 minutes idle, fits beside an IDE and a
-  build; 750 MB per answering process does not.
+  hook that can run before every edit and one that cannot. Mem0 has no
+  keyword path: every answer loads a model. 300 MB for a meaning answer,
+  released after 5 minutes idle, fits beside an IDE and a build; 750 MB
+  per answering process does not.
 - **Agent tokens.** Retrieval bytes are the part the memory controls:
-  what the agent reads to find the fact. Half the bytes of cognee for the
-  same four correct answers is half the context spent on memory and the
-  rest kept for the task.
-- **The one cognee win.** On a 10-note journal with wording close to the
-  questions, a paid embedding model orders two related notes slightly
-  better. It needs a key, a provider call per ingest, and still answers
-  every absent question. We report it; it does not change the choice.
+  what the agent reads to find the fact. Mem0's short extracted memories
+  match memorycastle's sections here; cognee's chunks are twice the bytes.
+  The whole-run figure favours memorycastle by 28% to 51%, with one run
+  per cell.
+- **Where Mem0 wins.** Bare vectors over raw chunks with a 33M model are
+  very fast to build and to query, and rank as well as anything on a
+  journal this size. That mode is Mem0 as a vector store: no extraction,
+  no dedupe, no floor, no supersession, duplicates on edit, a Python
+  runtime and a vector database. Its memory features need the llm mode,
+  which costs 685 s and a million tokens for ten notes and ranks below
+  memorycastle on two of three journals. We report both; neither changes
+  the choice for a repository's decisions.
 
 #### Note shape
 
 Project 3's notes predate the fixed shape (free headings, no dates, a bug
-tracker carrying a dated work log); the pre-registered run was on those
-and scored memorycastle 0.856 to cognee llm 0.925. A copy reshaped by hand
-(24 lines of headers and section names, the tracker's closed entries moved
-to an archive as `lint` advises) gives the Project 3 row above:
-memorycastle 0.877 to 0.897, cognee 0.925 to 0.905. The shape is the lever
-on small journals, not the ranker; tracker weighting, section weighting
-and finer confidence buckets were measured the same day and changed no
-rank. The reshaped copy was not written back: notes are never edited.
-Project 3's figures are from an isolated store without the code index, so
-they differ slightly from the main store's.
+tracker carrying a dated work log); the pre-registered cognee run was on
+those and scored memorycastle 0.856 to cognee llm 0.925. A copy reshaped
+by hand (24 lines of headers and section names, the tracker's closed
+entries moved to an archive as `lint` advises) gives the Project 3 row
+above: memorycastle 0.877 to 0.897, cognee 0.925 to 0.905; Mem0 was run
+on the reshaped copy only (and on the original for the agent arm, where
+it scored 1.000 / 0.902 in llm mode). The shape is the lever on small
+journals, not the ranker; tracker weighting, section weighting and finer
+confidence buckets were measured the same day and changed no rank. The
+reshaped copy was not written back: notes are never edited. Project 3's
+figures are from an isolated store without the code index, so they differ
+slightly from the main store's.
 
 #### What the run found in memorycastle
 
@@ -268,11 +319,19 @@ code-changed pass re-sorted hits by fused score alone, undoing the
 confidence order; `eval` bypasses that pass, so the tables are unaffected,
 the agent runs were. Fixed the same day.
 
+The Mem0 run found nothing new in memorycastle and one thing about the
+corpus: Project 1 grew by five notes during the day, and two of the eleven
+absent questions now land on a note at confidence 0.30 to 0.50 (a handoff
+note that mentions many topics in passing). The floor holds; a note that
+lists everything is the kind `quality` flags as low spread.
+
 The harness is `memcastle eval --gold <file>`; any system that implements
-the `Memory` trait in `src/search.rs` can be scored by it.
+the `Memory` trait in `src/search.rs` can be scored by it; the Mem0 and
+cognee drivers live beside the private gold sets.
 
 The honest summary: if your memory is "what did we decide, try, measure, and
 why", written by the agent in a fixed shape, retrieval over those notes is
 the whole problem, and memorycastle solves it with one binary and no
 network. If you need a knowledge graph built from unstructured documents,
-use a tool that builds one.
+use a tool that builds one. If you want a fast vector store over raw
+chunks, Mem0's raw mode is one, and it is not a memory.
