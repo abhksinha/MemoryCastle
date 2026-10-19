@@ -99,8 +99,13 @@ load 12 s, query 180 ms, peak 1.27 GB against 0.11 s, 109 ms and 364 MB on
 the CPU. The multimodal export splits into many partitions with CPU copies
 between them. The knob stays (`MEMORYCASTLE_ORT_EP=coreml`) for re-testing.
 
-### Compared with cognee
+### Compared with Mem0 and cognee
 
+[Mem0](https://github.com/mem0ai/mem0) is the most widely adopted
+open-source agent memory: an LLM extracts facts from each batch of
+messages, a second pass decides whether each fact adds to, updates or
+deletes a stored memory, and a vector store serves them by similarity;
+with extraction off it is a vector store over the given text.
 [cognee](https://github.com/topoteretes/cognee) is a well-built memory layer
 and a fair representative of the LLM-extraction approach: `add` stores
 documents, `cognify` runs an LLM over every chunk to extract entities and
@@ -109,17 +114,17 @@ modes call the LLM again at query time. That design can answer questions a
 plain retriever cannot, such as multi-hop questions across documents. It
 pays for that in moving parts and in per-token cost.
 
-| | memorycastle | cognee |
-| --- | --- | --- |
-| Language, runtime | Rust, one binary | Python package, async service |
-| Stores | one SQLite file | vector store (LanceDB by default) + graph store (Kuzu by default) + relational metadata |
-| Ingest | chunk, embed locally | chunk, embed, LLM extraction of entities and relations per chunk |
-| Needs an LLM API key | no | yes, for cognify and for graph search modes |
-| Ingest cost per note | milliseconds of CPU, 0 tokens | one or more LLM calls per chunk |
-| Query | BM25 + local embedding, under 0.3 s cold | embedding plus optional LLM completion over retrieved graph |
-| Memory footprint | 5 MB keyword, 285 MB with model loaded | Python process plus two database engines |
-| Where the memory lives | markdown in your repo, under git | the framework's stores |
-| Multi-hop reasoning over a graph | no, by design | yes |
+| | memorycastle | Mem0 | cognee |
+| --- | --- | --- | --- |
+| Language, runtime | Rust, one binary | Python package over a vector database, or the hosted API | Python package, async service |
+| Stores | one SQLite file | vector store (Qdrant by default) + SQLite history log | vector store (LanceDB by default) + graph store (Kuzu by default) + relational metadata |
+| Ingest | chunk, embed locally | chunk, LLM extraction of facts, embed, LLM decides add/update/delete against stored memories; or raw text with `infer=False` | chunk, embed, LLM extraction of entities and relations per chunk |
+| Needs an LLM API key | no | yes in its intended mode (extraction and update); no for the raw vector mode | yes, for cognify and for graph search modes |
+| Ingest cost per note | milliseconds of CPU, 0 tokens | two LLM calls per batch plus one embedding per fact (measured: a million tokens for ten notes) | one or more LLM calls per chunk |
+| Query | BM25 + local embedding, under 0.3 s cold | one provider embedding plus a vector search, 0.4 to 0.7 s; 5 ms with the local small model | embedding plus optional LLM completion over retrieved graph |
+| Memory footprint | 5 MB keyword, 285 MB with model loaded | Python process plus the vector database, 200 to 320 MB measured | Python process plus two database engines |
+| Where the memory lives | markdown in your repo, under git | the vector store, as the LLM's paraphrase of the text | the framework's stores |
+| Multi-hop reasoning over a graph | no, by design | in the paid graph tier | yes |
 
 ### Measured against Mem0, cognee and grep (2026-10-19)
 
