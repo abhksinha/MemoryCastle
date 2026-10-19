@@ -302,6 +302,143 @@ fi
 printf '%s' "$line"
 "#;
 
+/// Removes the memory section from an instruction file. Returns the new
+/// text when it changed; the file is deleted by the caller when empty.
+pub fn remove_snippet(text: &str) -> Option<String> {
+    const HEAD: &str = "## Memory (memorycastle)";
+    let start = text.find(HEAD)?;
+    let rest = &text[start + HEAD.len()..];
+    let end = rest
+        .find("<!-- memorycastle snippet")
+        .and_then(|i| rest[i..].find('\n').map(|j| i + j + 1))
+        .or_else(|| rest.find("\n## ").map(|i| i + 1))
+        .unwrap_or(rest.len());
+    let mut out = String::with_capacity(text.len());
+    out.push_str(text[..start].trim_end_matches('\n'));
+    let tail = rest[end..].trim_start_matches('\n');
+    if !out.is_empty() {
+        out.push('\n');
+        if !tail.is_empty() {
+            out.push('\n');
+        }
+    }
+    out.push_str(tail);
+    Some(out)
+}
+
+fn uninstall_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Ok(Step { what: format!("{label}: no memory section"), done: false }) };
+    match remove_snippet(&text) {
+        Some(new) if new.trim().is_empty() => {
+            if !o.dry_run {
+                std::fs::remove_file(path)?;
+            }
+            Ok(Step { what: format!("{label}: removed (held only the memory section)"), done: true })
+        }
+        Some(new) => {
+            write_if(path, &new, o.dry_run)?;
+            Ok(Step { what: format!("{label}: memory section removed"), done: true })
+        }
+        None => Ok(Step { what: format!("{label}: no memory section"), done: false }),
+    }
+}
+
+/// The repo-level part of `uninstall` for one agent.
+pub fn uninstall_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
+    uninstall_snippet(&root.join(agent.instruction_file()), agent.instruction_file(), o)
+}
+
+/// Reverses `install_global` for one agent: the memory section, the MCP
+/// entry, and for Claude Code the plugin and our status line.
+pub fn uninstall_global(agent: Agent, o: &Options) -> Result<Vec<Step>> {
+    let home = home();
+    let mut steps = Vec::new();
+    if let Some(path) = agent.user_instruction_file(&home) {
+        let label = format!("~/{}", path.strip_prefix(&home).unwrap_or(&path).display());
+        steps.push(uninstall_snippet(&path, &label, o)?);
+    }
+    match agent {
+        Agent::Claude => {
+            steps.push(claude_plugin_remove(o)?);
+            steps.push(claude_statusline_remove(&home, o)?);
+        }
+        Agent::Codex => {
+            let path = home.join(".codex/config.toml");
+            let text = std::fs::read_to_string(&path).unwrap_or_default();
+            match text.find("[mcp_servers.memorycastle]") {
+                Some(start) => {
+                    let rest = &text[start + 1..];
+                    let end = rest.find("\n[").map(|i| start + 1 + i + 1).unwrap_or(text.len());
+                    let new = format!("{}{}", text[..start].trim_end_matches('\n'), if end < text.len() { format!("\n\n{}", &text[end..]) } else { "\n".into() });
+                    write_if(&path, &new, o.dry_run)?;
+                    steps.push(Step { what: "~/.codex/config.toml: MCP server removed".into(), done: true });
+                }
+                None => steps.push(Step { what: "~/.codex/config.toml: no MCP server".into(), done: false }),
+            }
+        }
+        Agent::Gemini => steps.push(json_mcp_remove(&home.join(".gemini/settings.json"), "~/.gemini/settings.json", "mcpServers", o)?),
+        Agent::Antigravity => steps.push(json_mcp_remove(&home.join(".gemini/antigravity/mcp_config.json"), "~/.gemini/antigravity/mcp_config.json", "mcpServers", o)?),
+        Agent::Cursor => steps.push(json_mcp_remove(&home.join(".cursor/mcp.json"), "~/.cursor/mcp.json", "mcpServers", o)?),
+        Agent::Copilot => steps.push(json_mcp_remove(&home.join(".copilot/mcp-config.json"), "~/.copilot/mcp-config.json", "mcpServers", o)?),
+        Agent::OpenCode => steps.push(json_mcp_remove(&home.join(".config/opencode/opencode.json"), "~/.config/opencode/opencode.json", "mcp", o)?),
+    }
+    Ok(steps)
+}
+
+fn json_mcp_remove(path: &Path, shown: &str, key: &str, o: &Options) -> Result<Step> {
+    let Ok(text) = std::fs::read_to_string(path) else { return Ok(Step { what: format!("{shown}: no MCP server"), done: false }) };
+    let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("{shown}: not JSON ({e})"))?;
+    let removed = v.get_mut(key).and_then(|s| s.as_object_mut()).map(|s| s.remove("memorycastle").is_some()).unwrap_or(false);
+    if !removed {
+        return Ok(Step { what: format!("{shown}: no MCP server"), done: false });
+    }
+    write_if(path, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
+    Ok(Step { what: format!("{shown}: MCP server removed"), done: true })
+}
+
+fn claude_plugin_remove(o: &Options) -> Result<Step> {
+    let installed = std::fs::read_to_string(home().join(".claude/plugins/installed_plugins.json")).unwrap_or_default();
+    if !installed.contains("memorycastle@memorycastle") {
+        return Ok(Step { what: "Claude Code plugin not installed".into(), done: false });
+    }
+    if !on_path("claude") {
+        return Ok(Step { what: "Claude Code plugin: `claude` not on PATH; run: claude plugin uninstall memorycastle@memorycastle && claude plugin marketplace remove memorycastle".into(), done: false });
+    }
+    if o.dry_run {
+        return Ok(Step { what: "Claude Code plugin: would run claude plugin uninstall / marketplace remove".into(), done: true });
+    }
+    let run = |args: &[&str]| std::process::Command::new("claude").args(args).stdin(std::process::Stdio::null()).output();
+    let r = run(&["plugin", "uninstall", "memorycastle@memorycastle"]);
+    let _ = run(&["plugin", "marketplace", "remove", "memorycastle"]);
+    match r {
+        Ok(out) if out.status.success() => Ok(Step { what: "Claude Code plugin and marketplace removed".into(), done: true }),
+        Ok(out) => Ok(Step { what: format!("Claude Code plugin: uninstall failed: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim()), done: false }),
+        Err(e) => Ok(Step { what: format!("Claude Code plugin: could not run claude: {e}"), done: false }),
+    }
+}
+
+fn claude_statusline_remove(home: &Path, o: &Options) -> Result<Step> {
+    let script = home.join(".claude/statusline.sh");
+    let ours = std::fs::read_to_string(&script).map(|t| t.contains("memorycastle")).unwrap_or(false);
+    if !ours {
+        return Ok(Step { what: "~/.claude/statusline.sh: not memorycastle's or absent; left alone".into(), done: false });
+    }
+    if !o.dry_run {
+        std::fs::remove_file(&script)?;
+    }
+    let settings = home.join(".claude/settings.json");
+    if let Ok(text) = std::fs::read_to_string(&settings) {
+        let mut v: serde_json::Value = serde_json::from_str(&text).map_err(|e| err!("~/.claude/settings.json: not JSON ({e})"))?;
+        let points_here = v.get("statusLine").and_then(|s| s.get("command")).and_then(|c| c.as_str()).is_some_and(|c| c.contains("statusline.sh"));
+        if points_here {
+            v.as_object_mut().map(|o| o.remove("statusLine"));
+            write_if(&settings, &format!("{}\n", serde_json::to_string_pretty(&v)?), o.dry_run)?;
+            return Ok(Step { what: "~/.claude/statusline.sh removed and statusLine setting cleared".into(), done: true });
+        }
+    }
+    Ok(Step { what: "~/.claude/statusline.sh removed".into(), done: true })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,6 +457,17 @@ mod tests {
         let unmarked = "# X\n\n## Memory (memorycastle)\nold\n## After\nkeep\n";
         let r = upsert_snippet(unmarked).unwrap();
         assert!(!r.contains("\nold\n") && r.contains("## After\nkeep"), "{r}");
+    }
+
+    #[test]
+    fn snippet_removed_cleanly() {
+        let with = upsert_snippet("# CLAUDE.md\n\nBuild with cargo.\n").unwrap();
+        assert_eq!(remove_snippet(&with).unwrap(), "# CLAUDE.md\n\nBuild with cargo.\n");
+        let middle = upsert_snippet("# X\n\nintro\n").unwrap() + "\n## After\nkeep\n";
+        let r = remove_snippet(&middle).unwrap();
+        assert_eq!(r, "# X\n\nintro\n\n## After\nkeep\n", "{r}");
+        assert!(remove_snippet(&upsert_snippet("").unwrap()).unwrap().trim().is_empty());
+        assert!(remove_snippet("# plain\n").is_none());
     }
 
     #[test]

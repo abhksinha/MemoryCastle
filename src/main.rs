@@ -241,7 +241,7 @@ enum Cmd {
     /// and status line, the memory section in CLAUDE.md / AGENTS.md / GEMINI.md, the code index,
     /// past transcripts into the ledger, and the embedding server. Idempotent.
     Install {
-        /// Agents, comma separated: claude, codex, gemini, antigravity (agy). Default: every agent detected.
+        /// Agents, comma separated: claude, codex, gemini, antigravity (agy), cursor, copilot, opencode. Default: every agent detected.
         agents: Option<String>,
         /// Every agent detected on this machine (the default when no list is given).
         #[arg(long)]
@@ -249,6 +249,20 @@ enum Cmd {
         /// Only this repo's files; skip machine-level config.
         #[arg(long)]
         repo_only: bool,
+        /// Print what would change.
+        #[arg(long)]
+        dry_run: bool,
+    },
+    /// Reverse `install`: memory sections, MCP entries, the Claude plugin and status line. `--purge` also deletes the store and models.
+    Uninstall {
+        /// Agents, comma separated. Default: every agent detected.
+        agents: Option<String>,
+        /// Only this repo's instruction files.
+        #[arg(long)]
+        repo_only: bool,
+        /// Also delete the data dir (store, models, runtime). Notes in repos stay.
+        #[arg(long)]
+        purge: bool,
         /// Print what would change.
         #[arg(long)]
         dry_run: bool,
@@ -540,6 +554,55 @@ fn run(cli: Cli) -> Result<()> {
                     println!("{} notes, {flagged_n} flagged", notes.len());
                 }
             }
+        }
+        Cmd::Uninstall { agents, repo_only, purge, dry_run } => {
+            use memorycastle::install::{self, Agent};
+            let chosen: Vec<Agent> = match agents.as_deref() {
+                Some(list) => list.split(',').map(|a| Agent::parse(a).ok_or_else(|| format!("unknown agent '{a}'"))).collect::<std::result::Result<_, _>>()?,
+                None => Agent::ALL.into_iter().filter(|a| a.detected()).collect(),
+            };
+            let o = install::Options { dry_run, repo_only };
+            let verb = if dry_run { "would" } else { "did" };
+            println!("agents: {}", chosen.iter().map(|a| a.name()).collect::<Vec<_>>().join(", "));
+            if !repo_only {
+                for a in &chosen {
+                    for st in install::uninstall_global(*a, &o)? {
+                        println!("  [{}] {}", if st.done { verb } else { "ok" }, st.what);
+                    }
+                }
+            }
+            if let Some(repo) = ctx.repo.as_ref().map(|r| r.root.clone()) {
+                println!("repo: {}", repo.display());
+                let mut files_done: Vec<&str> = Vec::new();
+                for a in &chosen {
+                    if files_done.contains(&a.instruction_file()) {
+                        continue;
+                    }
+                    files_done.push(a.instruction_file());
+                    let st = install::uninstall_repo(&repo, *a, &o)?;
+                    println!("  [{}] {}", if st.done { verb } else { "ok" }, st.what);
+                }
+                println!("  [ok] memorycastle/journal/ kept: the notes are yours; delete the directory if you want them gone");
+            }
+            if purge {
+                let dir = memorycastle::sys::data_dir();
+                let socket = memorycastle::serve::socket_path();
+                if !dry_run {
+                    drop(ctx);
+                    let _ = std::fs::remove_file(&socket);
+                    if dir.is_dir() {
+                        std::fs::remove_dir_all(&dir)?;
+                    }
+                }
+                println!("  [{verb}] {} deleted (store, models, runtime)", dir.display());
+            } else {
+                println!("  [ok] {} kept; add --purge to delete the store and models", memorycastle::sys::data_dir().display());
+            }
+            if let Ok(exe) = std::env::current_exe() {
+                let dir = exe.parent().map(|p| p.display().to_string()).unwrap_or_default();
+                println!("binaries left for you to remove: rm {dir}/memorycastle {dir}/memcastle   (or: cargo uninstall memorycastle)");
+            }
+            println!("restart the agents so they drop the old config.");
         }
         Cmd::Draft => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };

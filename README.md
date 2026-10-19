@@ -57,6 +57,19 @@ Restart the agents.
 Nothing is written outside those paths. Uninstall: delete the two binaries and
 `~/.local/share/memorycastle/`; the notes stay in your repos as plain Markdown.
 
+## Uninstall
+
+```sh
+memcastle uninstall            # memory sections, MCP entries, Claude plugin and status line
+memcastle uninstall --purge    # also the store, models and runtime under ~/.local/share/memorycastle
+```
+
+`uninstall` reverses `install` for every agent it detects (or the ones you
+name) and, inside a repo, removes the section from that repo's
+`CLAUDE.md`/`AGENTS.md`/`GEMINI.md`. Your journal notes stay in the repo;
+they are plain files you wrote. It ends by printing the one command it
+cannot run, removing its own binary. Restart the agents.
+
 ## How it works
 
 **1. Agents write notes.** At the end of a task the agent saves a short
