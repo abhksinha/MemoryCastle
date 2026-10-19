@@ -292,6 +292,18 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
         <tr><td>Four Codex tasks, all passed by all arms</td><td><strong>700k tokens</strong> (875k before the brief default)</td><td colspan="2">1,772k tokens</td><td>1,401k (grep: 1,208k)</td><td>memorycastle, 61% and 50% fewer</td></tr>
       </tbody>
     </table></div>
+    <h3 style="margin-top:36px">Latest: memorycastle 0.11.5 against Mem0 raw, same stores, no key.</h3>
+    <p class="sub">Rerun on 2026-10-20 on the journals as they stand today, after the confidence rule change. Mem0 raw re-scored on the identical stores; the key-using modes keep their pre-registered numbers above, since no further provider calls were made.</p>
+    <div class="tablewrap reveal"><table>
+      <thead><tr><th>Today's stores, recall@3 / MRR</th><th>memorycastle 0.11.5</th><th>Mem0 raw</th><th>winner</th></tr></thead>
+      <tbody>
+        <tr><td>Project 1, 48 notes, 57 questions</td><td><strong>0.97 / 0.85</strong></td><td>0.90 / 0.83</td><td>memorycastle, +0.02 MRR, +0.07 recall@3</td></tr>
+        <tr><td>Project 2, 26 notes, 36 questions</td><td><strong>1.00 / 0.98</strong></td><td>0.97 / 0.96</td><td>memorycastle, +0.01</td></tr>
+        <tr><td>Project 3, 10 notes, 29 questions, one label corrected</td><td><strong>1.00 / 0.94</strong></td><td>1.00 / 0.93</td><td>memorycastle, +0.01</td></tr>
+        <tr><td>Absent topic, answered anyway, of 11</td><td><strong>0, 0 and 2</strong></td><td>11, 11 and 11</td><td>memorycastle</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted" style="margin-top:14px">Three journals to memorycastle on the current binary, with the absent row intact. Both systems fell on Project 1 between the runs (memorycastle 0.84 to 0.77 before the rule change, Mem0 raw 0.87 to 0.83) for the same reason: the three benchmark notes written that evening quote the gold questions' topics. Notes about a benchmark pollute the benchmark.</p>
     <p class="muted" style="margin-top:14px">Sixteen rows in the full table: memorycastle 9, Mem0 raw 4, Mem0 with key 1, cognee 0, two ties. Mem0's four are speed rows earned by a 33M-parameter model over raw chunks, with no floor, no supersession and duplicates on every edit; its one ranking win and cognee's are single rank swaps on the smallest journal. memorycastle's eight are the rows about being right.</p>
     <h3 style="margin-top:36px">The same numbers, drawn.</h3>
     <p class="sub">The filled bar is memorycastle; grey bars are the others, no key and with one. Shorter is better except in the three ranking cards, where the axis starts at 0.70 so one rank swap is visible. The winner sits in each card's corner.</p>

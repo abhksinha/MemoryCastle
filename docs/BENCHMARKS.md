@@ -166,6 +166,17 @@ whose right answer is nothing.
 | Project 2, 22 notes, 36 q | **1.000 / 0.976** | 1.000 / 0.954 | 1.000 / 0.903 | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.011 over cognee llm, +0.022 over Mem0 raw, +0.073 over Mem0 llm |
 | Project 3, 10 notes, 29 q | **1.000** / 0.897 | **1.000** / 0.902 | 0.966 / **0.909** | 0.966 / 0.885 | 0.966 / 0.905 | Mem0 llm | +0.012, one rank swap; memorycastle +0.034 recall@3 over both paid modes |
 
+**Latest, 2026-10-20, memorycastle 0.11.5 against Mem0 raw on the same
+stores, no key** (the journals as they stand today; the key-using modes
+keep their pre-registered numbers above):
+
+| today's stores, recall@3 / MRR | memorycastle 0.11.5 | Mem0 raw | winner |
+| --- | --- | --- | --- |
+| Project 1, 48 notes, 57 q | **0.968 / 0.853** | 0.895 / 0.829 | memorycastle, +0.024 MRR, +0.073 recall@3 |
+| Project 2, 26 notes, 36 q | **1.000 / 0.975** | 0.972 / 0.964 | memorycastle, +0.011 |
+| Project 3, 10 notes, 29 q, one label corrected | **1.000 / 0.938** | 1.000 / 0.925 | memorycastle, +0.013 |
+| absent topic answered, of 11 | **0, 0, 2** | 11, 11, 11 | memorycastle |
+
 Every system puts the right note in the top three on almost every
 question; the MRR differences are one or two questions where two related
 notes swap rank 1 and rank 2. Within noise on these sizes, in both
