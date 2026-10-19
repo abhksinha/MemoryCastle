@@ -234,6 +234,20 @@ were resident at once during the agent runs. Fixed in 0.11.2: the server
 claims the socket before loading the model, stands down if another answers,
 and removes the file only if it is still its own.
 
+A second defect surfaced while examining the AbhiGram MRR gap: the
+code-changed pass added that morning re-sorted hits by fused score alone,
+undoing the confidence order (a 0.35 hit above a 0.50). `eval` bypasses
+that pass, so the tables above are unaffected; the agent runs were. Fixed
+the same day.
+
+The gap itself (cognee lexical 0.902 to 0.856) was examined question by
+question: of the nine questions where the right note is not first, seven
+are ties between two notes that both cover the topic (a tracker entry and
+a handoff note, or a newer dated note and the older one) where the gold
+set names one. Tracker weighting, section weighting and finer confidence
+buckets were measured on both corpora and changed no rank. The ranker is
+not tuned for that set.
+
 The harness is `memcastle eval --gold <file>`; any system that implements
 the `Memory` trait in `src/search.rs` can be scored by it.
 
