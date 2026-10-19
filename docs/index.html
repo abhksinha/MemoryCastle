@@ -6,66 +6,108 @@
 <title>memorycastle</title>
 <meta name="description" content="Shared memory for coding agents. One binary, one SQLite file, no LLM. Agents write decisions as notes; memorycastle finds the right paragraph and the exact lines to read.">
 <style>
+  /* Palette from one wheel: base hue 22 (terracotta), its analogues 45 (amber) and 350 (rose),
+     and its complement 200 (teal). Light mode is warm white; dark mode keeps the same hues at
+     lower lightness so nothing shifts colour between themes. */
   :root {
-    --bg: #fbfaf7; --fg: #1d1c1a; --muted: #6b675f; --line: #e4e0d6; --card: #ffffff;
-    --accent: #b5471f; --accent-soft: #fbe9df; --code-bg: #f1eee6; --good: #2d6a4f;
-    --max: 980px;
+    --h: 22; --h2: 45; --h3: 200; --h4: 350;
+    --bg: hsl(38 40% 97%); --bg2: hsl(36 36% 94%); --fg: hsl(24 20% 12%); --muted: hsl(24 10% 42%);
+    --line: hsl(32 22% 86%); --card: hsl(40 50% 99%);
+    --accent: hsl(var(--h) 70% 44%); --accent-soft: hsl(var(--h) 80% 93%);
+    --amber: hsl(var(--h2) 80% 42%); --amber-soft: hsl(var(--h2) 90% 92%);
+    --teal: hsl(var(--h3) 55% 38%); --teal-soft: hsl(var(--h3) 60% 92%);
+    --rose: hsl(var(--h4) 55% 48%); --rose-soft: hsl(var(--h4) 70% 94%);
+    --code-bg: hsl(36 30% 92%); --shadow: 0 1px 2px hsl(24 30% 20% / .06), 0 8px 24px hsl(24 30% 20% / .06);
+    --max: 1000px;
+  }
+  :root[data-theme="dark"] {
+    --bg: hsl(24 14% 8%); --bg2: hsl(24 12% 11%); --fg: hsl(36 30% 92%); --muted: hsl(30 10% 62%);
+    --line: hsl(24 10% 20%); --card: hsl(24 12% 12%);
+    --accent: hsl(var(--h) 85% 64%); --accent-soft: hsl(var(--h) 50% 18%);
+    --amber: hsl(var(--h2) 85% 62%); --amber-soft: hsl(var(--h2) 45% 16%);
+    --teal: hsl(var(--h3) 60% 60%); --teal-soft: hsl(var(--h3) 35% 16%);
+    --rose: hsl(var(--h4) 70% 68%); --rose-soft: hsl(var(--h4) 35% 17%);
+    --code-bg: hsl(24 12% 14%); --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 10px 30px hsl(0 0% 0% / .35);
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --bg: #141311; --fg: #ece8df; --muted: #a39d92; --line: #2a2825; --card: #1c1b18;
-      --accent: #f08a5a; --accent-soft: #3a2419; --code-bg: #22201c; --good: #7bc99a;
+      --bg: hsl(24 14% 8%); --bg2: hsl(24 12% 11%); --fg: hsl(36 30% 92%); --muted: hsl(30 10% 62%);
+      --line: hsl(24 10% 20%); --card: hsl(24 12% 12%);
+      --accent: hsl(var(--h) 85% 64%); --accent-soft: hsl(var(--h) 50% 18%);
+      --amber: hsl(var(--h2) 85% 62%); --amber-soft: hsl(var(--h2) 45% 16%);
+      --teal: hsl(var(--h3) 60% 60%); --teal-soft: hsl(var(--h3) 35% 16%);
+      --rose: hsl(var(--h4) 70% 68%); --rose-soft: hsl(var(--h4) 35% 17%);
+      --code-bg: hsl(24 12% 14%); --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 10px 30px hsl(0 0% 0% / .35);
     }
-  }
-  :root[data-theme="dark"] {
-    --bg: #141311; --fg: #ece8df; --muted: #a39d92; --line: #2a2825; --card: #1c1b18;
-    --accent: #f08a5a; --accent-soft: #3a2419; --code-bg: #22201c; --good: #7bc99a;
   }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.65 ui-sans-serif, -apple-system, "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing: antialiased; transition: background .25s, color .25s; }
+  body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background:
+      radial-gradient(900px 500px at 10% -10%, hsl(var(--h) 80% 60% / .14), transparent 60%),
+      radial-gradient(700px 400px at 95% 0%, hsl(var(--h3) 60% 55% / .12), transparent 60%),
+      radial-gradient(600px 400px at 50% 110%, hsl(var(--h2) 80% 55% / .10), transparent 60%); }
   main, header, footer { max-width: var(--max); margin: 0 auto; padding: 0 16px; }
   a { color: var(--accent); text-decoration: none; }
-  a:hover { text-decoration: underline; }
+  a:hover { text-decoration: underline; text-underline-offset: 3px; }
   code, pre { font: 14.5px/1.55 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-  code { background: var(--code-bg); padding: .1em .35em; border-radius: 4px; }
-  pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; overflow-x: auto; margin: 0; }
+  code { background: var(--code-bg); padding: .1em .4em; border-radius: 5px; }
+  pre { background: var(--code-bg); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 14px 16px; overflow-x: auto; margin: 0; box-shadow: var(--shadow); }
   pre code { background: none; padding: 0; }
-  h1, h2, h3 { line-height: 1.2; letter-spacing: -.01em; margin: 0; }
-  h1 { font-size: clamp(34px, 6vw, 56px); font-weight: 700; }
-  h2 { font-size: clamp(24px, 3.4vw, 32px); margin: 72px 0 20px; }
+  h1, h2, h3 { line-height: 1.15; letter-spacing: -.015em; margin: 0; }
+  h1 { font-size: clamp(34px, 6vw, 60px); font-weight: 760; }
+  h1 em { font-style: normal; background: linear-gradient(90deg, var(--accent), var(--amber)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  h2 { font-size: clamp(24px, 3.4vw, 34px); margin: 84px 0 8px; }
+  h2 + p, h2 + .grid, h2 + .flow, h2 + .wrap, h2 + pre { margin-top: 18px; }
+  .eyebrow { display: block; font-size: 12.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--teal); margin: 84px 0 6px; }
+  .eyebrow + h2 { margin-top: 0; }
   h3 { font-size: 18px; margin: 0 0 6px; }
   p { margin: 0 0 14px; }
   .muted { color: var(--muted); }
-  nav { display: flex; gap: 22px; align-items: center; padding: 22px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-  nav .brand { font-weight: 700; color: var(--fg); margin-right: auto; }
+  nav { display: flex; gap: 20px; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  nav .brand { font-weight: 760; color: var(--fg); margin-right: auto; display: flex; align-items: center; gap: 10px; }
+  nav .brand .dot { width: 14px; height: 14px; border-radius: 4px; background: conic-gradient(from 0deg, hsl(var(--h) 75% 55%), hsl(var(--h2) 80% 55%), hsl(var(--h3) 55% 50%), hsl(var(--h4) 60% 58%), hsl(var(--h) 75% 55%)); }
   nav a { color: var(--muted); font-size: 15px; }
-  .hero { padding: 64px 0 24px; }
-  .hero p.lead { font-size: 21px; max-width: 720px; margin: 18px 0 28px; }
-  .pill { display: inline-block; font-size: 13px; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; margin-bottom: 18px; }
-  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 18px 14px; }
-  .card .n { color: var(--accent); font-weight: 700; font-size: 13px; letter-spacing: .06em; }
-  .stat { font-size: 30px; font-weight: 700; letter-spacing: -.02em; }
-  .stat small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 6px; }
+  nav a:hover { color: var(--fg); text-decoration: none; }
+  .toggle { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 14px; cursor: pointer; box-shadow: var(--shadow); }
+  .toggle:hover { border-color: var(--accent); }
+  .hero { padding: 72px 0 28px; }
+  .hero p.lead { font-size: 21px; max-width: 740px; margin: 20px 0 30px; color: var(--muted); }
+  .pill { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; padding: 4px 12px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 650; margin-bottom: 20px; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 20px 14px; box-shadow: var(--shadow); position: relative; overflow: hidden; transition: transform .15s, border-color .15s; }
+  .card::after { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px; background: var(--accent); opacity: .9; }
+  .grid .card:nth-child(4n+2)::after { background: var(--teal); }
+  .grid .card:nth-child(4n+3)::after { background: var(--amber); }
+  .grid .card:nth-child(4n+4)::after { background: var(--rose); }
+  .card:hover { transform: translateY(-2px); border-color: hsl(var(--h) 40% 60% / .5); }
+  .card .n { color: var(--teal); font-weight: 700; font-size: 12.5px; letter-spacing: .08em; }
+  .stat { font-size: 32px; font-weight: 760; letter-spacing: -.02em; color: var(--accent); }
+  .stat small { font-size: 14px; font-weight: 500; color: var(--muted); margin-left: 6px; letter-spacing: 0; }
   table { width: 100%; border-collapse: collapse; font-size: 15.5px; }
-  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
-  th { color: var(--muted); font-weight: 600; font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--teal); font-weight: 700; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; background: var(--bg2); }
+  th:nth-child(2) { color: var(--accent); }
   td:first-child { color: var(--muted); }
-  .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
-  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); margin: 18px 0; }
-  .flow { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); counter-reset: step; }
-  .flow .card { position: relative; }
-  .flow .card::before { counter-increment: step; content: counter(step); position: absolute; top: -12px; left: 14px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; }
+  tbody tr:hover td { background: hsl(var(--h) 60% 50% / .05); }
+  .wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
+  .note { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 12px 16px; border-radius: 0 10px 10px 0; color: var(--fg); margin: 20px 0; }
+  .flow { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); counter-reset: step; }
+  .flow .card::after { display: none; }
+  .flow .card::before { counter-increment: step; content: counter(step); position: absolute; top: 14px; right: 14px; color: #fff; font-size: 12px; font-weight: 700; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--accent); }
+  .flow .card:nth-child(2)::before { background: var(--teal); }
+  .flow .card:nth-child(3)::before { background: var(--amber); }
+  .flow .card:nth-child(4)::before { background: var(--rose); }
   .sample { white-space: pre; }
-  footer { padding: 56px 16px 40px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 80px; }
-  @media (max-width: 600px) { .hero { padding-top: 40px; } h2 { margin-top: 56px; } }
+  footer { padding: 56px 16px 44px; color: var(--muted); font-size: 14px; border-top: 1px solid var(--line); margin-top: 90px; }
+  @media (max-width: 600px) { .hero { padding-top: 44px; } h2, .eyebrow { margin-top: 60px; } nav { gap: 14px; } }
 </style>
 </head>
 <body>
 <header>
   <nav>
-    <a class="brand" href="#">memorycastle</a>
+    <a class="brand" href="#"><span class="dot" aria-hidden="true"></span>memorycastle</a>
     <a href="#how">How it works</a>
     <a href="#cost">Cost</a>
     <a href="#compare">vs cognee</a>
@@ -73,19 +115,21 @@
     <a href="#honest">Numbers</a>
     <a href="#scope">Scope</a>
     <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
+    <button class="toggle" id="theme" type="button" aria-label="Toggle dark mode">dark</button>
   </nav>
 </header>
 
 <main>
   <section class="hero">
     <span class="pill">Open source · Apache-2.0 / MIT · macOS and Linux</span>
-    <h1>Shared memory for coding agents.<br>One binary, one SQLite file, no LLM.</h1>
+    <h1>Shared memory for coding agents.<br><em>One binary, one SQLite file, no LLM.</em></h1>
     <p class="lead">Claude Code, Codex, Gemini CLI, Antigravity, Cursor, GitHub Copilot and OpenCode forget everything between sessions. memorycastle gives them one memory per repository: what was decided, what was tried and rejected, what was measured, and the exact lines of code it lives in.</p>
     <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
 memcastle install</code></pre>
     <p class="muted" style="margin-top:12px">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
   </section>
 
+  <span class="eyebrow">The loop</span>
   <h2 id="how">How it works</h2>
   <div class="flow">
     <div class="card"><h3>Agents write notes</h3><p class="muted">At the end of a task that changed a decision, the agent writes a short Markdown note in <code>memorycastle/journal/</code>: Context, Decision, Rejected, Measured. The notes are committed with the code. They are the memory; everything else is derived.</p></div>
@@ -106,6 +150,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
    a. src/embed/ort_rt.rs:41-88  load_model  1.00  defined in a file the note names</code></pre>
   <p class="muted">A fixed grammar: hit line, title line, <code>label value</code> fields with continuations at one column, a blank line, a lettered read table. Eyes and a ten-line parser read the same bytes; <code>--json</code> has every field typed.</p>
 
+  <span class="eyebrow">Resources</span>
   <h2 id="cost">What it costs to run</h2>
   <div class="grid">
     <div class="card"><div class="n">BINARY</div><div class="stat">6 MB</div><p class="muted">Rust, no runtime to install. Model and ONNX runtime download once, 390 MB.</p></div>
@@ -115,6 +160,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
   </div>
   <p class="note">Every number above was measured on an M5 MacBook Air with a release build and is reproduced in the repository's <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/BENCHMARKS.md">BENCHMARKS.md</a>. The engineering rule behind them: do less, allocate less, move less, measure.</p>
 
+  <span class="eyebrow">Comparison</span>
   <h2 id="compare">Compared with cognee</h2>
   <p><a href="https://github.com/topoteretes/cognee">cognee</a> is the best-known open-source memory engine for agents. It solves a broader problem: any documents, conversations and code, for any agent, turned into a knowledge graph plus vectors, with a server, a UI and a cloud. memorycastle solves one narrow problem, a coding team's decisions per repository, and the narrowness is where the architecture differs.</p>
   <div class="wrap"><table>
@@ -133,6 +179,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
   </table></div>
   <p style="margin-top:18px">The trade is explicit. cognee can remember a support transcript or a PDF and answer questions a human never wrote down; memorycastle cannot, because nothing is extracted, only what an agent chose to write is stored. In exchange, a memorycastle answer is always traceable to a sentence a person or agent wrote, costs under a second and a few hundred MB at most, and the "graph" cannot hallucinate an edge. For a coding team that wants its agents to stop repeating rejected experiments, that trade is the right one. For a company that wants memory over everything it has, it is not.</p>
 
+  <span class="eyebrow">Design</span>
   <h2 id="why">Why smaller is also better, for this job</h2>
   <div class="grid">
     <div class="card"><h3>Written by the one who did the work</h3><p class="muted">The note is written by the agent that made the change, in that session, with the rejected approach and the measured number still in hand. An extractor reading the transcript later is reconstructing what the author already knew, and guessing where the transcript is silent. The why was never in the code; only the one who decided can write it.</p></div>
@@ -145,6 +192,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
   </div>
   <p style="margin-top:18px">None of this makes memorycastle a replacement for cognee. It makes it the right size for one job: a repository, its agents, and the decisions they should not have to make twice. The resource gap is not an optimisation of the same design; it falls out of not extracting, not inferring and not serving.</p>
 
+  <span class="eyebrow">Honesty</span>
   <h2 id="honest">What the numbers mean</h2>
   <div class="grid">
     <div class="card"><div class="n">RETRIEVAL, GOLD SET</div><div class="stat">1.000<small>recall@3</small></div><p class="muted">97 questions over two real journals, MRR 0.89 to 0.91. Five absent-topic questions must return nothing, and do.</p></div>
@@ -153,6 +201,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
   </div>
   <p class="note">A per-task comparison was built and removed the same day because it charged unrelated reads to the tool. The repository keeps that note. If a number cannot be defended row by row, it is not on the status line.</p>
 
+  <span class="eyebrow">Scope</span>
   <h2 id="scope">One repo, one memory</h2>
   <p>Every call works out the project from the current directory: the git root, and the remote normalised to <code>host/owner/repo</code>. A fresh clone on another machine is the same project; a worktree is the same project as its main checkout. Each query binds that project before ranking, so a search in one repo can never return another repo's note. Nothing to name, pick or configure.</p>
   <div class="grid">
@@ -162,6 +211,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <div class="card"><h3>What is never searched</h3><p class="muted">There is no "everything I know". A question about another repo is answered in that repo or through a declared group. The isolation is a test in the suite, not a setting.</p></div>
   </div>
 
+  <span class="eyebrow">Install</span>
   <h2 id="start">Start</h2>
   <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
 memcastle install                 # every agent on this machine, from any directory
@@ -175,5 +225,22 @@ memcastle uninstall --purge       # the reverse, notes stay</code></pre>
 <footer>
   memorycastle · <a href="https://github.com/abhksinha/MemoryCastle">source</a> · <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/ARCHITECTURE.md">architecture</a> · <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/BENCHMARKS.md">benchmarks</a> · cognee facts from its README on 2026-10-19; corrections welcome as an issue.
 </footer>
+<script>
+  (function () {
+    var root = document.documentElement, btn = document.getElementById('theme');
+    function current() {
+      var t = root.getAttribute('data-theme');
+      if (t) return t;
+      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+    function apply(t) { root.setAttribute('data-theme', t); btn.textContent = t === 'dark' ? 'light' : 'dark'; }
+    try { var saved = localStorage.getItem('theme'); if (saved) apply(saved); else btn.textContent = current() === 'dark' ? 'light' : 'dark'; } catch (e) { btn.textContent = current() === 'dark' ? 'light' : 'dark'; }
+    btn.addEventListener('click', function () {
+      var next = current() === 'dark' ? 'light' : 'dark';
+      apply(next);
+      try { localStorage.setItem('theme', next); } catch (e) {}
+    });
+  })();
+</script>
 </body>
 </html>
