@@ -320,6 +320,20 @@ cheapest agent session.
   0.11.5 leads it on all three journals, by 0.024, 0.011 and 0.013 MRR.
   The pre-registered tables above are unchanged; they are the 0.11.3
   numbers.
+- **Why the 300M model is kept.** On ten notes any embedder finds the
+  right one: few candidates, overlapping words. At forty-eight the
+  misses are paraphrases ("was the neural engine tried" against a note
+  that says CoreML and ANE; "how long did reindexing take" against one
+  titled one chunk per call), and that is where the 33M model lost 0.10
+  MRR inside the same fusion and the 300M one did not. A journal gains a
+  note per task, questions drift from the wording that was written, and
+  identifiers sit inside sentences; EmbeddingGemma 2 is trained on code
+  and prose together, uses separate query and document prefixes, and
+  holds 1,024 tokens of a dense chunk where the small model truncates at
+  512. The cost is paid once per chunk at save, 0.2 s in a hook; the
+  recall is collected on every search for the life of the journal, and
+  the gap widens as the journal grows. Ingest speed is the wrong thing
+  to optimise for something written once and read for months.
 - **One embedding server (0.11.2).** Ten were resident during the agent
   runs; the fix is described under "What the run found".
 - **Mem0's threshold tested.** Reported under "Absent topic" above, so the
