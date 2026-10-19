@@ -132,6 +132,13 @@ enum Cmd {
         #[arg(long)]
         once: Option<String>,
     },
+    /// Recall for a prompt (called by the prompt hook): one line per note the
+    /// store is confident about, each once per session; nothing otherwise.
+    #[command(hide = true)]
+    Recall {
+        /// The prompt text; read from stdin when absent.
+        text: Option<String>,
+    },
     /// Draft a note from this session's edits when none was saved (called by the stop hook).
     #[command(hide = true)]
     Draft,
@@ -221,6 +228,9 @@ enum Cmd {
     Links {
         /// A file path (`src/store.rs`, or just `store.rs`), a symbol (`embed_missing`), or a note path.
         target: String,
+        /// With a file: the notes about the definition enclosing this line (then the file), not every note about the file.
+        #[arg(long)]
+        at: Option<u32>,
         /// Also print the constants the definition uses and the lines that call it.
         #[arg(long)]
         context: bool,
@@ -616,6 +626,45 @@ fn run(cli: Cli) -> Result<()> {
             print!("{}", include_str!("../docs/GUIDE.md"));
             return Ok(());
         }
+        Cmd::Recall { text } => {
+            let text = match text {
+                Some(t) => t,
+                None => {
+                    let mut s = String::new();
+                    std::io::Read::read_to_string(&mut std::io::stdin(), &mut s)?;
+                    s
+                }
+            };
+            let words = memorycastle::search::content_words(&text);
+            if words.len() < memorycastle::limits::RECALL_MIN_WORDS {
+                return Ok(());
+            }
+            let Some(pid) = ctx.project.as_ref().map(|p| p.id) else { return Ok(()) };
+            let (hits, _) = ctx.search(&text, &ScopeFlags::default(), &SearchOptions { k: memorycastle::limits::RECALL_MAX_NOTES * 2, mode: Mode::Auto })?;
+            let sid = store::current_session(&ctx.conn, pid)?;
+            let mut out = String::new();
+            let mut shown: Vec<i64> = Vec::new();
+            for h in hits.iter().filter(|h| h.trace.confidence >= memorycastle::limits::RECALL_MIN_CONFIDENCE && h.superseded_by.is_none()) {
+                if shown.contains(&h.note_id) || shown.len() >= memorycastle::limits::RECALL_MAX_NOTES {
+                    continue;
+                }
+                if let Some(sid) = &sid {
+                    let key = format!("recall:{sid}:{}", h.note_id);
+                    if memorycastle::db::meta_get(&ctx.conn, &key)?.is_some() {
+                        continue;
+                    }
+                    memorycastle::db::meta_set(&ctx.conn, &key, "1")?;
+                }
+                shown.push(h.note_id);
+                let changed = if h.code_changed.is_empty() { String::new() } else { format!("  code changed since: {}", h.code_changed.join(", ")) };
+                out.push_str(&format!("{}:{}  {:.2}  {}{}\n", h.path, h.line, h.trace.confidence, h.heading, changed));
+            }
+            if !out.is_empty() {
+                print!("{out}");
+                store::record_served_notes(&ctx.conn, pid, &shown, "recall")?;
+                store::record_usage(&ctx.conn, pid, "recall", out.len(), 0)?;
+            }
+        }
         Cmd::Owed { once } => {
             let Some(p) = &ctx.project else { return Ok(()) };
             if let Some(o) = memorycastle::draft::owed(&ctx.conn, p.id)? {
@@ -859,8 +908,26 @@ fn run(cli: Cli) -> Result<()> {
                 println!("gates passed");
             }
         }
-        Cmd::Links { target, context, once } => {
+        Cmd::Links { target, at, context, once } => {
             let pid = ctx.require_project()?.id;
+            // A line inside a file: the enclosing definition is the unit the
+            // agent is editing, so notes about it come first and the file's
+            // own notes are shown only when the symbol has none.
+            let mut target = target;
+            if let (Some(line), true) = (at, target.contains('/') || target.contains('.')) {
+                if let Some(r) = ctx.repo.as_ref().map(|r| r.root.clone()) {
+                    memorycastle::code::refresh(&mut ctx.conn, pid, &r)?;
+                }
+                if let Some(d) = memorycastle::code::def_enclosing(&ctx.conn, pid, &target, line)? {
+                    graph::ensure_links(&mut ctx.conn, pid)?;
+                    if !graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &d.name)?.is_empty() {
+                        if !cli.json {
+                            println!("about: {} ({}:{}-{} holds line {line})", d.name, d.path, d.line, d.end);
+                        }
+                        target = d.name;
+                    }
+                }
+            }
             if once {
                 if let Some(sid) = store::current_session(&ctx.conn, pid)? {
                     let key = format!("links:{sid}:{target}");

@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 19;
+pub const SCHEMA_VERSION: i64 = 20;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -303,6 +303,21 @@ fn migrate(conn: &Connection) -> Result<()> {
                  session    TEXT
              );
              CREATE INDEX IF NOT EXISTS served_notes_note ON served_notes(project_id, note_id, at);",
+        )?;
+    }
+    if version < 20 {
+        // What the code a note names looked like when the note was saved:
+        // one row per (note, symbol, file) with the definition body's hash,
+        // so a search can say "code changed since" without guessing.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS note_code (
+                 note_id    INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                 project_id INTEGER NOT NULL,
+                 name       TEXT NOT NULL,
+                 path       TEXT NOT NULL,
+                 body_hash  BLOB NOT NULL,
+                 PRIMARY KEY (note_id, name, path)
+             ) WITHOUT ROWID;",
         )?;
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

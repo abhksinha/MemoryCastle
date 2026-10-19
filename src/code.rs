@@ -477,6 +477,30 @@ pub fn strip_strings_and_comments(l: &str) -> String {
 /// The definition's current span in the checkout: the stored one when the
 /// file is unchanged, else re-found by its anchor line (then by name), else
 /// None. Reads one file.
+/// SHA-256 of a definition's current body (its span re-found if the file
+/// moved), or None when the definition is gone. The unit of "has the code
+/// this note describes changed".
+pub fn body_hash(conn: &Connection, project_id: i64, root: &Path, d: &Def) -> Result<Option<Vec<u8>>> {
+    let Some((a, b)) = current_span(conn, project_id, root, d)? else { return Ok(None) };
+    let Ok(text) = std::fs::read_to_string(root.join(&d.path)) else { return Ok(None) };
+    let body: Vec<&str> = text.lines().skip(a as usize - 1).take((b - a + 1) as usize).map(str::trim_end).collect();
+    Ok(Some(Sha256::digest(body.join("\n").as_bytes()).to_vec()))
+}
+
+/// The innermost definition in `path` whose span holds `line`.
+pub fn def_enclosing(conn: &Connection, project_id: i64, path: &str, line: u32) -> Result<Option<Def>> {
+    let mut stmt = conn.prepare_cached(
+        "SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND path = ?2 AND line <= ?3 AND end_line >= ?3 ORDER BY line DESC LIMIT 1",
+    )?;
+    let d = stmt
+        .query_row(params![project_id, path, line as i64], |r| {
+            let kind: String = r.get(2)?;
+            Ok(Def { path: r.get(0)?, name: r.get(1)?, kind: kind_str(&kind), line: r.get::<_, i64>(3)? as u32, end: r.get::<_, i64>(4)? as u32, anchor: r.get(5)? })
+        })
+        .optional()?;
+    Ok(d)
+}
+
 pub fn current_span(conn: &Connection, project_id: i64, root: &Path, d: &Def) -> Result<Option<(u32, u32)>> {
     let full = root.join(&d.path);
     let Ok(bytes) = std::fs::read(&full) else { return Ok(None) };

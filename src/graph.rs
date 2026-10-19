@@ -7,7 +7,7 @@
 use crate::db::placeholders;
 use crate::error::Result;
 use crate::fts;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
@@ -133,6 +133,13 @@ pub fn extract(note_path: &str, content: &str) -> Vec<(Kind, String)> {
 /// A code symbol: identifier segments joined by `::` or `.`, starting with a
 /// letter or underscore. Rejects assignments (`X=1`), addresses (`::1`),
 /// numbers and dates.
+/// Two spellings of one symbol: equal, or equal after dropping a `::` or
+/// `.` path on either side (`spans::context` and `context`).
+pub fn same_symbol(a: &str, b: &str) -> bool {
+    let short = |t: &str| t.rsplit("::").next().unwrap_or(t).rsplit('.').next().unwrap_or(t).trim_end_matches("()").to_string();
+    a == b || short(a) == short(b)
+}
+
 pub fn looks_like_symbol(t: &str) -> bool {
     if t.is_empty() || t.contains(['=', ' ', '/', '"', '\'']) {
         return false;
@@ -200,6 +207,52 @@ pub fn store_links(tx: &Connection, note_id: i64, project_id: i64, note_path: &s
     Ok(links.len())
 }
 
+/// Records the body hash of every definition a note names (its `Symbol`
+/// links, up to two definitions each), so a later search can tell whether
+/// the code the note describes has changed. Needs the checkout; without a
+/// code index nothing is recorded and nothing is claimed.
+pub fn refresh_note_code(conn: &Connection, project_id: i64, root: &Path, note_path: &str) -> Result<usize> {
+    if crate::db::is_readonly(conn) {
+        return Ok(0);
+    }
+    let Some(note_id): Option<i64> = conn.query_row("SELECT id FROM notes WHERE project_id = ?1 AND path = ?2 AND deleted_at IS NULL", params![project_id, note_path], |r| r.get(0)).optional()? else { return Ok(0) };
+    conn.execute("DELETE FROM note_code WHERE note_id = ?1", [note_id])?;
+    let mut names = conn.prepare_cached("SELECT target FROM links WHERE note_id = ?1 AND kind = ?2")?;
+    let symbols: Vec<String> = names.query_map(params![note_id, Kind::Symbol as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let mut ins = conn.prepare_cached("INSERT OR REPLACE INTO note_code(note_id, project_id, name, path, body_hash) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+    let mut n = 0;
+    for sym in symbols {
+        for d in crate::code::defs_named(conn, project_id, &sym)?.into_iter().take(2) {
+            if let Some(h) = crate::code::body_hash(conn, project_id, root, &d)? {
+                ins.execute(params![note_id, project_id, d.name, d.path, h])?;
+                n += 1;
+            }
+        }
+    }
+    Ok(n)
+}
+
+/// For search: the symbols a note names whose definition body differs from
+/// what it was when the note was saved, or is gone. Reads one file per
+/// symbol, bounded by what the note declared.
+pub fn code_changed(conn: &Connection, project_id: i64, root: &Path, note_id: i64) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached("SELECT name, path, body_hash FROM note_code WHERE note_id = ?1")?;
+    let rows: Vec<(String, String, Vec<u8>)> = stmt.query_map([note_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    for (name, path, then) in rows {
+        let now = crate::code::defs_named(conn, project_id, &name)?
+            .into_iter()
+            .find(|d| d.path == path)
+            .map(|d| crate::code::body_hash(conn, project_id, root, &d))
+            .transpose()?
+            .flatten();
+        if now.as_deref() != Some(then.as_slice()) && !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    Ok(out)
+}
+
 /// Bump when `extract` changes what it finds; stores with older links are
 /// rebuilt in one pass on the next graph command.
 pub const LINKS_VERSION: &str = "4";
@@ -265,10 +318,24 @@ pub fn notes_for(conn: &Connection, project_id: i64, kind: Kind, target: &str) -
     let map = |r: &rusqlite::Row| {
         Ok(NoteRef { id: r.get(0)?, path: r.get(1)?, title: r.get(2)?, saved_at: r.get(3)?, dated: r.get(7)?, superseded_by: r.get(4)?, author: r.get(5)?, via: r.get(6)? })
     };
-    if kind != Kind::File {
+    if kind == Kind::Note {
         let mut stmt = conn.prepare(&sql("l.target = ?3"))?;
         let v: Vec<NoteRef> = stmt.query_map(params![project_id, kind as i64, target], map)?.collect::<rusqlite::Result<_>>()?;
         return Ok(v);
+    }
+    if kind == Kind::Symbol {
+        // A note may write the symbol with its path (`spans::context`,
+        // `store.embed_missing`); the bare name names the same thing.
+        let short = target.rsplit("::").next().unwrap_or(target).rsplit('.').next().unwrap_or(target).trim_end_matches("()");
+        let mut stmt = conn.prepare(&sql("(l.target = ?3 OR l.target LIKE '%::' || ?3 OR l.target LIKE '%.' || ?3)"))?;
+        let mut out: Vec<NoteRef> = Vec::new();
+        for r in stmt.query_map(params![project_id, kind as i64, short], map)? {
+            let r = r?;
+            if !out.iter().any(|o| o.id == r.id) {
+                out.push(r);
+            }
+        }
+        return Ok(out);
     }
     // A file is one thing however a note spelled it: bare name, partial or
     // full path. Match when either is a path suffix of the other on a `/`

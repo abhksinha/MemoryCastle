@@ -486,3 +486,45 @@ fn render_follows_the_fixed_grammar() {
         }
     }
 }
+
+#[test]
+fn a_note_knows_when_its_code_changed() {
+    use memorycastle::code;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "cc", None);
+    let root = std::env::temp_dir().join(format!("mc-cc-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.rs"), "pub fn alpha_one() -> i32 {\n    1\n}\n\npub fn beta_two() -> i32 {\n    2\n}\n").unwrap();
+    code::index(&mut conn, p.id, &root).unwrap();
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-alpha.md", "# alpha returns one\nDate: 2026-10-19\nFiles: `src/a.rs`\n\n## Decision\n`alpha_one` returns one because beta needs it.");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-beta.md", "# beta returns two\nDate: 2026-10-19\nFiles: `src/a.rs`\n\n## Decision\n`beta_two` returns two because alpha needs it.");
+    assert_eq!(graph::refresh_note_code(&conn, p.id, &root, "memorycastle/journal/2026-10-19-alpha.md").unwrap(), 1);
+    assert_eq!(graph::refresh_note_code(&conn, p.id, &root, "memorycastle/journal/2026-10-19-beta.md").unwrap(), 1);
+    let scope = Scope::single(p.id);
+    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    memorycastle::search::mark_code_changed(&conn, &root, &mut hits).unwrap();
+    assert!(hits.iter().all(|h| h.code_changed.is_empty()), "nothing changed yet");
+    // Edit beta's body: the beta note is labelled and ranks under alpha's.
+    std::fs::write(root.join("src/a.rs"), "pub fn alpha_one() -> i32 {\n    1\n}\n\npub fn beta_two() -> i32 {\n    3\n}\n").unwrap();
+    code::refresh(&mut conn, p.id, &root).unwrap();
+    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    memorycastle::search::mark_code_changed(&conn, &root, &mut hits).unwrap();
+    let beta = hits.iter().find(|h| h.path.contains("beta")).unwrap();
+    let alpha = hits.iter().find(|h| h.path.contains("alpha")).unwrap();
+    assert_eq!(beta.code_changed, vec!["beta_two".to_string()]);
+    assert!(alpha.code_changed.is_empty(), "alpha's body is as it was");
+    assert!(alpha.trace.score > beta.trace.score, "the note whose code changed ranks under the one whose code did not");
+    // The enclosing definition of a line, for the edit hook.
+    assert_eq!(code::def_enclosing(&conn, p.id, "src/a.rs", 6).unwrap().map(|d| d.name), Some("beta_two".to_string()));
+    assert!(code::def_enclosing(&conn, p.id, "src/a.rs", 4).unwrap().is_none(), "a blank line between definitions is in none");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn recall_asks_nothing_of_a_short_prompt() {
+    use memorycastle::limits::RECALL_MIN_WORDS;
+    use memorycastle::search::content_words;
+    assert!(content_words("yes").len() < RECALL_MIN_WORDS);
+    assert!(content_words("run the tests again").len() < RECALL_MIN_WORDS, "{:?}", content_words("run the tests again"));
+    assert!(content_words("make embedding faster by batching chunks").len() >= RECALL_MIN_WORDS);
+}

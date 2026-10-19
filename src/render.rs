@@ -68,6 +68,7 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         let mut block = String::new();
         let date = fmt_date(h.dated.unwrap_or(h.saved_at));
         let sup = h.superseded_by.as_ref().map(|p| format!("  superseded by {p}")).unwrap_or_default();
+        let sup = if h.code_changed.is_empty() { sup } else { format!("{sup}  code changed since: {}", h.code_changed.join(", ")) };
         let proj = if multi { format!("  [{}]", h.project) } else { String::new() };
         let (snippet, off) = if o.sections { (String::new(), 0) } else { crate::search::focus(&h.text, o.query, SEARCH_CHUNK_BYTES / 3) };
         let (title, section) = split_heading(&h.heading);

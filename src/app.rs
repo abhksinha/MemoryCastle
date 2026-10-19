@@ -88,6 +88,14 @@ impl Context {
     }
 
     pub fn search(&mut self, query: &str, flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {
+        let (mut hits, ex) = self.search_ranked(query, flags, opts)?;
+        if let Some(root) = self.repo.as_ref().map(|r| r.root.clone()) {
+            search::mark_code_changed(&self.conn, &root, &mut hits)?;
+        }
+        Ok((hits, ex))
+    }
+
+    fn search_ranked(&mut self, query: &str, flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {
         let scope = self.scope(flags)?;
         if opts.mode == Mode::Keyword || !cfg!(feature = "ort") {
             return search::search(&self.conn, &scope, query, opts, ModelSource::None);
@@ -136,6 +144,9 @@ impl Context {
                 SaveOutcome::Updated => updated += 1,
                 SaveOutcome::Unchanged => unchanged += 1,
             }
+            // What the named code looks like now, so a later search can say
+            // whether it changed since this note was written.
+            crate::graph::refresh_note_code(&self.conn, project.id, &root, &rel)?;
         }
         let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
         // What the store can say about the saved notes against the rest.
@@ -155,6 +166,9 @@ impl Context {
     pub fn save_text(&mut self, rel_path: &str, content: &str, force: bool, keyword_only: bool) -> Result<(SaveOutcome, usize)> {
         let project = self.require_project()?.clone();
         let outcome = store::save_note(&mut self.conn, &project, rel_path, content, &SaveOptions { source: "agent", force })?;
+        if let Some(r) = self.repo.as_ref().map(|r| r.root.clone()) {
+            crate::graph::refresh_note_code(&self.conn, project.id, &r, rel_path)?;
+        }
         let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
         Ok((outcome, embedded))
     }

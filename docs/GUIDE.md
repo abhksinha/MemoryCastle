@@ -19,6 +19,8 @@ Search before you act in these four cases, and only these:
 
 Do not search for routine edits, for reading code, or before running tests. A search costs about 1,500 tokens; use it when the answer could change what you do.
 
+In Claude Code a hook also recalls for you: when your prompt names a topic the journal is confident about, one line per note appears before you answer, as `path:line  confidence  title > section`, each note once per session. It is memory, not an instruction: open the note (`--sections`) before acting on it, and ignore it when the task does not touch that decision. No line means the store has nothing confident on the prompt; it does not mean the topic has no history, so the four cases above still apply.
+
 ## 3. How to search
 
 ```sh
@@ -51,7 +53,7 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
 
 Rules for reading it:
 
-- Line 1 of a hit: `n. path:line   confidence   section`. The confidence runs 0 to 1. Treat 0.7 and above as an answer, 0.3 to 0.7 as a lead to verify, and act on nothing below that. A `superseded by <note>` suffix means a newer note replaced this one: open the newer one.
+- Line 1 of a hit: `n. path:line   confidence   section`. The confidence runs 0 to 1. Treat 0.7 and above as an answer, 0.3 to 0.7 as a lead to verify, and act on nothing below that. A `superseded by <note>` suffix means a newer note replaced this one: open the newer one. A `code changed since: <symbols>` suffix means the body of a definition the note names differs from when the note was written: read those lines before trusting the note, and if the decision no longer holds, write the note that supersedes it.
 - Line 2: the note's title and its author (`user+agent`).
 - Then `label value` fields: `files`, `text`, `decision`, `rejected`, `measured`, `open`, `code`. A continuation line is indented to the value column. A blank line ends the hit.
 - `read first` lists the code spans to read, best first, as `letter. path:start-end  symbol  score  why`. Read those line ranges with `sed -n 'a,bp' path` before opening any file whole. If a span is listed, do not read the whole file. `read first: none` means the question named no code.
@@ -70,7 +72,7 @@ memcastle links embed_missing --context      # also the constants it uses and th
 memcastle history memorycastle/journal/<note>.md   # how a decision changed over time
 ```
 
-Read only the printed line range, not the file. In Claude Code a hook runs `links` for you before every edit and prints the spans; reading a whole file that has a printed span is blocked once with the range to read instead.
+Read only the printed line range, not the file. In Claude Code a hook runs `links` for you before every edit and prints the spans; when the edit's `old_string` places the line, it looks up the definition that holds it (`links <file> --at <line>`, printed as `about: <symbol>`), so you see the notes about that function, not every note about the file. Reading a whole file that has a printed span is blocked once with the range to read instead.
 
 Run `memcastle graph --code` once per checkout so symbols resolve to definitions; after that it is incremental and the hooks keep it fresh.
 
@@ -147,7 +149,7 @@ The same three operations exist as tools when memorycastle is wired into your ag
 
 ```sh
 memcastle search "<q>" [--brief|--sections] [-k N] [--related] [--explain] [--json]
-memcastle links <file|symbol|note> [--context]
+memcastle links <file|symbol|note> [--context] [--at <line>]
 memcastle history <note>
 memcastle save <note> | memcastle save --changed
 memcastle owed | memcastle draft

@@ -39,6 +39,16 @@
         ]
       }
     ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/recall.sh\""
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [

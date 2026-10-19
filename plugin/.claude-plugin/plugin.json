@@ -1,7 +1,7 @@
 {
   "name": "memorycastle",
   "description": "Per-repo memory of decisions, rejected attempts and measurements for coding agents. Hooks show what notes say about a file before it is edited; status reports bytes saved.",
-  "version": "0.10.7",
+  "version": "0.11.0",
   "author": { "name": "Abhi" },
   "repository": "https://github.com/abhksinha/MemoryCastle",
   "license": "MIT OR Apache-2.0"

@@ -69,6 +69,10 @@ pub struct Hit {
     /// 1-based line in the note where the chunk starts.
     pub line: u32,
     pub trace: Trace,
+    /// Symbols the note names whose code changed since the note was saved
+    /// (filled by `mark_code_changed` when a checkout is at hand).
+    #[serde(default)]
+    pub code_changed: Vec<String>,
 }
 
 /// What the pipeline decided, for `--explain`.
@@ -289,7 +293,7 @@ pub fn search(
             let Some(l) = links.get(&h.note_id) else { continue };
             let direct = l.iter().any(|(k, t)| match k {
                 crate::graph::Kind::File => q_files.iter().any(|f| crate::graph::same_file(t, f)),
-                crate::graph::Kind::Symbol => q_symbols.iter().any(|s| s == t),
+                crate::graph::Kind::Symbol => q_symbols.iter().any(|s| crate::graph::same_symbol(s, t)),
                 crate::graph::Kind::Note => false,
             });
             let bridge = !direct
@@ -359,6 +363,40 @@ fn bm25_channel(conn: &Connection, scope: &Scope, fts_query: &str) -> Result<Vec
 }
 
 pub use crate::limits::{COSINE_CEIL, COSINE_FLOOR, GRAPH_BRIDGE_WEIGHT, GRAPH_DIRECT_WEIGHT, MIN_CONFIDENCE, SECTION_CUE_WEIGHT};
+
+/// After ranking, with the checkout at hand: a hit whose note names a symbol
+/// whose body changed since the note was saved is labelled and weighted by
+/// `CODE_CHANGED_WEIGHT`, like a superseded note. Deterministic: the hash
+/// then against the hash now. Hits are re-sorted by score.
+pub fn mark_code_changed(conn: &Connection, root: &std::path::Path, hits: &mut [Hit]) -> Result<()> {
+    let mut cache: HashMap<i64, Vec<String>> = HashMap::new();
+    for h in hits.iter_mut() {
+        let changed = match cache.get(&h.note_id) {
+            Some(c) => c.clone(),
+            None => {
+                let c = crate::graph::code_changed(conn, h.project_id, root, h.note_id)?;
+                cache.insert(h.note_id, c.clone());
+                c
+            }
+        };
+        if !changed.is_empty() {
+            h.trace.score *= crate::limits::CODE_CHANGED_WEIGHT;
+            h.code_changed = changed;
+        }
+    }
+    hits.sort_by(|a, b| b.trace.score.partial_cmp(&a.trace.score).unwrap_or(std::cmp::Ordering::Equal));
+    Ok(())
+}
+
+/// The words of a prompt that could name a topic: four letters or more, not
+/// generic. The recall hook asks nothing of a prompt with fewer than
+/// `RECALL_MIN_WORDS` of them.
+pub fn content_words(text: &str) -> Vec<String> {
+    let mut out: Vec<String> = fts::terms(text).into_iter().map(|t| t.to_ascii_lowercase()).filter(|t| t.len() >= 4 && !GENERIC_WORDS.contains(&t.as_str())).collect();
+    out.sort_unstable();
+    out.dedup();
+    out
+}
 
 /// Words that say nothing about which note is meant.
 pub const STOPWORDS: &[&str] = &["a", "an", "the", "is", "are", "was", "were", "be", "do", "does", "did", "we", "i", "it", "to", "of", "in", "on", "for", "and", "or", "what", "which", "how", "why", "when", "where", "who", "that", "this", "with", "from", "by", "at", "as", "our", "my", "you", "me", "us", "any", "about", "have", "has", "had", "not", "no", "can", "could", "should", "would", "will"];
@@ -710,6 +748,7 @@ fn fetch_hits(conn: &Connection, ids: &[i64]) -> Result<Vec<Hit>> {
             heading: r.get(5)?,
             saved_at: r.get(6)?,
             dated: r.get(11)?,
+            code_changed: Vec::new(),
             source: r.get(7)?,
             text: r.get(8)?,
             superseded_by: r.get(9)?,
@@ -787,6 +826,7 @@ impl Memory for GrepMemory<'_> {
                         text: String::new(),
                         line: 1,
                         trace: Trace { score: n as f32, weight: 1.0, ..Default::default() },
+                        code_changed: Vec::new(),
                     },
                 ));
             }

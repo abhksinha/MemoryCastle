@@ -55,6 +55,21 @@ pub const DISTINCTIVE_MAX_SHARE: f32 = 0.1;
 /// defined (code index) in a file the note links.
 pub const GRAPH_DIRECT_WEIGHT: f32 = 1.5;
 pub const GRAPH_BRIDGE_WEIGHT: f32 = 1.2;
+/// A note naming a symbol whose definition body changed since the note was
+/// saved (`note_code`, schema v20) is labelled `code changed` and its score
+/// multiplied by this: still found, ranked under a note the code still
+/// matches, and the agent told to check it against the lines.
+pub const CODE_CHANGED_WEIGHT: f32 = 0.7;
+/// Recall on every prompt (the `UserPromptSubmit` hook): a prompt with fewer
+/// content words than this asks nothing; a hit under this confidence is not
+/// injected; at most this many notes, each once per session. About 15
+/// tokens per line injected, zero when the store has nothing.
+pub const RECALL_MIN_WORDS: usize = 3;
+/// 0.50 is cosine 0.70: above the off-topic peak (0.65) with margin, and
+/// under the right note's median (0.75), so a task stated in the agent's
+/// words still recalls the note that rejected its approach.
+pub const RECALL_MIN_CONFIDENCE: f32 = 0.50;
+pub const RECALL_MAX_NOTES: usize = 3;
 /// Code spans printed per note in `search --sections` (symbols the note names).
 pub const SEARCH_CODE_SPANS: usize = 4;
 /// Files listed per hit in search output; the rest is "+n more".
