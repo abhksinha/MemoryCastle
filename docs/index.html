@@ -209,10 +209,13 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <h2>A number that can go down.</h2>
     <p class="sub">The status line shows tokens saved this session. It is not a running total. Every time it draws, it is recomputed from the ledger for the whole session:</p>
     <div class="formula reveal">saved = <b>bytes the printed spans stood in for</b><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="minus">−</span> bytes of those reads<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="minus">−</span> bytes of every lookup this session printed</div>
-    <div class="grid reveal">
-      <div class="card"><h3>Why it falls</h3><p>The first two terms only grow. The third grows with every search, links call and recall line, guided or not. A lookup that leads to no read is a cost with no saving, so the net drops by its size. A guided read followed by reading the same file whole is cancelled, and counted.</p></div>
-      <div class="card"><h3>Why that is the point</h3><p>A number that can go down is one you can believe when it goes up. If the net turns negative, the tool is costing more than it saves and the status line says so. A counter that only adds would climb forever and mean nothing.</p></div>
-      <div class="card"><h3>What never moves it</h3><p>Idle time, saving notes, hooks that print nothing. Recall and reminders are silent when they have nothing, so they cost zero then. Over a working session the reads dominate and the figure climbs.</p></div>
+    <div class="changes reveal">
+      <div class="change"><div class="k">Falls when</div><div>A lookup leads to no read: the third term grows by its size and nothing offsets it. A guided read followed by reading the same file whole is cancelled, and counted.</div>
+        <div class="k">Rises when</div><div>A printed span stands in for a file the agent would have read; over a working session the reads dominate and the figure climbs.</div>
+        <div class="k">Never moves</div><div>Idle time, saving notes, hooks that print nothing. Recall and reminders are silent when they have nothing, so they cost zero then.</div></div>
+      <div class="change"><div class="k">The point</div><div>A number that can go down is one you can believe when it goes up.</div>
+        <div class="k">If negative</div><div>The tool is costing more than it saves and the status line says so.</div>
+        <div class="k">A counter</div><div>One that only adds would climb forever and mean nothing.</div></div>
     </div>
     <div class="grid reveal" style="margin-top:18px">
       <div class="card accent"><div class="n">Retrieval, gold set</div><div class="stat">1.000<small>recall@3</small></div><p>97 questions over two real journals, MRR 0.89 to 0.91. Five absent-topic questions must return nothing, and do.</p></div>
@@ -226,11 +229,19 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <span class="eyebrow">Without being asked</span>
     <h2>The note happens at the moments it is due.</h2>
     <p class="sub">No human reminds the agent. The hooks do, from the edits ledger, not from reading the chat, so they cannot nag when nothing was edited.</p>
-    <div class="grid reveal">
-      <div class="card"><h3>Every prompt</h3><p>Recall: when the journal is confident about the topic, one line per note, each note once per session. And once mid-session, when five files were edited or thirty minutes passed since the last note, then quiet for thirty minutes.</p></div>
-      <div class="card"><h3>After a commit</h3><p>A task just closed. One line with the files edited since the last note; the agent writes it or ignores it.</p></div>
-      <div class="card"><h3>Before compaction</h3><p>The why is about to be summarised away. The agent is held once with the reason and a draft; the second attempt passes, so nothing can wedge.</p></div>
-      <div class="card"><h3>At stop</h3><p>The same hold, once. If no decision was made, the agent says so and stops.</p></div>
+    <div class="changes reveal">
+      <div class="change"><div class="k">When</div><div>Every prompt.</div>
+        <div class="k">Happens</div><div>Recall: when the journal is confident about the topic, one line per note with its Decision sentence, each note once per session. Mid-session, once, when five files were edited or thirty minutes passed since the last note, then quiet for thirty minutes.</div>
+        <div class="k">Why then</div><div>The session that would not have searched still sees the note; the one that searches sees nothing new.</div></div>
+      <div class="change"><div class="k">When</div><div>After a commit.</div>
+        <div class="k">Happens</div><div>One line with the files edited since the last note; the agent writes it or ignores it.</div>
+        <div class="k">Why then</div><div>A task just closed and the facts are still in context.</div></div>
+      <div class="change"><div class="k">When</div><div>Before compaction.</div>
+        <div class="k">Happens</div><div>The agent is held once with the reason and a draft; the second attempt passes, so nothing can wedge.</div>
+        <div class="k">Why then</div><div>The why is about to be summarised away.</div></div>
+      <div class="change"><div class="k">When</div><div>At stop.</div>
+        <div class="k">Happens</div><div>The same hold, once. If no decision was made, the agent says so and stops.</div>
+        <div class="k">Why then</div><div>The turn is ending; after it, nobody writes the note.</div></div>
     </div>
     <p class="muted" style="margin-top:26px;font-size:15px">Claude Code through its plugin; Codex, Gemini CLI and Cursor through <code>memcastle hook</code>, wired by <code>install</code>. Copilot, OpenCode and Antigravity have no hook surface and get the instructions and the tools.</p>
   </div></section>
@@ -239,13 +250,25 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <span class="eyebrow rose">A week on a large project</span>
     <h2>Mira, a payments monorepo, three agents.</h2>
     <p class="sub">Hypothetical, but every command and number is what the tool does today. The repo has 4,000 files, a team of nine, and agents that until now started every session from zero.</p>
-    <div class="grid reveal">
-      <div class="card"><h3>Monday: install</h3><p>Mira runs the two lines on her laptop. <code>install</code> finds Claude Code, Codex and Cursor, wires each, and in the repo builds the code index: 4,000 files, 60,000 definitions, four seconds. Her last month of Claude and Codex transcripts go into the ledger so the savings counter has a past. The journal is empty; the status line says <code>0 notes</code>.</p></div>
-      <div class="card"><h3>Monday afternoon: the first note</h3><p>She asks Claude to move settlement retries from a cron job to a queue. Forty minutes in, the fifth file is edited and the prompt hook says a note is owed. Claude writes it: queue chosen over cron because retries must survive a deploy; a Redis stream was tried and rejected for lacking per-tenant ordering; p95 retry latency before and after. <code>save</code> fills the author and date, embeds four chunks in a second, and the note is committed with the code.</p></div>
-      <div class="card"><h3>Tuesday: a teammate's agent</h3><p>Dev pulls, opens Codex, and asks it to "make settlement retries faster by batching". Before Codex answers, the recall hook prints one line: Mira's note, 0.74, section Rejected. Codex opens the section, reads the forty lines the note points to in <code>settlement/retry.rs</code>, and proposes batching inside the queue consumer instead of a second stream. No one told it about Monday.</p></div>
-      <div class="card"><h3>Wednesday: the edit hook</h3><p>Priya edits <code>ledger/post.rs</code>, a 2,400-line file with eleven notes about it. The hook finds the function her edit sits in, <code>post_batch</code>, and prints the two notes that name it, with its span, 180 lines. She reads those, not the file. The read guard blocks her agent's one attempt to read the whole file, once, with the range to read instead. Status line that evening: <code>~41k (58%) this session</code>.</p></div>
-      <div class="card"><h3>Thursday: the code moves on</h3><p>A refactor rewrites <code>post_batch</code>. The next search that returns Priya's note shows <code>code changed since: post_batch</code> and ranks it under a note whose code still matches. Her agent reads the new function before trusting the paragraph, finds the invariant still holds, and writes a one-line note that supersedes nothing but records that it checked. Mira's week-old note on retries is untouched; its function did not change.</p></div>
-      <div class="card"><h3>Friday: compaction and the number</h3><p>A long session hits the context limit mid-task. The hook holds compaction once with the reason and a draft; the agent fills Decision and Measured from facts still in context, saves, and compaction proceeds. The status line shows the week: <code>~310k (66%) last 7 sessions</code>. On Friday it fell by 3k while an agent searched four times for something nobody had written down. The team can see that too, and someone writes the note.</p></div>
+    <div class="changes reveal">
+      <div class="change"><div class="k">Monday</div><div>Mira runs the two lines on her laptop.</div>
+        <div class="k">The tool</div><div><code>install</code> finds Claude Code, Codex and Cursor, wires each, and builds the code index: 4,000 files, 60,000 definitions, four seconds. Her last month of transcripts go into the ledger so the savings counter has a past.</div>
+        <div class="k">Status</div><div><code>0 notes</code>.</div></div>
+      <div class="change"><div class="k">Monday pm</div><div>She asks Claude to move settlement retries from a cron job to a queue. Forty minutes in, the fifth file is edited.</div>
+        <div class="k">The tool</div><div>The prompt hook says a note is owed. Claude writes it: queue over cron because retries must survive a deploy; a Redis stream tried and rejected for lacking per-tenant ordering; p95 before and after. <code>save</code> fills author and date, embeds four chunks in a second.</div>
+        <div class="k">Status</div><div>The note is committed with the code.</div></div>
+      <div class="change"><div class="k">Tuesday</div><div>Dev pulls, opens Codex, asks it to "make settlement retries faster by batching".</div>
+        <div class="k">The tool</div><div>Before Codex answers, recall prints one line: Mira's note, 0.74, section Rejected, and its Decision sentence. Codex reads the forty lines the note points to in <code>settlement/retry.rs</code>.</div>
+        <div class="k">Status</div><div>Codex proposes batching inside the queue consumer instead of a second stream. No one told it about Monday.</div></div>
+      <div class="change"><div class="k">Wednesday</div><div>Priya edits <code>ledger/post.rs</code>, 2,400 lines, eleven notes about it.</div>
+        <div class="k">The tool</div><div>The edit hook finds the function her edit sits in, <code>post_batch</code>, and prints the two notes that name it with its 180-line span. The read guard blocks her agent's one attempt to read the whole file, once, with the range to read instead.</div>
+        <div class="k">Status</div><div><code>~41k (58%) this session</code>.</div></div>
+      <div class="change"><div class="k">Thursday</div><div>A refactor rewrites <code>post_batch</code>.</div>
+        <div class="k">The tool</div><div>The next search that returns Priya's note shows <code>code changed since: post_batch</code> and ranks it under a note whose code still matches. Her agent reads the new function before trusting the paragraph.</div>
+        <div class="k">Status</div><div>The invariant still holds; a one-line note records that it checked. Mira's note on retries is untouched; its function did not change.</div></div>
+      <div class="change"><div class="k">Friday</div><div>A long session hits the context limit mid-task.</div>
+        <div class="k">The tool</div><div>The hook holds compaction once with the reason and a draft; the agent fills Decision and Measured from facts still in context, saves, and compaction proceeds.</div>
+        <div class="k">Status</div><div><code>~310k (66%) last 7 sessions</code>. It fell by 3k on Friday while an agent searched four times for something nobody had written down. The team sees that too, and someone writes the note.</div></div>
     </div>
     <p class="muted" style="margin-top:26px">What never happened: a server was stood up, a key was pasted, a transcript was uploaded, a graph was explained. The nine people pulled a directory of Markdown and their agents stopped making the same decision twice. The store on each laptop is one file under <code>~/.local/share/</code>, rebuilt from the repo if deleted.</p>
   </div></section>
@@ -259,6 +282,31 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
       <div class="card"><div class="n">Keyword search</div><div class="stat">&lt;1 ms<small>5 MB resident</small></div><p>Never loads the model.</p></div>
       <div class="card"><div class="n">Meaning search</div><div class="stat">90 ms<small>warm</small></div><p>230 ms cold. 274 MB while the model is loaded, released after five minutes idle.</p></div>
       <div class="card"><div class="n">700 notes, 3,619 chunks</div><div class="stat">3 ms<small>vector scan</small></div><p>19 MB on disk. A bit-packed prefilter keeps the scan linear and small.</p></div>
+    </div>
+  </div></section>
+
+  <section id="terms"><div class="wrap">
+    <span class="eyebrow">Terms</span>
+    <h2>The words on this page.</h2>
+    <p class="sub">Short definitions of every term the tables use, in the order you meet them.</p>
+    <div class="changes reveal">
+      <div class="change"><div class="k">Note</div><div>One Markdown file in <code>memorycastle/journal/</code>, written by an agent or a person at the end of a task: a title, author and date, the files it is about, and sections for Context, Decision, Rejected, Measured and Open. The notes are the memory; everything else is derived from them.</div></div>
+      <div class="change"><div class="k">Journal</div><div>All the notes of one repository. "Project 1, 48 notes" is a journal of 48 files.</div></div>
+      <div class="change"><div class="k">Chunk</div><div>A piece of a note the index works on: one section, split further at about 200 words. A hit points at a chunk and prints its line number.</div></div>
+      <div class="change"><div class="k">Keyword search</div><div>BM25 over the chunks through SQLite FTS5. No model is loaded; under 3 ms from a 9 MB process. Used alone when an identifier from the question is found verbatim.</div></div>
+      <div class="change"><div class="k">Meaning search</div><div>The question and every chunk as vectors from a local embedding model (EmbeddingGemma 2, 300M parameters, int8); ranked by cosine similarity, fused with BM25. 52 ms warm, 300 MB while the model is loaded.</div></div>
+      <div class="change"><div class="k">Confidence</div><div>A number from 0 to 1 printed on every hit: the model's cosine rescaled between a floor and a ceiling set on a gold set, reduced when the question's rare words are absent from the chunk. Under 0.30 the hit is dropped and the answer is "no relevant note". An identifier found verbatim is 1.0.</div></div>
+      <div class="change"><div class="k">Gold set</div><div>A private list of real questions about a journal with the note that answers each, plus questions whose right answer is nothing. Every retrieval number on this page is scored against one.</div></div>
+      <div class="change"><div class="k">recall@3</div><div>The share of questions whose right note is among the first three hits. 0.97 means 55 of 57. recall@10: the same within the first ten.</div></div>
+      <div class="change"><div class="k">MRR</div><div>Mean reciprocal rank: 1 when the right note is first, 1/2 when second, 1/3 when third, averaged over the questions. 0.85 means the right note is usually first and sometimes second. A difference of 0.01 on 30 questions is one note moving by one rank.</div></div>
+      <div class="change"><div class="k">Absent topic</div><div>A question about something no note covers. The right answer is nothing; a system that returns its nearest chunk anyway is counted as answering. 11 per journal here.</div></div>
+      <div class="change"><div class="k">Superseded note</div><div>A note replaced by a later one, declared by the newer note's <code>Supersedes:</code> line. It is kept, labelled and ranked below its replacement, never edited or deleted.</div></div>
+      <div class="change"><div class="k">Read spans</div><div>The <code>path:start-end</code> lines after every answer: the definitions the question or the top notes name, re-found by their anchor line if the file has changed since indexing. The agent reads those lines, not the file.</div></div>
+      <div class="change"><div class="k">Ingest</div><div>Building the index from the notes: hash, split, FTS5, one embedding per chunk. Re-index: the same for one edited note, with unchanged chunks carried over.</div></div>
+      <div class="change"><div class="k">Raw, with key</div><div>Mem0 raw is Mem0 with extraction off, a local 33M embedder over the same chunks, no key. "With key" is Mem0 or cognee in their intended mode, an OpenAI model extracting and embedding, paid per token.</div></div>
+      <div class="change"><div class="k">Tokens, uncached</div><div>What an agent run cost: total tokens the model processed, of which uncached input is the part not served from the prompt cache. Retrieval bytes: the bytes the memory tool itself returned to the agent.</div></div>
+      <div class="change"><div class="k">Resident MB</div><div>Memory the answering process holds while it answers, measured as peak resident set size.</div></div>
+      <div class="change"><div class="k">Pre-registered</div><div>The questions, tasks and pass criteria were written down before any competitor number was seen; later setup fixes are logged with a time.</div></div>
     </div>
   </div></section>
 
@@ -313,14 +361,29 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
 <div class="card chart"><div class="chead"><h4>Project 3, MRR, 10 notes</h4><span class="win">memorycastle, +0.01 to +0.03</span></div><p class="cnote">Ten notes in the fixed shape; every system finds every answer in the top three.</p><div class="bars"><div class="row us"><span class="lbl">memorycastle</span><span class="bar"><i style="width:79.3%"></i></span><span class="val">0.938</span></div><div class="row"><span class="lbl">Mem0 raw</span><span class="bar"><i style="width:75.0%"></i></span><span class="val">0.925</span></div><div class="row"><span class="lbl">Mem0 with key</span><span class="bar"><i style="width:69.7%"></i></span><span class="val">0.909</span></div><div class="row"><span class="lbl">cognee with key</span><span class="bar"><i style="width:68.3%"></i></span><span class="val">0.905</span></div></div></div>
     </div>
     <h3 style="margin-top:36px">Why each winner matters.</h3>
-    <div class="grid" style="margin-top:18px">
-      <div class="card"><h3>Nothing, when there is nothing</h3><p>An agent asks memory about things nobody wrote down several times a session. Mem0 and cognee return the nearest chunk every time, scored, with no usable floor, and the agent weighs it and often acts on it. "No relevant note" is the answer that removes work, and it is deterministic: the same question gives the same nothing, not a different plausible neighbour per run.</p></div>
-      <div class="card"><h3>The reversed decision stays reversed</h3><p>A memory that serves the superseded note first, unlabelled, is worse than no memory: the agent rebuilds what the team undid. Mem0 and cognee order a decision and its reversal by similarity, a coin toss. The label and the rank here come from a declared <code>Supersedes:</code> line, so they cannot be wrong.</p></div>
-      <div class="card"><h3>Ranking is a tie, and that is the honest result</h3><p>Every system finds the right note in the top three; the MRR gaps are one question swapping rank 1 and 2, in both directions. Rank 1 against rank 2 is one section read instead of two. Sessions are won on the other rows.</p></div>
-      <div class="card"><h3>Save in a hook, not a batch</h3><p>A note is written at the end of every task. 0.19 s means <code>save</code> runs in a hook unnoticed and replaces what was there. Mem0 raw is as fast but keeps the old copies, so a journal edited daily fills with stale duplicates; the LLM modes need seconds to minutes and a provider, so memory goes stale between batches.</p></div>
-      <div class="card"><h3>Small enough to run before every edit</h3><p>9 MB for a keyword answer is what lets a hook run before each edit; Mem0 has no keyword path, every answer loads a model. 300 MB for a meaning answer, released after five idle minutes, sits beside an IDE and a build; 750 MB per answering process does not.</p></div>
-      <div class="card"><h3>A quarter of the context spent on memory</h3><p>Retrieval bytes are the part the memory controls. Mem0's one-sentence memories read in fewer bytes than our sections did, so the default answer became one line and the Decision sentence. Rerun: 92 KB against cognee's 376 KB and Mem0's 194 KB for the same four correct answers, and 50% to 61% fewer tokens across the run.</p></div>
-      <div class="card"><h3>Where Mem0 wins, and what it is</h3><p>Bare vectors over raw chunks with a 33M model: 2.9 s to ingest ten notes, 5 ms a query, ranking as good as anything at this size. That is Mem0 as a vector store, not as a memory: its extraction, dedupe and updates need the LLM mode, which costs 685 s and a million tokens for ten notes and ranks below memorycastle on two of three journals. Both are in the table.</p></div>
+    <p class="sub">Each line is the row, what it means in a working session, and what losing it costs.</p>
+    <div class="changes">
+      <div class="change"><div class="k">Row</div><div>Absent topic: nothing when there is nothing.</div>
+        <div class="k">Means</div><div>An agent asks memory about things nobody wrote down several times a session. "No relevant note" removes that work, and it is deterministic: the same question gives the same nothing.</div>
+        <div class="k">Losing it</div><div>Mem0 and cognee return the nearest chunk every time, scored, with no usable floor; the agent weighs it and often acts on it.</div></div>
+      <div class="change"><div class="k">Row</div><div>Superseded note: the reversed decision stays reversed.</div>
+        <div class="k">Means</div><div>The label and the rank come from a declared <code>Supersedes:</code> line, so they cannot be wrong.</div>
+        <div class="k">Losing it</div><div>A memory that serves the reversed decision first is worse than none: the agent rebuilds what the team undid. Mem0 and cognee order the pair by similarity, a coin toss.</div></div>
+      <div class="change"><div class="k">Row</div><div>Ranking: within one rank swap, all three journals.</div>
+        <div class="k">Means</div><div>Every system finds the right note in the top three; rank 1 against rank 2 is one section read instead of two.</div>
+        <div class="k">Losing it</div><div>One extra line read. Sessions are won on the other rows, which is why the floor was kept over a few points of rank.</div></div>
+      <div class="change"><div class="k">Row</div><div>One note edited: 0.19 s, in place.</div>
+        <div class="k">Means</div><div><code>save</code> runs in a hook unnoticed and replaces what was there, so memory is current after every task.</div>
+        <div class="k">Losing it</div><div>Mem0 raw is as fast but keeps the old copies, so a daily-edited journal fills with stale duplicates; the LLM modes need seconds to minutes and a provider, so memory goes stale between batches.</div></div>
+      <div class="change"><div class="k">Row</div><div>Answering process: 9 MB keyword, 300 MB meaning.</div>
+        <div class="k">Means</div><div>A hook can run before every edit, and the meaning model sits beside an IDE and a build, released after five idle minutes.</div>
+        <div class="k">Losing it</div><div>Mem0 has no keyword path, every answer loads a model; 750 MB per answering process does not fit beside a build.</div></div>
+      <div class="change"><div class="k">Row</div><div>Retrieval bytes: 92 KB across four tasks.</div>
+        <div class="k">Means</div><div>The part of a session the memory controls: what the agent reads to find the fact. One line and the Decision sentence per hit, then the spans.</div>
+        <div class="k">Losing it</div><div>194 KB and 376 KB for the same four correct answers, and 50% to 61% more tokens across the run.</div></div>
+      <div class="change"><div class="k">Row</div><div>Where Mem0 wins: ingest and warm query speed.</div>
+        <div class="k">Means</div><div>Bare vectors over raw chunks with a 33M model: 2.9 s for ten notes, 5 ms a query. That is Mem0 as a vector store, not as a memory.</div>
+        <div class="k">Losing it</div><div>Its extraction, dedupe and updates need the LLM mode: 685 s and a million tokens for ten notes, and a lower rank than memorycastle on all three journals.</div></div>
     </div>
     <h3 style="margin-top:36px">Agents end to end, every cell.</h3>
     <p class="sub">Codex 0.163, <code>codex exec</code>, a fresh session per run, four homes that differ only in the memory wired in: none (grep and cat), memorycastle (MCP server, hooks, instruction section), cognee (its MCP server and <code>recall</code>), Mem0 (a stdio MCP server over the open-source <code>Memory.search</code>). Same clone, four pre-registered tasks, one run per cell, every arm passed every rubric.</p>
@@ -389,11 +452,19 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <span class="eyebrow amber">Scope</span>
     <h2>One repo, one memory.</h2>
     <p class="sub">Every call works out the project from the current directory: the git root, and the remote normalised to <code>host/owner/repo</code>. A fresh clone on another machine is the same project; a worktree is the same as its main checkout. Each query binds that project before ranking, so a search in one repo can never return another repo's note.</p>
-    <div class="grid reveal">
-      <div class="card"><h3>Sister repos</h3><p>Declare a group once per repo with <code>memcastle project group &lt;name&gt;</code>; then <code>search --related</code> includes the siblings, labelled and down-weighted so the home repo wins ties. Without a group, <code>--related</code> searches nothing and says how to declare one.</p></div>
-      <div class="card"><h3>Repos without a remote</h3><p>The project is keyed by the directory path, so moving the directory starts a new project. Add a remote and it binds to that instead; with a remote, a move changes nothing.</p></div>
-      <div class="card"><h3>Teammates</h3><p>They get the notes by pulling the repo. Their first <code>memcastle install</code> on a machine wires the agents; inside the repo it indexes the notes. No server, no account, no sync.</p></div>
-      <div class="card"><h3>What is never searched</h3><p>There is no "everything I know". A question about another repo is answered in that repo or through a declared group. The isolation is a test in the suite, not a setting.</p></div>
+    <div class="changes reveal">
+      <div class="change"><div class="k">Case</div><div>Sister repos.</div>
+        <div class="k">Rule</div><div>Declare a group once per repo with <code>memcastle project group &lt;name&gt;</code>; then <code>search --related</code> includes the siblings, labelled and down-weighted so the home repo wins ties.</div>
+        <div class="k">Why</div><div>Without a group, <code>--related</code> searches nothing and says how to declare one. Isolation stays the gate.</div></div>
+      <div class="change"><div class="k">Case</div><div>Repos without a remote.</div>
+        <div class="k">Rule</div><div>The project is keyed by the directory path, so moving the directory starts a new project. Add a remote and it binds to that instead.</div>
+        <div class="k">Why</div><div>With a remote, a move or a second clone changes nothing.</div></div>
+      <div class="change"><div class="k">Case</div><div>Teammates.</div>
+        <div class="k">Rule</div><div>They get the notes by pulling the repo. Their first <code>memcastle install</code> on a machine wires the agents; inside the repo it indexes the notes.</div>
+        <div class="k">Why</div><div>No server, no account, no sync.</div></div>
+      <div class="change"><div class="k">Case</div><div>What is never searched.</div>
+        <div class="k">Rule</div><div>There is no "everything I know". A question about another repo is answered in that repo or through a declared group.</div>
+        <div class="k">Why</div><div>The isolation is a test in the suite, not a setting.</div></div>
     </div>
   </div></section>
 
