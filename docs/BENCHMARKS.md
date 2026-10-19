@@ -193,9 +193,20 @@ be calibrated, which is what memorycastle's confidence is.
 | left running after a session | one `serve` process, 270 MB, 66 MB after 5 min idle, exits after 30 min | none (the MCP server is per session, 300 MB while it runs) | none | none | none | tie | |
 
 Mem0 raw's speed is its embedding model: 33M parameters against 300M.
-The same model inside memorycastle's fusion is the obvious experiment and
-is listed under open items; what it would cost is the paraphrase recall
-that the gold sets were used to choose the larger model for.
+The same model was then measured inside memorycastle's own fusion (its
+vectors and the gold queries injected into isolated stores as a new
+space, BM25, graph rerank and the confidence floor unchanged), with and
+without bge's recommended query instruction, recall@3 / MRR against
+EmbeddingGemma 2 int8 on the same stores: Project 1 0.825 / 0.742 (0.825
+/ 0.756 with the instruction) against 0.941 / 0.838; Project 2 (26 notes
+by then) 0.936 / 0.920 against 0.979 / 0.963; Project 3 0.971 / 0.897
+(0.941 / 0.853) against 1.000 / 0.897; absent questions answered 2 and 4
+of 11 against 2 and 0 to 1. The small model loses the paraphrase
+questions (the neural engine, the reindex timing, batching) that the
+larger one was chosen for, on every journal, and some right answers fall
+under a floor calibrated for the larger model. The 300M model stays; the
+7x on ingest is not worth 0.04 to 0.10 MRR on a journal that is read far
+more often than it is written.
 
 #### Agents end to end
 

@@ -108,6 +108,8 @@ Environment: `MEMORYCASTLE_HOME` (data dir, default `~/.local/share/memorycastle
 
 768 dims vs 512 (2026-10-19, both gold sets, 276 chunks): AbhiGram recall@3 1.000 both, MRR 0.905 vs 0.909; memorycastle recall@3 0.981 vs 1.000 (the one miss is a gold ambiguity, the right note moved from 4th to 3rd), MRR 0.897 vs 0.890. Confidences within 0.02. 512 stays: the difference is noise and 768 is 50% more vector bytes per chunk, moved on every scan.
 
+A 33M model (`bge-small-en-v1.5`, what Mem0 and cognee use locally) was measured inside the fusion on 2026-10-19 by injecting its vectors as a new space: recall@3 / MRR 0.825 / 0.742 against 0.941 / 0.838 on the 45-note journal, below Gemma on all three journals, with or without bge's query instruction; it loses the paraphrase questions. Gemma stays; the small model's 7x ingest speed does not buy back the rank.
+
 int8 is the default: it is the only setting that finds every answer in the top 3. q4 is twice as fast and 120 MB lighter but drops one question. A repeated eval run hits the query cache (p50 under 1 ms), so measure cold latency on a fresh set of questions.
 
 ## Resource budgets (`src/limits.rs`)
