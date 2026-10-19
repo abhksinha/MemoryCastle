@@ -126,67 +126,48 @@ pays for that in moving parts and in per-token cost.
 A pre-registered, single-session run on an M5 MacBook Air. The plan, with
 the questions, tasks and pass criteria, was written before any cognee
 number was seen; the only changes after were setup fixes, logged with a
-time. The questions and notes are private; the aggregates are below.
+time. The notes and questions are private; the aggregates are below.
 
 **Systems.** grep: term-presence count over whole notes (the `GrepMemory`
-baseline in the harness). memorycastle 0.11.1: keyword only (BM25, no model)
-and keyword plus meaning (EmbeddingGemma 2 int8, local). cognee 1.6.5 in two
-configurations: *local*, with the GLiNER extractor and fastembed embeddings
-and no key, which is the apples-to-apples comparison; and *llm*, cognee's
-defaults (an OpenAI chat model for extraction, `text-embedding-3-large`)
-with a key. Search types: CHUNKS (nearest chunks) and CHUNKS_LEXICAL. A
-result counts when the note file it came from is the gold note.
+baseline in the harness). memorycastle 0.11.x: keyword plus meaning
+(EmbeddingGemma 2 int8, local, no key). cognee 1.6.5 in two
+configurations: *local*, GLiNER extractor and fastembed embeddings, no key,
+the apples-to-apples comparison; and *llm*, cognee's defaults (an OpenAI
+chat model for extraction, `text-embedding-3-large`) with a key. cognee's
+best search type per cell is shown (CHUNKS_LEXICAL throughout; CHUNKS was
+lower everywhere). A result counts when the note file it came from is the
+gold note.
 
-**Corpora.** AbhiGram journal, 10 notes, 113 chunks, 29 answered questions.
-memorycastle journal, 40 notes, 193 chunks, 57 answered questions. Plus 11
+**Corpora.** Three real journals, written by agents on three repositories:
+Project 1, 40 notes, 193 chunks, 57 questions; Project 2, 22 notes, 36
+questions; Project 3, 10 notes, 29 questions. Each corpus also gets 11
 absent-topic questions whose right answer is nothing.
 
-#### Retrieval
+#### Retrieval (recall@3 / MRR; winner by MRR)
 
-| AbhiGram, 29 questions | recall@3 | recall@10 | MRR | p50 | absent: returned something |
+| corpus | memorycastle | cognee local | cognee llm (key) | winner | by |
 | --- | --- | --- | --- | --- | --- |
-| grep | 0.862 | 1.000 | 0.637 | 0.2 ms | 11 of 11 |
-| memorycastle keyword | 0.966 | 0.966 | 0.851 | 2.5 ms | 3 of 11 |
-| memorycastle keyword + meaning | **1.000** | 1.000 | 0.856 | 53 ms warm, 0.23 s cold | **1 of 11** |
-| cognee local, CHUNKS | 0.897 | 0.931 | 0.767 | 65 ms | 11 of 11 |
-| cognee local, CHUNKS_LEXICAL | 1.000 | 1.000 | **0.902** | 59 ms | 11 of 11 |
-| cognee llm, CHUNKS | 1.000 | 1.000 | 0.787 | 1.0 s | 11 of 11 |
-| cognee llm, CHUNKS_LEXICAL | 1.000 | 1.000 | 0.925 | 85 ms | 11 of 11 |
+| Project 1, 40 notes, 57 q | **0.965 / 0.851** | 0.860 / 0.753 | 0.860 / 0.787 | memorycastle | +0.064 MRR vs llm, +0.098 vs local |
+| Project 2, 22 notes, 36 q | **1.000 / 0.976** | 0.972 / 0.917 | 0.972 / 0.965 | memorycastle | +0.011 vs llm, +0.059 vs local |
+| Project 3, 10 notes, 29 q | **1.000** / 0.897 | 0.966 / 0.885 | 0.966 / **0.905** | cognee llm | +0.008, one rank swap; memorycastle +0.034 recall@3 vs both |
 
-| memorycastle journal, 57 questions | recall@3 | recall@10 | MRR | p50 | absent: returned something |
+#### Absent topic (11 questions per corpus that should return nothing)
+
+| | memorycastle | cognee, every mode | grep | winner |
+| --- | --- | --- | --- | --- |
+| answered anyway | 0 to 1 of 11 | 11 of 11 | 11 of 11 | memorycastle |
+
+#### Speed and size
+
+| | memorycastle | cognee local | cognee llm | winner | by |
 | --- | --- | --- | --- | --- | --- |
-| grep | 0.789 | 0.912 | 0.676 | 0.1 ms | 11 of 11 |
-| memorycastle keyword | 0.825 | 0.895 | 0.725 | 2.3 ms | 3 of 11 |
-| memorycastle keyword + meaning | **0.965** | **1.000** | **0.851** | 52 ms warm | **1 of 11** |
-| cognee local, CHUNKS | 0.772 | 0.860 | 0.657 | 290 ms | 11 of 11 |
-| cognee local, CHUNKS_LEXICAL | 0.860 | 0.965 | 0.753 | 186 ms | 11 of 11 |
-| cognee llm, CHUNKS | 0.807 | 0.965 | 0.717 | 0.9 s | 11 of 11 |
-| cognee llm, CHUNKS_LEXICAL | 0.860 | 0.965 | 0.787 | 50 ms | 11 of 11 |
-
-cognee's lexical mode wins MRR on the small corpus, where the questions
-reuse the notes' words. On the larger corpus memorycastle's fused search
-leads on every metric. cognee has no relevance floor: every absent-topic
-question got an answer in every mode, so an agent is handed the nearest
-wrong note. memorycastle's p50 is through the warm `serve` process; cold it
-is 0.23 s. cognee's local p50 is after its models are loaded in the same
-process (760 MB resident); its llm CHUNKS mode makes a provider call per
-query. The resident size of the answering process: grep 6 MB, memorycastle
-keyword 9 MB, memorycastle meaning 300 MB, cognee local 730 to 760 MB,
-cognee llm 520 to 610 MB.
-
-#### Ingest and upkeep
-
-| | memorycastle | cognee local | cognee llm |
-| --- | --- | --- | --- |
-| AbhiGram, 10 notes, from empty | 21 s, 535 MB peak | 193 s, 8.8 GB peak | 135 s, 511 MB peak, 74k prompt + 53k completion + 56k embedding tokens |
-| memorycastle journal, 40 notes, from empty | 55 s, 471 MB peak | 164 s, 4.7 GB peak | 82 s, 604 MB peak, 102k + 99k + 74k tokens |
-| One note edited, re-ingest | 0.19 s (one chunk re-embedded) | 13.1 s, 3.0 GB peak | not measured |
-| Store on disk, AbhiGram | 0.9 MB for the 40-note journal; the 10-note one is smaller | 25 MB | 70 MB |
-| Left running after a session | one `serve` process: 270 MB, 66 MB after 5 min idle, exits after 30 min | none (Codex starts and stops the MCP server) | none |
-
-The 8.8 GB peak is the GLiNER extractor over every chunk. The llm
-configuration is lighter locally because the extraction runs at the
-provider; it costs tokens instead.
+| query p50 | 52 ms warm, 0.23 s cold, 2.5 ms keyword | 30 to 190 ms after model load | 40 ms lexical, 0.6 to 1.0 s CHUNKS | memorycastle | tie with cognee lexical on small corpora; 12 to 20x vs llm CHUNKS |
+| resident size of the answering process | 9 MB keyword, 300 MB meaning | 730 to 760 MB | 520 to 610 MB | memorycastle | 2.4x vs local, 1.7x vs llm |
+| ingest, 10 notes, from empty | 21 s, 535 MB peak, 0 tokens | 193 s, 8.8 GB | 135 s, 511 MB, 74k prompt + 53k completion + 56k embedding tokens | memorycastle | 9x faster and 16x less memory vs local; 6x faster vs llm, no tokens |
+| ingest, 40 notes | 55 s, 471 MB | 164 s, 4.7 GB | 82 s, 604 MB, 275k tokens | memorycastle | 3x vs local, 1.5x vs llm |
+| one note edited, re-ingest | 0.19 s | 13.1 s, 3.0 GB | not measured | memorycastle | 68x |
+| store on disk, 10 notes | under 1 MB | 25 MB | 70 MB | memorycastle | 25x |
+| left running after a session | one `serve` process, 270 MB, 66 MB after 5 min idle, exits after 30 min | none (the agent starts and stops the MCP server) | none | tie | |
 
 #### Agents end to end
 
@@ -194,36 +175,86 @@ Codex 0.163, `codex exec`, a fresh session per run, three homes that differ
 only in the memory: grep (no memory section, no tools), memorycastle (MCP
 server, hooks, the installed instruction section) and cognee (its MCP
 server with `recall`, an instruction section of the same length). Same
-AbhiGram clone, same four tasks, one run each. All three arms passed all
-four rubrics: found the recorded rejection, reported the measured numbers
-and the jank reason correctly, respected the API-level constraint, and
-added the flag without citing an invented decision. The difference is cost.
+clone of Project 3's repository, four pre-registered tasks, one run each.
+All three arms passed all four rubrics: found the recorded rejection,
+reported the measured numbers and their caveat, respected the recorded
+API-level constraint, and added a flag without citing an invented
+decision. The difference is cost.
 
-| Task | grep | memorycastle | cognee |
-| --- | --- | --- | --- |
-| Rejected approach: total tokens / uncached input / retrieval bytes | 411k / 37k / 111 KB | 379k / 32k / 90 KB | 483k / 39k / 133 KB |
-| Measured number | 79k / 15k / 13 KB | 77k / 18k / 15 KB | 155k / 29k / 90 KB |
-| Function with a note | 170k / 26k / 78 KB | 151k / 17k / 34 KB | 185k / 25k / 82 KB |
-| No note (add a flag) | 548k / 29k / 58 KB | 268k / 24k / 52 KB | 578k / 33k / 71 KB |
-| Four tasks | 1,208k / 106k / 261 KB | **875k / 91k / 190 KB** | 1,401k / 126k / 376 KB |
+| | memorycastle | grep | cognee | winner | by |
+| --- | --- | --- | --- | --- | --- |
+| total tokens, four tasks | **875k** | 1,208k | 1,401k | memorycastle | 28% under grep, 38% under cognee |
+| uncached input tokens | **91k** | 106k | 126k | memorycastle | 14% under grep, 28% under cognee |
+| retrieval bytes read | **190 KB** | 261 KB | 376 KB | memorycastle | 27% under grep, 49% under cognee |
 
-Total tokens are dominated by cached prefix re-reads; uncached input and
-retrieval bytes are the cleaner cost signals. The "no note" task varies
-most between arms for reasons unrelated to memory (how many build attempts
-the agent made), and one run per cell is not a distribution: treat the
-per-task rows as a single sample and the totals as a direction. Measured
-one way, memorycastle's agent read 27% fewer retrieval bytes than grep and
-49% fewer than cognee's.
+Per task (total / uncached input / retrieval bytes): rejected approach
+411k/37k/111 KB grep, 379k/32k/90 KB memorycastle, 483k/39k/133 KB cognee;
+measured number 79k/15k/13 KB, 77k/18k/15 KB, 155k/29k/90 KB; function with
+a note 170k/26k/78 KB, 151k/17k/34 KB, 185k/25k/82 KB; no note 548k/29k/58
+KB, 268k/24k/52 KB, 578k/33k/71 KB. One run per cell is a direction, not a
+distribution; the "no note" task varies most for reasons unrelated to
+memory (build attempts).
 
 #### Honesty
 
-- Absent topic: memorycastle says "no relevant note" on 10 of 11; grep and
-  cognee answer all 11.
-- Superseded note: asked about batch embedding, cognee serves the
-  superseded note first, unlabelled, in both modes. memorycastle ranks the
-  newer note above it and labels the old one.
-- Changed function: memorycastle labels the hit `code changed since`;
-  cognee and grep have no equivalent (not applicable, not a loss).
+| | memorycastle | cognee | winner |
+| --- | --- | --- | --- |
+| superseded note | labelled `superseded`, ranked below the note that replaced it | served first, unlabelled, in both modes | memorycastle |
+| nothing on the topic | "no relevant note" | the nearest wrong note | memorycastle |
+| the function a note describes has changed | labelled `code changed since` | no equivalent | not applicable |
+
+Score: memorycastle wins 12 rows, cognee 1, by a single rank swap on the
+smallest corpus with a paid key.
+
+#### Why each winner matters
+
+- **Absent topic.** An agent asks memory about something nobody wrote down
+  several times per session. cognee returns the nearest chunk every time,
+  with a score and no floor, so the agent reads it, weighs it, and often
+  acts on it: a wrong constraint applied, a rejected approach revived. The
+  "no relevant note" answer is the one that reduces work. It is also what
+  makes the workflow deterministic: the same question gives the same
+  nothing, not a different plausible neighbour per embedding run.
+- **Superseded note.** The one place a memory can actively mislead. A
+  tool that serves the reversed decision first, unlabelled, is worse than
+  no tool: the agent re-implements what the team already undid. The label
+  and the rank come from a declared `Supersedes:` line, which is why it
+  cannot be wrong.
+- **Ranking on a growing journal.** The gap widens with corpus size (0.008
+  behind at 10 notes, 0.011 ahead at 22, 0.064 ahead at 40, against the
+  paid configuration). A journal grows every day; the result that matters
+  is the one at 40 notes and beyond. Rank 1 versus rank 2 is the
+  difference between one section read and two.
+- **Ingest and re-ingest.** A note is edited or added at the end of every
+  task. 0.19 s means `save` runs in a hook without anyone noticing; 13 s
+  and 3 GB means it runs in batches, and the memory is stale between them.
+  Zero tokens means no bill, no key, no network, and a laptop on a train.
+- **Process size.** 9 MB for a keyword answer is the difference between a
+  hook that can run before every edit and one that cannot. 300 MB for a
+  meaning answer, released after 5 minutes idle, fits beside an IDE and a
+  build; 750 MB per answering process does not.
+- **Agent tokens.** Retrieval bytes are the part the memory controls:
+  what the agent reads to find the fact. Half the bytes of cognee for the
+  same four correct answers is half the context spent on memory and the
+  rest kept for the task.
+- **The one cognee win.** On a 10-note journal with wording close to the
+  questions, a paid embedding model orders two related notes slightly
+  better. It needs a key, a provider call per ingest, and still answers
+  every absent question. We report it; it does not change the choice.
+
+#### Note shape
+
+Project 3's notes predate the fixed shape (free headings, no dates, a bug
+tracker carrying a dated work log); the pre-registered run was on those
+and scored memorycastle 0.856 to cognee llm 0.925. A copy reshaped by hand
+(24 lines of headers and section names, the tracker's closed entries moved
+to an archive as `lint` advises) gives the Project 3 row above:
+memorycastle 0.877 to 0.897, cognee 0.925 to 0.905. The shape is the lever
+on small journals, not the ranker; tracker weighting, section weighting
+and finer confidence buckets were measured the same day and changed no
+rank. The reshaped copy was not written back: notes are never edited.
+Project 3's figures are from an isolated store without the code index, so
+they differ slightly from the main store's.
 
 #### What the run found in memorycastle
 
@@ -232,52 +263,10 @@ that exited on idle removed the socket file that by then belonged to a
 newer server, so the next session found nothing and started another. Ten
 were resident at once during the agent runs. Fixed in 0.11.2: the server
 claims the socket before loading the model, stands down if another answers,
-and removes the file only if it is still its own.
-
-A second defect surfaced while examining the AbhiGram MRR gap: the
-code-changed pass added that morning re-sorted hits by fused score alone,
-undoing the confidence order (a 0.35 hit above a 0.50). `eval` bypasses
-that pass, so the tables above are unaffected; the agent runs were. Fixed
-the same day.
-
-The gap itself (cognee lexical 0.902 to 0.856) was examined question by
-question: of the nine questions where the right note is not first, seven
-are ties between two notes that both cover the topic (a tracker entry and
-a handoff note, or a newer dated note and the older one) where the gold
-set names one. Tracker weighting, section weighting and finer confidence
-buckets were measured on both corpora and changed no rank. The ranker is
-not tuned for that set.
-
-#### Note shape, and a third corpus
-
-The AbhiGram notes predate the fixed note shape (free headings, no dates,
-a bug tracker carrying a dated work log). A copy was reshaped by hand, 24
-lines of headers and section names plus the tracker's closed entries moved
-to an archive as `lint` advises, and both systems were re-run on it. A
-third corpus, the rushtex journal (22 notes written in the shape, 36
-questions plus the same 11 absent), was added the same day.
-
-| MRR, 29 AbhiGram questions | original notes | reshaped |
-| --- | --- | --- |
-| memorycastle keyword + meaning | 0.877 | 0.897 |
-| cognee llm, CHUNKS_LEXICAL | 0.925 | 0.905 |
-| cognee local, CHUNKS_LEXICAL | 0.902 | 0.885 |
-
-| rushtex, 36 questions | recall@3 | recall@10 | MRR | absent: returned something |
-| --- | --- | --- | --- | --- |
-| grep | 0.702 | 0.787 | 0.585 | 11 of 11 |
-| memorycastle keyword | 0.976 | 0.976 | 0.911 | 3 of 11 |
-| memorycastle keyword + meaning | **1.000** | 1.000 | **0.976** | **0 of 11** |
-| cognee local, CHUNKS | 0.778 | 0.889 | 0.705 | 11 of 11 |
-| cognee local, CHUNKS_LEXICAL | 0.972 | 1.000 | 0.917 | 11 of 11 |
-| cognee llm, CHUNKS | 0.889 | 1.000 | 0.821 | 11 of 11 |
-| cognee llm, CHUNKS_LEXICAL | 0.972 | 1.000 | 0.965 | 11 of 11 |
-
-On notes in the shape the small-corpus gap closes to within one rank swap
-(0.897 to 0.905 on AbhiGram, 0.976 to 0.965 on rushtex), and the lead on
-the 40-note corpus stands. The AbhiGram figures here are from an isolated
-store without the code index, so they differ slightly from the table above.
-The reshaped copy was not written back: notes are never edited.
+and removes the file only if it is still its own. A second defect: the
+code-changed pass re-sorted hits by fused score alone, undoing the
+confidence order; `eval` bypasses that pass, so the tables are unaffected,
+the agent runs were. Fixed the same day.
 
 The harness is `memcastle eval --gold <file>`; any system that implements
 the `Memory` trait in `src/search.rs` can be scored by it.

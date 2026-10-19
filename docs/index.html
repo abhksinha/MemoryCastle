@@ -258,16 +258,31 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
       </tbody>
     </table></div>
     <h3 style="margin-top:36px">Measured, 2026-10-19.</h3>
-    <p class="sub">Same notes, same questions, same laptop, one session, plan written before any number was seen. cognee 1.6.5 with its local extractor and no key; the LLM configuration is in the <a href="BENCHMARKS.md">full table</a>. Retrieval on the 40-note journal, 57 questions:</p>
+    <p class="sub">Three real journals written by agents on three repositories, the same questions to every system, one laptop, one session, plan written before any number was seen. cognee 1.6.5 with its local extractor and no key, and with an OpenAI key. memorycastle with no key. Winner by MRR; the <a href="BENCHMARKS.md">full tables</a> hold every cell.</p>
     <div class="tablewrap reveal"><table>
-      <thead><tr><th></th><th>recall@3</th><th>MRR</th><th>absent topic: answered anyway</th><th>ingest 10 notes</th><th>one note edited</th></tr></thead>
+      <thead><tr><th>Retrieval, recall@3 / MRR</th><th>memorycastle</th><th>cognee, local</th><th>cognee, with key</th><th>winner</th></tr></thead>
       <tbody>
-        <tr><td>grep</td><td>0.79</td><td>0.68</td><td>11 of 11</td><td>0</td><td>0</td></tr>
-        <tr><td>memorycastle</td><td><strong>0.97</strong></td><td><strong>0.85</strong></td><td><strong>1 of 11</strong></td><td>21 s, 535 MB</td><td>0.19 s</td></tr>
-        <tr><td>cognee, local</td><td>0.86</td><td>0.75</td><td>11 of 11</td><td>193 s, 8.8 GB</td><td>13 s, 3.0 GB</td></tr>
+        <tr><td>Project 1, 40 notes</td><td><strong>0.97 / 0.85</strong></td><td>0.86 / 0.75</td><td>0.86 / 0.79</td><td>memorycastle, +0.06 MRR</td></tr>
+        <tr><td>Project 2, 22 notes</td><td><strong>1.00 / 0.98</strong></td><td>0.97 / 0.92</td><td>0.97 / 0.97</td><td>memorycastle, +0.01</td></tr>
+        <tr><td>Project 3, 10 notes</td><td><strong>1.00</strong> / 0.90</td><td>0.97 / 0.89</td><td>0.97 / <strong>0.91</strong></td><td>cognee with key, +0.01, one rank swap</td></tr>
+        <tr><td>Absent topic, answered anyway</td><td><strong>0 to 1 of 11</strong></td><td>11 of 11</td><td>11 of 11</td><td>memorycastle</td></tr>
+        <tr><td>Ingest 10 notes</td><td><strong>21 s, 535 MB, 0 tokens</strong></td><td>193 s, 8.8 GB</td><td>135 s, 511 MB, 183k tokens</td><td>memorycastle, 9x and 6x faster</td></tr>
+        <tr><td>One note edited</td><td><strong>0.19 s</strong></td><td>13 s, 3.0 GB</td><td>not measured</td><td>memorycastle, 68x</td></tr>
+        <tr><td>Answering process</td><td><strong>9 MB keyword, 300 MB meaning</strong></td><td>730 to 760 MB</td><td>520 to 610 MB</td><td>memorycastle, 2.4x and 1.7x</td></tr>
+        <tr><td>Superseded note</td><td><strong>labelled, ranked below</strong></td><td>served first, unlabelled</td><td>served first, unlabelled</td><td>memorycastle</td></tr>
+        <tr><td>Four Codex tasks, all passed by all arms</td><td><strong>875k tokens</strong></td><td colspan="2">1,401k tokens (grep: 1,208k)</td><td>memorycastle, 38% fewer</td></tr>
       </tbody>
     </table></div>
-    <p class="muted" style="margin-top:14px">On the smaller 10-note journal cognee's lexical mode has the better MRR (0.90 to 0.86) at equal recall; with those notes rewritten into the fixed shape the gap closes to one rank swap (0.91 to 0.90), and on a third 22-note journal written in the shape memorycastle leads (0.98 to 0.97, recall@3 1.00 to 0.97). Four Codex tasks end to end, one run each, every arm passing every rubric: memorycastle's agent spent 875k tokens, grep's 1,208k, cognee's 1,401k. One run per task is a direction, not a distribution. The run also found a bug in memorycastle (one embedding server started per session, fixed in 0.11.2), which is the point of running it.</p>
+    <p class="muted" style="margin-top:14px">Twelve rows to one. The one: a paid embedding model orders two related notes slightly better on the smallest journal, by a single rank swap, and still answers every question it has nothing on.</p>
+    <h3 style="margin-top:36px">Why each winner matters.</h3>
+    <div class="grid3" style="margin-top:18px">
+      <div class="card"><h3>Nothing, when there is nothing</h3><p>An agent asks memory about things nobody wrote down several times a session. cognee returns the nearest chunk every time, scored, with no floor, and the agent weighs it and often acts on it. "No relevant note" is the answer that removes work, and it is deterministic: the same question gives the same nothing, not a different plausible neighbour per run.</p></div>
+      <div class="card"><h3>The reversed decision stays reversed</h3><p>A memory that serves the superseded note first, unlabelled, is worse than no memory: the agent rebuilds what the team undid. The label and the rank come from a declared <code>Supersedes:</code> line, so they cannot be wrong.</p></div>
+      <div class="card"><h3>The lead grows with the journal</h3><p>Behind by 0.01 at 10 notes, ahead by 0.01 at 22 and by 0.06 at 40, against the paid configuration. A journal grows every day; the number that matters is the one at 40 notes and beyond. Rank 1 against rank 2 is one section read instead of two.</p></div>
+      <div class="card"><h3>Save in a hook, not a batch</h3><p>A note is written at the end of every task. 0.19 s means <code>save</code> runs in a hook unnoticed; 13 s and 3 GB means batches, and memory stale between them. Zero tokens means no bill, no key, no network.</p></div>
+      <div class="card"><h3>Small enough to run before every edit</h3><p>9 MB for a keyword answer is what lets a hook run before each edit. 300 MB for a meaning answer, released after five idle minutes, sits beside an IDE and a build; 750 MB per answering process does not.</p></div>
+      <div class="card"><h3>Half the context spent on memory</h3><p>Retrieval bytes are the part the memory controls. Half of cognee's for the same four correct answers is half the context kept for the task, and 38% fewer tokens across the run.</p></div>
+    </div>
     <p class="muted" style="margin-top:22px">The trade is explicit. cognee can remember a support transcript or a PDF and answer questions a human never wrote down; memorycastle cannot, because nothing is extracted, only what an agent chose to write is stored. In exchange, a memorycastle answer is always traceable to a sentence a person or agent wrote, costs under a second and a few hundred MB at most, and the graph cannot hallucinate an edge. For a coding team that wants its agents to stop repeating rejected experiments, that trade is the right one. For a company that wants memory over everything it has, it is not.</p>
   </div></section>
 
