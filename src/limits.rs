@@ -226,3 +226,10 @@ const _: () = {
     assert!(bits_pack_bytes(50_000, EMBED_DIMS) < 4 * 1024 * 1024);
     assert!(bits_pack_bytes(1_000_000, EMBED_DIMS) < 80 * 1024 * 1024);
 };
+
+/// Files looked up after one shell command that changed them (`memcastle
+/// changed`): more than this on the first call of a session is a dirty
+/// checkout, not the command's work, and is skipped.
+pub const CHANGED_MAX_FILES: usize = 3;
+/// Characters of the Decision sentence printed under a recall line.
+pub const RECALL_DECISION_CHARS: usize = 220;

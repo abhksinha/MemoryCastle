@@ -548,3 +548,15 @@ fn one_embedding_server_owns_the_socket() {
     let _ = std::fs::remove_file(&path);
     std::env::remove_var("MEMORYCASTLE_HOME");
 }
+
+#[test]
+fn recall_prints_the_decision_sentence() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "memorycastle/journal/a.md", "# Serial by default\nFiles: x.rs\n## Context\nwhy\n## Decision\n- Serial is the default. The pipelined writer stays behind --threads.\n## Measured\n27 ms.\n");
+    let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/a.md'", [], |r| r.get(0)).unwrap();
+    assert_eq!(store::decision_sentence(&conn, id).unwrap().as_deref(), Some("Serial is the default."));
+    save(&mut conn, &p, "memorycastle/journal/b.md", "# No decision\nFiles: x.rs\n## Measured\n1 ms.\n");
+    let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/b.md'", [], |r| r.get(0)).unwrap();
+    assert_eq!(store::decision_sentence(&conn, id).unwrap(), None);
+}

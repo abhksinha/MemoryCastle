@@ -406,6 +406,8 @@ pub struct Usage {
     pub recent_sessions: usize,
     pub session: Option<String>,
     pub calls_session: u64,
+    /// Distinct files the `edits` ledger holds for the current session.
+    pub edits_session: u64,
     pub saved_tokens_session: u64,
     pub saved_pct_session: f64,
     pub calls: u64,
@@ -640,6 +642,7 @@ pub fn usage_summary(conn: &Connection, project_id: i64) -> Result<Usage> {
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
         u.calls_session = calls_s as u64;
+        u.edits_session = conn.query_row("SELECT count(DISTINCT path) FROM edits WHERE project_id = ?1 AND session = ?2", params![project_id, sid], |r| r.get::<_, i64>(0))? as u64;
         u.saved_tokens_session = ((stood_s - served_s).max(0) as f64 / crate::limits::BYTES_PER_TOKEN) as u64;
         u.saved_pct_session = pct(served_s, stood_s);
     }
@@ -750,6 +753,26 @@ fn observed(conn: &Connection, project_id: i64, session: Option<&str>) -> Result
 }
 
 /// The agent session the session-start hook declared for this project.
+/// The first sentence of a note's `Decision` section, at most
+/// `limits::RECALL_DECISION_CHARS`; `None` when the note has no such section.
+pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<String>> {
+    let content: Option<String> = conn.query_row("SELECT content FROM notes WHERE id = ?1", params![note_id], |r| r.get(0)).optional()?;
+    let Some(content) = content else { return Ok(None) };
+    for (heading, _, text) in crate::chunk::sections(&content) {
+        if !heading.to_ascii_lowercase().starts_with("decision") {
+            continue;
+        }
+        let body: String = text.lines().map(|l| l.trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+        let mut end = body.find(". ").map(|i| i + 1).unwrap_or(body.len());
+        if end > crate::limits::RECALL_DECISION_CHARS {
+            end = body.char_indices().map(|(i, _)| i).take_while(|&i| i < crate::limits::RECALL_DECISION_CHARS).last().unwrap_or(0);
+        }
+        let sentence = body[..end].trim().to_string();
+        return Ok(if sentence.is_empty() { None } else { Some(sentence) });
+    }
+    Ok(None)
+}
+
 pub fn current_session(conn: &Connection, project_id: i64) -> Result<Option<String>> {
     crate::db::meta_get(conn, &format!("session:{project_id}"))
 }

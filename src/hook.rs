@@ -263,7 +263,9 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
         "after-bash" => {
             let is_commit = input.command.as_deref().map(|c| c.contains("git commit")).unwrap_or(false);
             if !is_commit {
-                return Ok(emit(agent, event, Reply::Nothing));
+                // Files the command changed: the edit hook for shell edits.
+                let (changed, _, _) = run(&["changed"], None);
+                return Ok(emit(agent, event, if changed.is_empty() { Reply::Nothing } else { Reply::Context(format!("memorycastle: {changed}")) }));
             }
             let (owed, _, _) = run(&["owed"], None);
             if owed.is_empty() {

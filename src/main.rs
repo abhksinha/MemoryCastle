@@ -173,6 +173,12 @@ enum Cmd {
     Edited {
         path: String,
     },
+    /// After a shell command: the files the checkout changed since the last
+    /// call this session, each looked up once (`links --once`) and recorded
+    /// as an edit. The hook for edits made through the shell rather than the
+    /// agent's edit tool.
+    #[command(hide = true)]
+    Changed,
     /// Record a file read reported by an agent hook (no output; keyword path).
     #[command(hide = true)]
     Read {
@@ -674,6 +680,10 @@ fn run(cli: Cli) -> Result<()> {
                 shown.push(h.note_id);
                 let changed = if h.code_changed.is_empty() { String::new() } else { format!("  code changed since: {}", h.code_changed.join(", ")) };
                 out.push_str(&format!("{}:{}  {:.2}  {}{}\n", h.path, h.line, h.trace.confidence, h.heading, changed));
+                // The decision in one sentence: a title gets skimmed, a decision gets read.
+                if let Some(d) = store::decision_sentence(&ctx.conn, h.note_id)? {
+                    out.push_str(&format!("    decision: {d}\n"));
+                }
             }
             if !out.is_empty() {
                 print!("{out}");
@@ -782,6 +792,49 @@ fn run(cli: Cli) -> Result<()> {
             );
             std::process::exit(2);
         }
+        Cmd::Changed => {
+            let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
+            let out = std::process::Command::new("git").args(["status", "--porcelain", "--untracked-files=all"]).current_dir(&repo.root).output();
+            let Ok(out) = out else { return Ok(()) };
+            let mut now: Vec<(String, i64)> = Vec::new();
+            for line in String::from_utf8_lossy(&out.stdout).lines() {
+                if line.len() < 4 {
+                    continue;
+                }
+                let rel = line[3..].rsplit(" -> ").next().unwrap_or("").trim_matches('"').to_string();
+                if rel.is_empty() || rel.starts_with("memorycastle/") || rel.ends_with('/') {
+                    continue;
+                }
+                let mtime = std::fs::metadata(repo.root.join(&rel)).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0);
+                now.push((rel, mtime));
+            }
+            let sid = store::current_session(&ctx.conn, p.id)?.unwrap_or_else(|| "none".to_string());
+            let key = format!("bashfiles:{sid}");
+            let before: std::collections::HashMap<String, i64> = memorycastle::db::meta_get(&ctx.conn, &key)?
+                .unwrap_or_default()
+                .lines()
+                .filter_map(|l| l.rsplit_once('\t').and_then(|(a, b)| b.parse().ok().map(|m| (a.to_string(), m))))
+                .collect();
+            let changed: Vec<&String> = now.iter().filter(|(rel, m)| before.get(rel) != Some(m)).map(|(rel, _)| rel).collect();
+            let state: String = now.iter().map(|(r, m)| format!("{r}\t{m}")).collect::<Vec<_>>().join("\n");
+            memorycastle::db::meta_set(&ctx.conn, &key, &state)?;
+            if before.is_empty() && changed.len() > memorycastle::limits::CHANGED_MAX_FILES {
+                // First call in a session on a dirty checkout: nothing to attribute to the command.
+                return Ok(());
+            }
+            let exe = std::env::current_exe()?;
+            for rel in changed.iter().take(memorycastle::limits::CHANGED_MAX_FILES) {
+                let _ = std::process::Command::new(&exe).args(["edited", rel]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
+                let o = std::process::Command::new(&exe).args(["links", rel, "--once"]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
+                if let Ok(o) = o {
+                    let text = String::from_utf8_lossy(&o.stdout);
+                    let text = text.trim_end();
+                    if !text.is_empty() && !text.starts_with("no notes link to") {
+                        println!("notes about {rel} (changed by that command; read the printed ranges, not the file):\n{text}");
+                    }
+                }
+            }
+        }
         Cmd::Edited { path } => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
             let rel = match std::path::Path::new(&path).strip_prefix(&repo.root) {
@@ -860,6 +913,14 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 if st.usage.observed.reads > 0 {
                     println!("{}", memorycastle::limits::BENCHMARK_LINE);
+                }
+                if st.usage.session.is_some() && (st.usage.calls_session > 0 || st.usage.edits_session > 0) {
+                    println!(
+                        "this session: {} search/links lookups, {} files edited{}",
+                        st.usage.calls_session,
+                        st.usage.edits_session,
+                        if st.usage.calls_session == 0 && st.usage.edits_session > 0 { " (edited without a lookup: run links on what you touch)" } else { "" }
+                    );
                 }
                 if st.usage.served_notes > 0 {
                     println!(
