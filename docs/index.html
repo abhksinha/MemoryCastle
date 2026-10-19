@@ -71,6 +71,7 @@
     <a href="#compare">vs cognee</a>
     <a href="#why">Why smaller</a>
     <a href="#honest">Numbers</a>
+    <a href="#scope">Scope</a>
     <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
   </nav>
 </header>
@@ -147,6 +148,15 @@ read first:
     <div class="card"><div class="n">STATUS LINE</div><div class="stat">~56k<small>this session</small></div><p class="muted">An upper bound: bytes of files a printed span stood in for, minus what was read and the lookup output. Every row is in the ledger.</p></div>
   </div>
   <p class="note">A per-task comparison was built and removed the same day because it charged unrelated reads to the tool. The repository keeps that note. If a number cannot be defended row by row, it is not on the status line.</p>
+
+  <h2 id="scope">One repo, one memory</h2>
+  <p>Every call works out the project from the current directory: the git root, and the remote normalised to <code>host/owner/repo</code>. A fresh clone on another machine is the same project; a worktree is the same project as its main checkout. Each query binds that project before ranking, so a search in one repo can never return another repo's note. Nothing to name, pick or configure.</p>
+  <div class="grid">
+    <div class="card"><h3>Sister repos</h3><p class="muted">Declare a group once per repo with <code>memcastle project group &lt;name&gt;</code>; then <code>search --related</code> includes the siblings, labelled and down-weighted so the home repo wins ties. Without a group, <code>--related</code> searches nothing and says how to declare one.</p></div>
+    <div class="card"><h3>Repos without a remote</h3><p class="muted">The project is keyed by the directory path, so moving the directory starts a new project. Add a remote and it binds to that instead.</p></div>
+    <div class="card"><h3>Teammates</h3><p class="muted">They get the notes by pulling the repo. Their first <code>memcastle install</code> on a machine wires the agents; inside the repo it indexes the notes. No server, no account, no sync.</p></div>
+    <div class="card"><h3>What is never searched</h3><p class="muted">There is no "everything I know". A question about another repo is answered in that repo or through a declared group. The isolation is a test in the suite, not a setting.</p></div>
+  </div>
 
   <h2 id="start">Start</h2>
   <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
