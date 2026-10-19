@@ -304,7 +304,10 @@ cheapest agent session.
   during the day), recall@3 / MRR / absent answered, before and after:
   Project 1 0.905 / 0.772 / 3 of 11 to 0.968 / 0.853 / 0; Project 2
   1.000 / 0.989 / 0 to 1.000 / 0.975 / 0; Project 3 1.000 / 0.912 / 4 to
-  0.975 / 0.912 / 2. The false hits had been filling the top ten on the
+  1.000 / 0.938 / 2 (the one question that first read as lost was a
+  closed bug the reshaped copy had archived; its gold answer pointed at
+  the old tracker, which word overlap alone had been lifting into the top
+  three). The false hits had been filling the top ten on the
   largest journal, which is why recall rose as noise fell; one rank swap
   was lost on Project 2. The fused score is also scaled by the cosine, so
   a chunk BM25 ranked first on everyday words with the model near the
