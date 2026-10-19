@@ -248,6 +248,37 @@ set names one. Tracker weighting, section weighting and finer confidence
 buckets were measured on both corpora and changed no rank. The ranker is
 not tuned for that set.
 
+#### Note shape, and a third corpus
+
+The AbhiGram notes predate the fixed note shape (free headings, no dates,
+a bug tracker carrying a dated work log). A copy was reshaped by hand, 24
+lines of headers and section names plus the tracker's closed entries moved
+to an archive as `lint` advises, and both systems were re-run on it. A
+third corpus, the rushtex journal (22 notes written in the shape, 36
+questions plus the same 11 absent), was added the same day.
+
+| MRR, 29 AbhiGram questions | original notes | reshaped |
+| --- | --- | --- |
+| memorycastle keyword + meaning | 0.877 | 0.897 |
+| cognee llm, CHUNKS_LEXICAL | 0.925 | 0.905 |
+| cognee local, CHUNKS_LEXICAL | 0.902 | 0.885 |
+
+| rushtex, 36 questions | recall@3 | recall@10 | MRR | absent: returned something |
+| --- | --- | --- | --- | --- |
+| grep | 0.702 | 0.787 | 0.585 | 11 of 11 |
+| memorycastle keyword | 0.976 | 0.976 | 0.911 | 3 of 11 |
+| memorycastle keyword + meaning | **1.000** | 1.000 | **0.976** | **0 of 11** |
+| cognee local, CHUNKS | 0.778 | 0.889 | 0.705 | 11 of 11 |
+| cognee local, CHUNKS_LEXICAL | 0.972 | 1.000 | 0.917 | 11 of 11 |
+| cognee llm, CHUNKS | 0.889 | 1.000 | 0.821 | 11 of 11 |
+| cognee llm, CHUNKS_LEXICAL | 0.972 | 1.000 | 0.965 | 11 of 11 |
+
+On notes in the shape the small-corpus gap closes to within one rank swap
+(0.897 to 0.905 on AbhiGram, 0.976 to 0.965 on rushtex), and the lead on
+the 40-note corpus stands. The AbhiGram figures here are from an isolated
+store without the code index, so they differ slightly from the table above.
+The reshaped copy was not written back: notes are never edited.
+
 The harness is `memcastle eval --gold <file>`; any system that implements
 the `Memory` trait in `src/search.rs` can be scored by it.
 
