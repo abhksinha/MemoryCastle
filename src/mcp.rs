@@ -280,6 +280,8 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             if notes.len() > cap {
                 text.push_str(&format!("   +{} more notes name {target}\n", notes.len() - cap));
             }
+            let shown: Vec<i64> = notes.iter().take(cap).map(|n| n.id).collect();
+            crate::store::record_served_notes(&ctx.conn, pid, &shown, "links")?;
             if text.is_empty() {
                 text = format!("no notes link to {target}\n");
                 // The code index still answers for a file nobody wrote about.

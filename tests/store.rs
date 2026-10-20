@@ -579,3 +579,20 @@ fn recall_prints_the_decision_sentence() {
     let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/b.md'", [], |r| r.get(0)).unwrap();
     assert_eq!(store::decision_sentence(&conn, id).unwrap(), None);
 }
+
+#[test]
+fn reading_a_served_note_counts_as_opened() {
+    use memorycastle::quality;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "l", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-20-a.md", "# Chose a\n\n## Decision\nbecause");
+    let id: i64 = conn.query_row("SELECT id FROM notes WHERE project_id = ?1", [p.id], |r| r.get(0)).unwrap();
+    let ins = |at: i64, mode: &str| {
+        conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode) VALUES (?1, ?2, ?3, ?4)", rusqlite::params![at, p.id, id, mode]).unwrap();
+    };
+    // Served at 1000 and read 10 s later: opened. Served at 5000, never read.
+    ins(1000, "brief");
+    ins(1010, "read");
+    ins(5000, "recall");
+    assert_eq!(quality::label_totals(&conn, p.id).unwrap(), (2, 1), "the read row is an open, not a serve");
+}

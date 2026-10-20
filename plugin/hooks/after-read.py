@@ -29,14 +29,21 @@ if tool == "Read":
             lines = (a, a + int(lim or 2000) - 1)
 elif tool == "Bash":
     cmd = inp.get("command", "")
-    m = re.search(r"\b(?:cat|sed|head|tail)\b[^|;&]*?\s((?:[~./\w-]+/)?[\w.-]+\.[A-Za-z0-9]+)\b", cmd)
-    if m:
-        paths.append(m.group(1))
+    # Every file argument of every cat/sed/head/tail in the command, not
+    # only the first: `cat a b` and `head x; cat y` read each of them.
+    for seg in re.finditer(r"\b(?:cat|sed|head|tail)\b([^|;&]*)", cmd):
+        for p in re.findall(r"\s((?:[~./\w-]+/)?[\w.-]+\.[A-Za-z0-9]+)(?=\s|$)", seg.group(1)):
+            if p not in paths:
+                paths.append(p)
+    if len(paths) == 1:
         r = re.search(r"sed\s+-n\s+['\"]?(\d+),(\d+)p", cmd)
         if r:
             lines = (int(r.group(1)), int(r.group(2)))
 if not paths or nbytes == 0:
     sys.exit(0)
+# One output for several files: split the bytes so the ledger does not
+# count the whole output once per file.
+nbytes = max(1, nbytes // len(paths))
 cwd = h.get("cwd") or (sys.argv[1] if len(sys.argv) > 1 else "") or os.getcwd()
 for p in paths:
     p = os.path.expanduser(p)

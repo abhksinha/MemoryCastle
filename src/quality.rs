@@ -183,9 +183,9 @@ fn served_opened(conn: &Connection, project_id: i64) -> Result<(HashMap<i64, i64
     let mut opened = HashMap::new();
     let mut stmt = conn.prepare_cached(
         "SELECT s.note_id, count(*),
-                sum(EXISTS (SELECT 1 FROM served_notes t WHERE t.project_id = s.project_id AND t.note_id = s.note_id AND t.mode = 'sections' AND t.at >= s.at + ?3 AND t.at <= s.at + ?2)
+                sum(EXISTS (SELECT 1 FROM served_notes t WHERE t.project_id = s.project_id AND t.note_id = s.note_id AND t.mode IN ('sections', 'read') AND t.at >= s.at + ?3 AND t.at <= s.at + ?2)
                     OR EXISTS (SELECT 1 FROM reads r JOIN notes n ON n.id = s.note_id WHERE r.project_id = s.project_id AND r.path = n.path AND r.at >= s.at + ?3 AND r.at <= s.at + ?2))
-         FROM served_notes s WHERE s.project_id = ?1 AND s.mode != 'sections' GROUP BY s.note_id",
+         FROM served_notes s WHERE s.project_id = ?1 AND s.mode NOT IN ('sections', 'read') GROUP BY s.note_id",
     )?;
     for row in stmt.query_map(params![project_id, SPAN_FOLLOW_SECS, OPEN_MIN_SECS], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))? {
         let (id, n, f) = row?;

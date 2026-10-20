@@ -994,6 +994,13 @@ fn run(cli: Cli) -> Result<()> {
                 Err(_) => path.clone(),
             };
             if rel.starts_with("memorycastle/") {
+                // A note file is not a code read for the savings ledger, but
+                // reading it is the label log's open: without this row a note
+                // served and then read in full never counted as opened.
+                let id: Option<i64> = ctx.conn.query_row("SELECT id FROM notes WHERE project_id = ?1 AND path = ?2 AND deleted_at IS NULL", rusqlite::params![p.id, rel], |r| r.get(0)).ok();
+                if let Some(id) = id {
+                    store::record_served_notes(&ctx.conn, p.id, &[id], "read")?;
+                }
                 return Ok(());
             }
             let range = lines.as_deref().and_then(|l| {
@@ -1314,6 +1321,10 @@ fn run(cli: Cli) -> Result<()> {
                 if notes.len() > cap {
                     out.push_str(&format!("   +{} more notes name {target}; `links {target} --at <line>` shows the ones about that definition\n", notes.len() - cap));
                 }
+                // A note `links` printed is served like a search hit, so a
+                // read of it afterwards counts as opened in the label log.
+                let shown: Vec<i64> = notes.iter().take(cap).map(|n| n.id).collect();
+                store::record_served_notes(&ctx.conn, pid, &shown, "links")?;
                 if context {
                     if let Some(r) = &root {
                         for line in memorycastle::spans::context(&ctx.conn, pid, r, &defs)? {

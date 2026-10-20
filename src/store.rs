@@ -794,7 +794,7 @@ pub fn set_session(conn: &Connection, project_id: i64, id: &str, agent: Option<&
 
 /// The label log: which notes a search printed and how much of each.
 pub fn record_served_notes(conn: &Connection, project_id: i64, notes: &[i64], mode: &str) -> Result<()> {
-    if crate::db::is_readonly(conn) || notes.is_empty() {
+    if crate::db::is_readonly(conn) || notes.is_empty() || std::env::var_os("MEMORYCASTLE_NO_LEDGER").is_some() {
         return Ok(());
     }
     let session = current_session(conn, project_id)?;
