@@ -955,7 +955,20 @@ fn run(cli: Cli) -> Result<()> {
                 .lines()
                 .filter_map(|l| l.rsplit_once('\t').and_then(|(a, b)| b.parse().ok().map(|m| (a.to_string(), m))))
                 .collect();
-            let changed: Vec<&String> = now.iter().filter(|(rel, m)| before.get(rel) != Some(m)).map(|(rel, _)| rel).collect();
+            // A file this session has not seen yet counts only when it was
+            // written after the session began: a change already in the
+            // checkout is the user's, and charging it to the agent made the
+            // stop hook ask a read-only session for a note (7 of 12 benchmark
+            // runs spent a turn answering it).
+            let started = store::session_started(&ctx.conn, p.id)?.unwrap_or(0);
+            let changed: Vec<&String> = now
+                .iter()
+                .filter(|(rel, m)| match before.get(rel) {
+                    Some(b) => b != m,
+                    None => *m >= started,
+                })
+                .map(|(rel, _)| rel)
+                .collect();
             let state: String = now.iter().map(|(r, m)| format!("{r}\t{m}")).collect::<Vec<_>>().join("\n");
             memorycastle::db::meta_set(&ctx.conn, &key, &state)?;
             if before.is_empty() && changed.len() > memorycastle::limits::CHANGED_MAX_FILES {

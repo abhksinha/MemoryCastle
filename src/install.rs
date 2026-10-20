@@ -61,15 +61,17 @@ impl Agent {
 
     /// The user-level instruction file this agent reads in every repo, so
     /// the memory rules apply everywhere once, with no per-repo step.
-    /// Antigravity, Cursor and Copilot keep their user-level rules in the
-    /// app, not a file; they read the repo's `AGENTS.md`.
+    /// Antigravity's CLI (`agy`) reads Gemini's `~/.gemini/GEMINI.md`
+    /// (seen 2026-10-20: with it moved aside, `agy` saw no memory rules).
+    /// Cursor and Copilot keep their user-level rules in the app, not a
+    /// file; they read the repo's `AGENTS.md`.
     pub fn user_instruction_file(self, home: &Path) -> Option<PathBuf> {
         Some(match self {
             Agent::Claude => home.join(".claude/CLAUDE.md"),
             Agent::Codex => home.join(".codex/AGENTS.md"),
-            Agent::Gemini => home.join(".gemini/GEMINI.md"),
+            Agent::Gemini | Agent::Antigravity => home.join(".gemini/GEMINI.md"),
             Agent::OpenCode => home.join(".config/opencode/AGENTS.md"),
-            Agent::Antigravity | Agent::Cursor | Agent::Copilot => return None,
+            Agent::Cursor | Agent::Copilot => return None,
         })
     }
 
@@ -269,8 +271,8 @@ pub fn install_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
     // OpenCode read it beside a user-level file that holds the full rules,
     // and a second full copy was measured at about 2.7k tokens on every
     // model call (Codex reads both `AGENTS.md` files), more than the whole
-    // saving on a 10-note journal. Cursor, Copilot and Antigravity read only
-    // the repo file; the short form names `memcastle guide` for the rest.
+    // saving on a 10-note journal. Cursor and Copilot read only the repo
+    // file; the short form names `memcastle guide` for the rest.
     install_section(&root.join(agent.instruction_file()), agent.instruction_file(), o, true)
 }
 
