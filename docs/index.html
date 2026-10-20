@@ -109,6 +109,9 @@
   .card p { margin: 0; color: var(--muted); font-size: 15.5px; line-height: 1.55; }
   .card .n { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
   .stat { font-size: clamp(34px, 5vw, 48px); font-weight: 700; letter-spacing: -.04em; line-height: 1; margin: 2px 0 12px; }
+  .points { margin: 16px 0 0; padding-left: 20px; display: grid; gap: 10px; font-size: 16px; line-height: 1.55; color: var(--muted); }
+  .points li::marker { color: var(--accent); }
+  .points strong { color: var(--fg); font-weight: 600; }
   .stats { margin: 22px 0 26px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
   .stats .card { position: relative; padding-bottom: 18px; }
   .stats .stat { margin-bottom: 0; }
@@ -233,18 +236,20 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <h2>A number that can go down.</h2>
     <p class="sub">The status line shows tokens saved this session. It is not a running total. Every time it draws, it is recomputed from the ledger for the whole session:</p>
     <div class="formula reveal">saved = <b>bytes the printed spans stood in for</b><br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="minus">−</span> bytes of those reads<br>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="minus">−</span> bytes of every lookup this session printed</div>
-    <div class="changes reveal">
-      <div class="change"><div class="k">Falls when</div><div>A lookup leads to no read: the third term grows by its size and nothing offsets it. A guided read followed by reading the same file whole is cancelled, and counted.</div>
-        <div class="k">Rises when</div><div>A printed span stands in for a file the agent would have read; over a working session the reads dominate and the figure climbs.</div>
-        <div class="k">Never moves</div><div>Idle time, saving notes, hooks that print nothing. Recall and reminders are silent when they have nothing, so they cost zero then.</div></div>
-      <div class="change"><div class="k">The point</div><div>A number that can go down is one you can believe when it goes up.</div>
-        <div class="k">If negative</div><div>The tool is costing more than it saves and the status line says so.</div>
-        <div class="k">A counter</div><div>One that only adds would climb forever and mean nothing.</div></div>
-    </div>
+    <p class="muted" style="margin-top:18px">It falls when a lookup leads to no read, since the third term grows and nothing offsets it, and when a guided read is followed by reading the same file whole, which is cancelled and counted. It rises when a printed span stands in for a file the agent would have read. Idle time, saving notes and silent hooks never move it. A number that can go down is one you can believe when it goes up; if it turns negative, the tool costs more than it saves and the status line says so.</p>
+    <h3 style="margin-top:32px">Dogfood: memorycastle was written with memorycastle.</h3>
+    <p class="sub">Every line of this codebase was written by Claude Code and Codex with the memory switched on from the first commit: notes after each task, <code>links</code> before each edit, <code>search</code> before each design choice. The figures below are that store's own ledger as of 2026-10-20, printed by <code>memcastle status</code>, not a benchmark.</p>
+    <ul class="points">
+      <li><strong>The codebase.</strong> 32 Rust files, 11,377 lines (10,599 code, 290 comments), plus 185 lines of plugin shell and the MCP glue; 12,797 lines in 46 files by <code>tokei</code>. Fifty journal notes, 244 chunks, describe how it got there.</li>
+      <li><strong>This session,</strong> the one that wrote this page and ran the Mem0 comparison: 133 search and links lookups, 4 source files edited, 159 file reads seen. 13 reads were guided by a printed span: 25.1 KB read where the files held 436.9 KB. Net of the 40k tokens the lookups themselves printed, 0 to 91k tokens saved, 0 to 65%.</li>
+      <li><strong>All sessions</strong> on this repository: 465 file reads seen, 18 guided by a span, 33.9 KB read of 703.3 KB; 0 to 159k tokens saved, 0 to 70%, net of 58k tokens of lookup output. One file was edited without being read after a lookup; eight guided reads were followed by a second read of the same file, and those are charged back.</li>
+      <li><strong>The honest part.</strong> The floor is zero in every line above, because the floor assumes the agent would have read only a 40-line range anyway; the ceiling assumes it would have read the whole file. The label log says 38 notes were served by recall this week and 1 was opened afterwards: the memory is read when it is searched for, rarely when it is volunteered. The ceiling line, 500k tokens over 164 calls if every note and file drawn from had been read whole, is printed too and labelled an upper bound.</li>
+      <li><strong>What it bought</strong> that the ledger cannot count: the three-day run from first commit to the Mem0 comparison re-decided nothing. Batch embedding, CoreML, the HF tokenizer, 768 dims, a small model, per-task savings: each was tried once, written down, and the next session found the note before trying again.</li>
+    </ul>
     <div class="grid reveal" style="margin-top:18px">
       <div class="card accent"><div class="n">Retrieval, gold set</div><div class="stat">1.000<small>recall@3</small></div><p>97 questions over two real journals, MRR 0.89 to 0.91. Five absent-topic questions must return nothing, and do.</p></div>
       <div class="card amber"><div class="n">Controlled A/B</div><div class="stat">32 to 53%<small>fewer tokens</small></div><p>Whole Codex runs on the same tasks, with and without the memory. Retrieval tokens 63% fewer on average.</p></div>
-      <div class="card teal"><div class="n">Status line</div><div class="stat">~59k<small>this session, net</small></div><p>Bytes of files a printed span stood in for, minus the reads, minus every lookup's output. Every row is in the ledger.</p></div>
+      <div class="card teal"><div class="n">Status line</div><div class="stat">~91k<small>this session, net, 65%</small></div><p>Bytes of files a printed span stood in for, minus the reads, minus every lookup's output. Every row is in the ledger.</p></div>
     </div>
     <p class="note">A per-task comparison was built and removed the same day because it charged unrelated reads to the tool. The repository keeps that note. If a number cannot be defended row by row, it is not on the status line.</p>
   </div></section>
