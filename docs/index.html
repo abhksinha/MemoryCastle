@@ -93,6 +93,7 @@
   .change { display: grid; grid-template-columns: 84px 1fr; gap: 6px 14px; align-items: baseline; padding: 16px 20px; border: 1px solid var(--line); border-radius: var(--r); background: var(--card); font-size: 15px; line-height: 1.5; }
   .change .k { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--accent); }
   .change div:not(.k) { color: var(--muted); }
+  .change pre { font-size: 12.5px; padding: 10px 14px; border-radius: 10px; margin: 2px 0; }
   .change div:not(.k):nth-child(6) { color: var(--fg); }
   .change pre { margin: 10px 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; font-size: 13px; line-height: 1.5; overflow-x: auto; }
   @media (max-width: 520px) { .change { grid-template-columns: 1fr; gap: 2px; } .change .k { margin-top: 8px; } }
@@ -164,7 +165,7 @@
 <header><div class="wrap"><nav>
   <a class="brand" href="#"><img src="logo/mark.svg" width="22" height="22" alt="">memorycastle</a>
   <div class="links">
-    <a href="#how">How</a><a href="#honest">Numbers</a><a href="#moments">Moments</a><a href="#story">Story</a><a href="#compare">vs cognee</a><a href="#scope">Scope</a><a href="#start">Install</a>
+    <a href="#how">How</a><a href="#honest">Numbers</a><a href="#moments">Moments</a><a href="#graph">Graph</a><a href="#story">Story</a><a href="#compare">vs cognee</a><a href="#scope">Scope</a><a href="#start">Install</a>
     <a href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
   </div>
   <button id="theme" aria-label="toggle theme">dark</button>
@@ -274,6 +275,45 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
         <div class="k">Why then</div><div>The turn is ending; after it, nobody writes the note.</div></div>
     </div>
     <p class="muted" style="margin-top:26px;font-size:15px">Claude Code through its plugin; Codex, Gemini CLI and Cursor through <code>memcastle hook</code>, wired by <code>install</code>. Copilot, OpenCode and Antigravity have no hook surface and get the instructions and the tools.</p>
+  </div></section>
+
+  <section id="graph" class="alt"><div class="wrap">
+    <span class="eyebrow">The graph</span>
+    <h2>Where it is, who calls it, what we said about it. One call.</h2>
+    <p class="sub">Every save reads the note for the files and symbols it names in backticks and keeps them as edges. Every checkout gets a code index: definitions with their end line, imports, call edges by name, built by scanning lines, no parser, no model, no LLM. <code>links</code> answers from both at once, and from the code alone when no note exists yet.</p>
+    <div class="changes reveal">
+      <div class="change"><div class="k">You want</div><div>To edit a function.</div>
+        <div class="k">Run</div><div><code>memcastle links upsert_snippet</code></div>
+        <div class="k">You get</div><div><pre><code>defined: src/install.rs:114-118  (fn)
+   called by: 6  install_section src/install.rs:246, snippet_added_refreshed_and_left_alone src/install.rs:714 +4 more
+   calls: 1  upsert_section</code></pre></div>
+        <div class="k">Read it as</div><div>Read those five lines, not the 760-line file. The callers are what you will break; the tests are named so you know which ones to run.</div></div>
+      <div class="change"><div class="k">You want</div><div>To know what was decided about the code at a line.</div>
+        <div class="k">Run</div><div><code>memcastle links src/install.rs --at 236</code></div>
+        <div class="k">You get</div><div><pre><code>about: install_section (src/install.rs:222-241 holds line 236)
+memorycastle/journal/2026-10-20-lead-line-at-the-top.md  A one-line lead at the top of the instruction file
+memorycastle/journal/2026-10-20-short-repo-section-and-plugin-update.md  The repo section is short beside a user-level file</code></pre></div>
+        <div class="k">Read it as</div><div>The function holding that line and the two notes about it, out of twenty-four about the file. A function longer than 150 lines is narrowed to the block holding the line.</div></div>
+      <div class="change"><div class="k">You want</div><div>The exact lines to read before changing a signature.</div>
+        <div class="k">Run</div><div><code>memcastle links narrow_span --context</code></div>
+        <div class="k">You get</div><div><pre><code>defined: src/code.rs:884-954  (fn)
+   read: src/main.rs:1189-1195  use of narrow_span  calls narrow_span</code></pre></div>
+        <div class="k">Read it as</div><div>The definition span and the first call in each using file, as <code>path:a-b</code>. <code>sed -n '1189,1195p'</code> and you have seen every caller.</div></div>
+      <div class="change"><div class="k">You want</div><div>A file no note has mentioned.</div>
+        <div class="k">Run</div><div><code>memcastle links src/draft.rs</code></div>
+        <div class="k">You get</div><div>What it defines, who imports it, who uses it. Three lines, from the code index.</div>
+        <div class="k">Read it as</div><div>The graph works on day one of a repo with an empty journal. Notes add the why on top.</div></div>
+    </div>
+    <h3 style="margin-top:34px;font-size:20px">Why it helps, and what it does not do.</h3>
+    <div class="changes reveal">
+      <div class="change"><div class="k">Helps</div><div>Reading less. A definition is 5 to 70 lines; the file around it is 700 to 1,300. The ledger on this repo: 24 reads guided by a span read 50 KB of files that total 956 KB.</div></div>
+      <div class="change"><div class="k">Helps</div><div>Knowing before breaking. Callers come with the definition, so a signature change is a list, not a search. Twice in one day an answer disagreed with what the agent believed; both times the answer was right and a bug was found.</div></div>
+      <div class="change"><div class="k">Helps</div><div>Names you do not have. A grep needs the exact identifier. <code>links</code> takes a file and a line, or a symbol, and the notes about it come without any text match, because the save made the edge.</div></div>
+      <div class="change"><div class="k">Helps</div><div>Change detection. A note stores the hash of each definition it names; when the body changes, search labels the note <code>code changed since</code> and ranks it under one whose code did not move.</div></div>
+      <div class="change"><div class="k">Does not</div><div>Resolve a call through a trait, a macro or a dynamic dispatch. Edges are by name. For an exact call graph use a language server; this is the 2 ms answer that is right often enough to read first.</div></div>
+      <div class="change"><div class="k">Does not</div><div>Infer. No edge is guessed from similarity. A file is linked to a note because the note named it. The HTML view in <code>memorycastle/graph/</code> draws exactly the rows in the TSVs.</div></div>
+      <div class="change"><div class="k">Honest</div><div>Against whole-file reads the counter says 78% on this repo. Against a careful user of grep who knows the identifier, the replayed difference was 2.5x fewer bytes on navigation, and near even once every lookup's output is charged. The number on the status line says which baseline it uses.</div></div>
+    </div>
   </div></section>
 
   <section id="story"><div class="wrap">
