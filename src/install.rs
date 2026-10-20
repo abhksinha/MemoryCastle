@@ -122,13 +122,24 @@ pub fn upsert_repo_snippet(text: &str) -> Option<String> {
     upsert_section(text, REPO_SNIPPET, REPO_SNIPPET_MARKER)
 }
 
+const HEAD: &str = "## Memory (memorycastle)";
+
+/// Where the memory section's heading starts: `HEAD` at the start of a
+/// line, never inside one. The lead line quotes the heading in backticks,
+/// and matching it there once replaced a whole file from line 3 on.
+pub fn section_start(text: &str) -> Option<usize> {
+    if text.starts_with(HEAD) {
+        return Some(0);
+    }
+    text.find(&format!("\n{HEAD}")).map(|i| i + 1)
+}
+
 fn upsert_section(text: &str, snippet: &str, marker: &str) -> Option<String> {
-    const HEAD: &str = "## Memory (memorycastle)";
     if text.contains(marker) {
         return None;
     }
     let mut out = String::with_capacity(text.len() + snippet.len());
-    match text.find(HEAD) {
+    match section_start(text) {
         Some(start) => {
             // Replace the old section: up to the marker line of an older
             // snippet, else up to the next top-level section.
@@ -528,8 +539,7 @@ printf '%s' "$line"
 /// Removes the memory section from an instruction file. Returns the new
 /// text when it changed; the file is deleted by the caller when empty.
 pub fn remove_snippet(text: &str) -> Option<String> {
-    const HEAD: &str = "## Memory (memorycastle)";
-    let start = text.find(HEAD)?;
+    let start = section_start(text)?;
     let rest = &text[start + HEAD.len()..];
     let end = rest
         .find("<!-- memorycastle snippet")
@@ -728,6 +738,18 @@ mod tests {
         let no_h1 = upsert_lead("Build with cargo.\n").unwrap();
         assert!(no_h1.starts_with(LEAD), "{no_h1}");
         assert_eq!(remove_lead(&led).unwrap(), with, "removal restores the file");
+    }
+
+    #[test]
+    fn heading_quoted_in_the_lead_is_not_the_section() {
+        let led = upsert_lead(&upsert_snippet("# X\n\nintro\n\n## Build\ncargo\n").unwrap()).unwrap();
+        assert!(led.lines().nth(2).unwrap().contains(HEAD), "the lead quotes the heading");
+        let short = upsert_repo_snippet(&led).unwrap();
+        assert!(short.contains("## Build\ncargo\n"), "content before the section survives: {short}");
+        assert!(short.contains(LEAD));
+        assert_eq!(section_start(&short).map(|i| short[i..].starts_with(HEAD)), Some(true));
+        let removed = remove_snippet(&short).unwrap();
+        assert!(removed.contains("## Build\ncargo\n") && !removed.contains("Three rules"), "{removed}");
     }
 
     #[test]
