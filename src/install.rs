@@ -7,7 +7,7 @@
 //! index, notes saved, past transcripts imported into the ledger, and the
 //! embedding server started. Every step is idempotent and reported.
 
-use crate::app::{AGENT_SNIPPET, LEAD, LEAD_MARKER, SNIPPET_MARKER};
+use crate::app::{AGENT_SNIPPET, LEAD, LEAD_MARKER, REPO_SNIPPET, REPO_SNIPPET_MARKER, SNIPPET_MARKER};
 use crate::{err, Result};
 use std::path::{Path, PathBuf};
 
@@ -114,11 +114,20 @@ pub struct Options {
 /// Inserts or refreshes the memory section in an instruction file.
 /// Returns the new text when it changed.
 pub fn upsert_snippet(text: &str) -> Option<String> {
+    upsert_section(text, AGENT_SNIPPET, SNIPPET_MARKER)
+}
+
+/// The short repo-level form, for files beside a user-level one.
+pub fn upsert_repo_snippet(text: &str) -> Option<String> {
+    upsert_section(text, REPO_SNIPPET, REPO_SNIPPET_MARKER)
+}
+
+fn upsert_section(text: &str, snippet: &str, marker: &str) -> Option<String> {
     const HEAD: &str = "## Memory (memorycastle)";
-    if text.contains(SNIPPET_MARKER) {
+    if text.contains(marker) {
         return None;
     }
-    let mut out = String::with_capacity(text.len() + AGENT_SNIPPET.len());
+    let mut out = String::with_capacity(text.len() + snippet.len());
     match text.find(HEAD) {
         Some(start) => {
             // Replace the old section: up to the marker line of an older
@@ -130,7 +139,7 @@ pub fn upsert_snippet(text: &str) -> Option<String> {
                 .or_else(|| rest.find("\n## ").map(|i| i + 1))
                 .unwrap_or(rest.len());
             out.push_str(&text[..start]);
-            out.push_str(AGENT_SNIPPET);
+            out.push_str(snippet);
             let tail = &rest[end..];
             if !tail.is_empty() && !out.ends_with("\n\n") {
                 out.push('\n');
@@ -145,7 +154,7 @@ pub fn upsert_snippet(text: &str) -> Option<String> {
             if !text.is_empty() {
                 out.push('\n');
             }
-            out.push_str(AGENT_SNIPPET);
+            out.push_str(snippet);
         }
     }
     Some(out)
@@ -216,8 +225,14 @@ fn write_if(path: &Path, text: &str, dry: bool) -> Result<()> {
 
 /// The memory section upserted into one instruction file, repo or user level.
 pub fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
+    install_section(path, label, o, false)
+}
+
+/// `short` writes the repo-level form (three rules and the commands) for
+/// a file whose agent also reads a user-level file with the full rules.
+fn install_section(path: &Path, label: &str, o: &Options, short: bool) -> Result<Step> {
     let text = std::fs::read_to_string(path).unwrap_or_default();
-    let section = upsert_snippet(&text);
+    let section = if short { upsert_repo_snippet(&text) } else { upsert_snippet(&text) };
     let after = section.clone().unwrap_or_else(|| text.clone());
     let lead = upsert_lead(&after);
     match (section, lead) {
@@ -239,7 +254,11 @@ pub fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
 
 /// The repo-level part for one agent: its instruction file.
 pub fn install_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
-    install_snippet(&root.join(agent.instruction_file()), agent.instruction_file(), o)
+    // CLAUDE.md and GEMINI.md are read beside a user-level file that holds
+    // the full rules, so the repo copy is short. AGENTS.md is the only file
+    // Cursor, Copilot and Antigravity read, so it keeps the full form.
+    let short = matches!(agent, Agent::Claude | Agent::Gemini);
+    install_section(&root.join(agent.instruction_file()), agent.instruction_file(), o, short)
 }
 
 /// Machine-level config for one agent.
@@ -410,11 +429,36 @@ fn json_mcp(path: &Path, shown: &str, key: &str, entry: &str, o: &Options) -> Re
     Ok(Step { what: format!("{shown}: MCP server added"), done: true })
 }
 
+/// The installed memorycastle plugin's version from Claude's
+/// `installed_plugins.json` (`"memorycastle@memorycastle": {... "version": "x"}`), without a JSON schema.
+fn installed_plugin_version(installed: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(installed).ok()?;
+    let entry = v.get("plugins")?.get("memorycastle@memorycastle")?;
+    let first = if entry.is_array() { entry.get(0)? } else { entry };
+    first.get("version")?.as_str().map(|s| s.to_string())
+}
+
 /// The Claude Code plugin through the `claude` CLI: marketplace then plugin.
 fn claude_plugin(o: &Options) -> Result<Step> {
     let installed = std::fs::read_to_string(home().join(".claude/plugins/installed_plugins.json")).unwrap_or_default();
+    let run = |args: &[&str]| std::process::Command::new("claude").args(args).stdin(std::process::Stdio::null()).output();
     if installed.contains("memorycastle@memorycastle") {
-        return Ok(Step { what: "Claude Code plugin installed".into(), done: false });
+        // Installed, but which version? The plugin cache keeps the version
+        // that was installed; a newer binary must update it or the hooks
+        // run old scripts.
+        let want = env!("CARGO_PKG_VERSION");
+        let have = installed_plugin_version(&installed);
+        if have.as_deref() == Some(want) || !on_path("claude") {
+            return Ok(Step { what: format!("Claude Code plugin installed ({})", have.unwrap_or_else(|| "version unknown".into())), done: false });
+        }
+        if o.dry_run {
+            return Ok(Step { what: format!("Claude Code plugin: would update {} to {want}", have.unwrap_or_default()), done: true });
+        }
+        return Ok(match run(&["plugin", "update", "memorycastle@memorycastle"]) {
+            Ok(out) if out.status.success() => Step { what: format!("Claude Code plugin updated {} to {want} (restart Claude Code to load it)", have.unwrap_or_default()), done: true },
+            Ok(out) => Step { what: format!("Claude Code plugin: update failed: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim()), done: false },
+            Err(e) => Step { what: format!("Claude Code plugin: could not run claude: {e}"), done: false },
+        });
     }
     if !on_path("claude") {
         return Ok(Step { what: "Claude Code plugin: `claude` not on PATH; run: claude plugin marketplace add abhksinha/MemoryCastle && claude plugin install memorycastle@memorycastle".into(), done: false });
@@ -422,7 +466,6 @@ fn claude_plugin(o: &Options) -> Result<Step> {
     if o.dry_run {
         return Ok(Step { what: "Claude Code plugin: would run claude plugin marketplace add / install".into(), done: true });
     }
-    let run = |args: &[&str]| std::process::Command::new("claude").args(args).stdin(std::process::Stdio::null()).output();
     let _ = run(&["plugin", "marketplace", "add", "abhksinha/MemoryCastle"]);
     match run(&["plugin", "install", "memorycastle@memorycastle"]) {
         Ok(out) if out.status.success() => Ok(Step { what: "Claude Code plugin installed (restart Claude Code to load its hooks)".into(), done: true }),
@@ -685,6 +728,18 @@ mod tests {
         let no_h1 = upsert_lead("Build with cargo.\n").unwrap();
         assert!(no_h1.starts_with(LEAD), "{no_h1}");
         assert_eq!(remove_lead(&led).unwrap(), with, "removal restores the file");
+    }
+
+    #[test]
+    fn repo_form_is_short_and_replaces_the_full_one() {
+        let full = upsert_snippet("# X\n\nintro\n").unwrap();
+        let short = upsert_repo_snippet(&full).unwrap();
+        assert!(short.contains(REPO_SNIPPET_MARKER) && !short.contains(SNIPPET_MARKER), "{short}");
+        assert_eq!(short.matches("## Memory (memorycastle)").count(), 1);
+        assert!(short.lines().count() < full.lines().count() / 2, "short is under half: {} vs {}", short.lines().count(), full.lines().count());
+        assert!(upsert_repo_snippet(&short).is_none());
+        assert!(upsert_snippet(&short).unwrap().contains(SNIPPET_MARKER), "the full form replaces the short one when asked");
+        assert_eq!(remove_snippet(&short).unwrap(), "# X\n\nintro\n");
     }
 
     #[test]

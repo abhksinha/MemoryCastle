@@ -552,7 +552,7 @@ pub fn stale_instructions(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for name in ["CLAUDE.md", "AGENTS.md", "GEMINI.md"] {
         let Ok(text) = std::fs::read_to_string(root.join(name)) else { continue };
-        if text.contains("## Memory (memorycastle)") && !text.contains(crate::app::SNIPPET_MARKER) {
+        if text.contains("## Memory (memorycastle)") && !text.contains(crate::app::SNIPPET_MARKER) && !text.contains(crate::app::REPO_SNIPPET_MARKER) {
             out.push(format!("{name}: memorycastle section is older than this binary's; replace the section with the output of `memcastle init`"));
         }
         for (i, line) in text.lines().enumerate() {
