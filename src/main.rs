@@ -7,6 +7,88 @@ use memorycastle::{db, embed, eval, mcp, serve, store, Result};
 use std::path::PathBuf;
 use std::time::Duration;
 
+const LINKS_HELP: &str = "\
+WHEN TO USE WHICH
+  You are about to edit a function and want what is known about it:
+      memcastle links <file> --at <line>
+    Prints `at: <fn> (<kind>) path:a-b holds line N` (the function; when it
+    is longer than 150 lines, `too wide: read path:c-d <block header>` names
+    the match arm or block to read instead), then the notes about that
+    function. Read the printed span, not the file.
+
+  You want to know where a function is, who calls it and what it calls:
+      memcastle links <symbol>
+    Prints `defined: path:a-b (fn)`, `called by: N  caller path:line, ...`,
+    `calls: N  a, b, c, ...`, then the notes that name it. Four names per
+    line and `+N more`. Works before the first note exists.
+
+  You want the exact lines to read before changing a function's contract:
+      memcastle links <symbol> --context
+    Adds `read: path:a-b  <name>  calls <symbol>` for the first call in each
+    file and `read: ... uses constant` for the constants its body uses.
+    Each `read:` line is a span sized to be read whole.
+
+  You are new to a file and want its shape without opening it:
+      memcastle links <file>
+    With notes: the five newest, then `+N more`. Without: `defines: N in
+    path  fn a:1-20, type B:22-40, ...`, `imported by: N files`, `used
+    from: N files  x, y, ...` (most mentions first).
+
+  You want to know how a decision changed over time:
+      memcastle history memorycastle/journal/<note>.md
+
+HOW TO READ THE ANSWER
+  `defined:` is where the code is now, re-found if the file changed since
+  the index. A note line is `path  title  date  (author)`; `(superseded by
+  X)` means the decision was reversed, read X instead; `as foo::bar` is the
+  spelling the note used. `called by name:` appears when the symbol has
+  several definitions: callers are matched by name, so some may belong to
+  another definition. All call edges are by name: `x.run()` with two `run`s
+  lists both, a call through a trait or a macro is missed. Use a language
+  server when the exact one matters. `no notes link to <target>` followed
+  by nothing means the index has no such file or symbol: check the spelling
+  or run `memcastle graph --code`.
+";
+
+const SEARCH_HELP: &str = "\
+WHEN TO USE WHICH
+  You are about to make a design choice, or try a fix, in an area that may
+  have history (\"should we batch embeddings\", \"why is the floor 0.30\"):
+      memcastle search \"<question>\"
+    One line per hit, `n. note.md:line  confidence  section`, then the
+    note's first Decision sentence. Pick a note from this before paying for
+    more. Then:
+      memcastle search \"<question>\" --sections
+    Prints each hit's Decision, Rejected and Measured sections in full. Read
+    these instead of the note files.
+
+  The user refers to the past (\"like we did for X\") or you resume paused work:
+      memcastle search \"<topic>\" --sections
+
+  The question is about a sister repository in a declared group:
+      memcastle search \"<question>\" --related
+
+  You want to know why a hit ranked where it did (or the per-stage timing):
+      memcastle search \"<question>\" --explain
+
+  Do not search for routine edits, reading code, or running tests; `links`
+  is the tool before an edit.
+
+HOW TO READ THE ANSWER
+  Confidence is 0 to 1: an identifier from the question found verbatim is
+  1.00; above 0.70 the model is sure; under 0.30 the hit is dropped and the
+  answer is `no relevant note (best confidence X)`, which is a real answer:
+  the store has nothing, proceed on the code and say so. Labels: `code
+  changed since: <symbols>` means the function the note describes was
+  rewritten after the note, read the code before trusting the paragraph;
+  `superseded by <note>` means the decision was reversed, the newer note
+  is the one to act on; `[project]` appears only when hits span projects.
+  The `read first` table (`a. path:a-b  name  score  why`) lists the code
+  spans the question needs, ranked; read them with `sed -n 'a,bp' path`
+  before opening anything else. `read first: none` means no code span
+  applies. Cite a note as `memorycastle/journal/<note>.md:<line>`.
+";
+
 #[derive(Parser)]
 #[command(name = "memorycastle", version, about = "Per-project memory for coding agents: decisions, rejected attempts, measurements, preferences", after_help = "Full usage guide for agents, as Markdown:  memcastle guide")]
 struct Cli {
@@ -58,6 +140,7 @@ enum Cmd {
         keyword: bool,
     },
     /// Keyword first, meaning search when it pays.
+    #[command(after_long_help = SEARCH_HELP)]
     Search {
         query: String,
         #[arg(short, default_value_t = 5)]
@@ -244,14 +327,15 @@ enum Cmd {
         #[arg(long)]
         dir: Option<PathBuf>,
     },
-    /// Notes linked to a codebase file, symbol or note (live first, superseded last).
+    /// Where a symbol is defined, who calls it and what it calls, plus every note about it; for a file, its notes, or what it defines and who uses it when no note names it. Works with no notes: the code index answers.
+    #[command(after_long_help = LINKS_HELP)]
     Links {
         /// A file path (`src/store.rs`, or just `store.rs`), a symbol (`embed_missing`), or a note path.
         target: String,
-        /// With a file: the notes about the definition enclosing this line (then the file), not every note about the file.
+        /// With a file: the function holding this line (narrowed to the block holding it when the function is longer than 150 lines) and the notes about that function, not every note about the file.
         #[arg(long)]
         at: Option<u32>,
-        /// Also print the constants the definition uses and the lines that call it.
+        /// Also print the constants the definition uses and the exact lines that call it, as `read: path:a-b` spans.
         #[arg(long)]
         context: bool,
         /// Print nothing when this target was already looked up in this session (for hooks).

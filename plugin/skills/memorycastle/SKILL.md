@@ -15,7 +15,10 @@ Run `memcastle init` to see the full rules; the short form:
   ranges with `sed -n 'a,bp' path` first; they are the lines the question
   needs, cheapest first on ties.
 - Before editing a file or symbol: `memcastle links <file|symbol>`; read
-  only the printed `path:start-end` with `sed -n 'a,bp'`.
+  only the printed `path:start-end` with `sed -n 'a,bp'`. For a symbol it
+  prints where it is defined, who calls it and what it calls; for a file
+  with no notes, what it defines and who uses it; `--at <line>` gives the
+  function holding the line. It works before the first note is written.
 - `no relevant note` means the store has nothing; do not act on a weak hit.
 - At the end of a task that changed a decision, measured something, or
   rejected an approach: write `memorycastle/journal/YYYY-MM-DD-<topic>.md`

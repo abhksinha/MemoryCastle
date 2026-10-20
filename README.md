@@ -201,7 +201,8 @@ figure to quote; the observed one is a bound you can inspect read by read.
 
 ```sh
 memcastle search "<question>" [--sections | --full] [--related]
-memcastle links <file | symbol | note>   # notes about it, and where the code is now
+memcastle links <symbol>                 # defined at path:a-b, called by, calls, and the notes about it; works with no notes
+memcastle links <file> [--at <line>]     # notes about the file, or the function holding the line; with none, what it defines and who uses it
 memcastle status                          # counts, savings, notes about files that no longer exist
 memcastle quality --flagged               # notes the store can see are weak
 memcastle save memorycastle/journal/<note>.md
