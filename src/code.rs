@@ -30,7 +30,22 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "9";
+pub const CODE_VERSION: &str = "11";
+/// Callees kept per definition; a function calling more is a dispatcher
+/// and its list is a table, not navigation.
+pub const MAX_CALLS_PER_DEF: usize = 64;
+/// Shortest name that can be a call edge: the `name(` shape is evidence
+/// enough for a three-letter name (`run(`), where a bare mention is not.
+pub const MIN_CALL_LEN: usize = 3;
+/// Method names every language's standard library has: `x.len()`,
+/// `s.find(`. A `.name(` call to one of these is never an edge to a
+/// project function of the same name.
+pub const METHOD_STOPLIST: &[&str] = &[
+    "is_empty", "len", "push", "pop", "get", "insert", "remove", "contains", "iter", "map", "filter", "collect", "unwrap", "clone", "default", "new", "from", "into", "as_ref", "as_str",
+    "to_string", "join", "split", "trim", "lines", "chars", "bytes", "find", "starts_with", "ends_with", "first", "last", "next", "take", "skip", "min", "max", "sum", "count", "sort",
+    "dedup", "extend", "write", "read", "parse", "format", "print", "ok", "err", "and", "or", "then", "eq", "cmp", "hash", "drop", "send", "recv", "lock", "borrow", "append", "add",
+    "set", "put", "has", "keys", "values", "items", "apply", "call", "bind", "open", "close", "flush", "exists", "size", "clear", "reset", "update", "delete", "save", "load", "run",
+];
 /// Variants indexed per enum; a bigger enum is a table, not navigation.
 pub const MAX_VARIANTS_PER_ENUM: usize = 64;
 /// Longest definition span followed when finding an end line.
@@ -47,6 +62,7 @@ pub struct Stats {
     pub defs: usize,
     pub imports: usize,
     pub mentions: usize,
+    pub calls: usize,
     pub ms: f64,
 }
 
@@ -165,6 +181,22 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
             for (name, n) in v.into_iter().take(MAX_MENTIONS_PER_FILE) {
                 ins.execute(params![project_id, path, name, n])?;
                 st.mentions += 1;
+            }
+        }
+    }
+    // Pass 3: calls. A `name(` inside a definition's span is a call from
+    // that definition to the name, when the name is a function somewhere.
+    {
+        let fn_names: HashMap<String, usize> = {
+            let mut stmt = tx.prepare("SELECT name, count(DISTINCT path) FROM code_defs WHERE project_id = ?1 AND kind = 'fn' GROUP BY name HAVING count(DISTINCT path) <= ?2")?;
+            let rows = stmt.query_map(params![project_id, PROMISCUOUS_DEFS as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize)))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_calls(project_id, src, caller, callee, line) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        for (path, text) in &changed {
+            for (caller, callee, line) in calls_in(path, text, &fn_names) {
+                ins.execute(params![project_id, path, caller, callee, line])?;
+                st.calls += 1;
             }
         }
     }
@@ -955,5 +987,109 @@ mod narrow_tests {
         assert_eq!(b, a + 61);
         assert!(narrow_span(&dir, &Def { end: 100, ..d.clone() }, 50).is_none(), "a narrow definition is left alone");
         std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+/// Call edges in one file: (caller, callee, first line). A callee is a name
+/// the index defines (`names`), at least `MIN_CALL_LEN` long, in call shape
+/// on a line inside a definition's span; the innermost definition holding
+/// the line is the caller. Self-calls are skipped; `MAX_CALLS_PER_DEF`
+/// callees per caller, first seen first.
+pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(String, String, u32)> {
+    let defs = definitions(path, text);
+    if defs.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<(String, String, u32)> = Vec::new();
+    let mut per: HashMap<String, usize> = HashMap::new();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    for (i, raw) in text.lines().enumerate() {
+        let ln = i as u32 + 1;
+        if !raw.contains('(') {
+            continue;
+        }
+        let Some(caller) = defs.iter().filter(|d| d.line <= ln && ln <= d.end && d.kind == "fn").max_by_key(|d| d.line) else { continue };
+        if ln == caller.line {
+            continue;
+        }
+        let code = strip_strings_and_comments(raw);
+        for tok in identifiers(&code) {
+            if tok.len() < MIN_CALL_LEN || tok == caller.name || !names.contains_key(tok) {
+                continue;
+            }
+            if !crate::spans::is_call(&code, tok) {
+                continue;
+            }
+            // `x.len()` is the standard library, not the project's `len`.
+            if METHOD_STOPLIST.contains(&tok) && code.find(&format!(".{tok}(")).is_some() && !code.contains(&format!(" {tok}(")) && !code.contains(&format!("::{tok}(")) {
+                continue;
+            }
+            let key = (caller.name.clone(), tok.to_string());
+            if seen.contains(&key) {
+                continue;
+            }
+            let n = per.entry(caller.name.clone()).or_default();
+            if *n >= MAX_CALLS_PER_DEF {
+                continue;
+            }
+            *n += 1;
+            seen.insert(key.clone());
+            out.push((key.0, key.1, ln));
+        }
+    }
+    out
+}
+
+/// Who calls `name`: (caller, file, line), by file then line.
+pub fn callers_of(conn: &Connection, project_id: i64, name: &str) -> Result<Vec<(String, String, u32)>> {
+    let short = name.rsplit("::").next().unwrap_or(name).rsplit('.').next().unwrap_or(name).trim_end_matches("()");
+    let mut stmt = conn.prepare_cached("SELECT caller, src, line FROM code_calls WHERE project_id = ?1 AND callee = ?2 ORDER BY src, line")?;
+    let rows = stmt.query_map(params![project_id, short], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// What `name` in `path` calls, in order of first call.
+pub fn callees_of(conn: &Connection, project_id: i64, name: &str, path: &str) -> Result<Vec<String>> {
+    let short = name.rsplit("::").next().unwrap_or(name).rsplit('.').next().unwrap_or(name).trim_end_matches("()");
+    let mut stmt = conn.prepare_cached("SELECT callee FROM code_calls WHERE project_id = ?1 AND caller = ?2 AND src = ?3 ORDER BY line")?;
+    let rows = stmt.query_map(params![project_id, short, path], |r| r.get(0))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+/// The two call lines `links <symbol>` prints under `defined:`, bounded by
+/// `limits::CONTEXT_ITEMS` names each: who calls it, with file and line,
+/// and what it calls. Empty for a name with no call edges (a constant, a
+/// type), where `users_line` applies instead.
+pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: bool) -> Result<Vec<String>> {
+    let cap = crate::limits::CONTEXT_ITEMS;
+    let mut out = Vec::new();
+    let callers = if with_callers { callers_of(conn, project_id, &d.name)? } else { Vec::new() };
+    if !callers.is_empty() {
+        let shown: Vec<String> = callers.iter().take(cap).map(|(c, f, l)| format!("{c} {f}:{l}")).collect();
+        let more = if callers.len() > cap { format!(" +{} more", callers.len() - cap) } else { String::new() };
+        out.push(format!("called by: {}  {}{more}", callers.len(), shown.join(", ")));
+    }
+    let callees = callees_of(conn, project_id, &d.name, &d.path)?;
+    if !callees.is_empty() {
+        let more = if callees.len() > cap { format!(" +{} more", callees.len() - cap) } else { String::new() };
+        out.push(format!("calls: {}  {}{more}", callees.len(), callees.iter().take(cap).cloned().collect::<Vec<_>>().join(", ")));
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod call_edge_tests {
+    use super::*;
+    #[test]
+    fn calls_are_name_in_call_shape_inside_a_function() {
+        let src = "fn outer() {\n    let x = helper(1);\n    // helper(2) in a comment\n    let s = \"helper(3)\";\n    other::thing();\n    outer();\n}\nfn helper(n: i32) -> i32 { n }\nfn thing() {}\nconst K: i32 = helper(0);\n";
+        let names: HashMap<String, usize> = ["outer", "helper", "thing", "find"].iter().map(|s| (s.to_string(), 1)).collect();
+        let c = calls_in("a.rs", &format!("{src}fn f2() {{\n    let i = s.find('x');\n    find(1);\n}}\nfn find(n: i32) {{}}\n"), &names);
+        assert!(c.contains(&("f2".to_string(), "find".to_string(), 13)), "a free call to the project's find counts: {c:?}");
+        assert!(!c.contains(&("f2".to_string(), "find".to_string(), 12)), "the method call line is not the edge: {c:?}");
+        let c2 = calls_in("b.rs", "fn g() {\n    let i = s.find('x');\n}\nfn find(n: i32) {}\n", &names);
+        assert!(c2.is_empty(), "a method call to a standard name is not an edge: {c2:?}");
+        let c = calls_in("a.rs", src, &names);
+        assert_eq!(c, vec![("outer".to_string(), "helper".to_string(), 2), ("outer".to_string(), "thing".to_string(), 5)], "{c:?}");
     }
 }
