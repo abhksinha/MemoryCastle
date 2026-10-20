@@ -16,7 +16,11 @@ synced=$(memcastle sync 2>/dev/null)
 # Only what the agent acts on: which store, and anything wrong with it. The
 # savings lines are for the user (status line, memcastle status); here
 # they were about 500 tokens kept in context for every model call.
-memcastle status 2>/dev/null | grep -E '^(project:|notes:|warning:|changed on disk)'
+state=$(memcastle status 2>/dev/null | grep -E '^(project:|notes:|warning:|changed on disk)')
+[ -n "$state" ] || exit 0
+echo "$state"
+# What the hooks do, so silence reads as "nothing matched", not "not running".
+echo "memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); an Edit/Write or a file changed by Bash prints the notes about that file or function (silent when none); a whole-file Read of a file a lookup already gave a range for is stopped once; a note is asked for at compaction, stop and after commits. Reads with cat/sed go to the ledger but are never stopped."
 # After a compaction the draft written by pre-compact.sh is the one thing
 # the summary must not lose; after a fresh start it is last session's debt.
 owed=$(memcastle owed 2>/dev/null)

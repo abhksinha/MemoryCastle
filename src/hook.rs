@@ -219,6 +219,10 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             if !synced.is_empty() {
                 lines.push(format!("memorycastle: {synced}"));
             }
+            // What the hooks do, so silence reads as "nothing matched".
+            if !lines.is_empty() {
+                lines.push("memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); an edit prints the notes about that file or function (silent when none); a note is asked for at compaction and stop.".into());
+            }
             let (owed, _, _) = run(&["owed"], None);
             if !owed.is_empty() {
                 lines.push(format!("memorycastle: {owed}. Draft or append with: memcastle draft"));

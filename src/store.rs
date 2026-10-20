@@ -67,7 +67,7 @@ pub fn save_note(
         eprintln!("memorycastle: {rel_path}: {w}");
     }
     if chunk::dated(content).is_some() {
-        let missing = files_missing_from_note(conn, project.id, content)?;
+        let missing = files_missing_from_note(conn, project.id, rel_path, content)?;
         if !missing.is_empty() {
             eprintln!("memorycastle: {rel_path}: `Files:` does not name {} edited this session; add what this task touched", missing.join(", "));
         }
@@ -811,9 +811,23 @@ pub fn current_agent(conn: &Connection, project_id: i64) -> Result<Option<String
     crate::db::meta_get(conn, &format!("agent:{project_id}"))
 }
 
-/// When the current session began, for "did this session save a note".
+/// When the current session began, for "did this session save a note": the
+/// first read or edit recorded under its id, or when the id was declared if
+/// earlier. The declared time alone moved forward on a resume (a Claude
+/// restart declared another id first, then the old one again), and a note
+/// saved before the restart no longer counted.
 pub fn session_started(conn: &Connection, project_id: i64) -> Result<Option<i64>> {
-    Ok(crate::db::meta_get(conn, &format!("session_at:{project_id}"))?.and_then(|v| v.parse().ok()))
+    let declared: Option<i64> = crate::db::meta_get(conn, &format!("session_at:{project_id}"))?.and_then(|v| v.parse().ok());
+    let Some(session) = current_session(conn, project_id)? else { return Ok(declared) };
+    let first: Option<i64> = conn.query_row(
+        "SELECT MIN(at) FROM (SELECT MIN(at) AS at FROM edits WHERE project_id = ?1 AND session = ?2 UNION ALL SELECT MIN(at) FROM reads WHERE project_id = ?1 AND session = ?2)",
+        params![project_id, session],
+        |r| r.get(0),
+    )?;
+    Ok(match (declared, first) {
+        (Some(d), Some(f)) => Some(d.min(f)),
+        (d, f) => d.or(f),
+    })
 }
 
 /// The git user name, from the checkout's config then the global one. No
@@ -906,11 +920,20 @@ pub fn fill_header(content: &str, rel_path: &str, user: Option<&str>, agent: Opt
 /// Files the agent edited in this session (outside `memorycastle/`) that
 /// the note's `Files:` line does not name: the ledger knows what the task
 /// touched better than the writer remembers.
-pub fn files_missing_from_note(conn: &Connection, project_id: i64, content: &str) -> Result<Vec<String>> {
+pub fn files_missing_from_note(conn: &Connection, project_id: i64, rel_path: &str, content: &str) -> Result<Vec<String>> {
     let Some(session) = current_session(conn, project_id)? else { return Ok(Vec::new()) };
     let declared: Vec<String> = crate::graph::extract("", content).into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v).collect();
-    let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 ORDER BY path")?;
-    let edited: Vec<String> = stmt.query_map(params![project_id, session], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    // Only what was edited since the previous note: a long session writes
+    // several notes, and each covers its own task, not the whole session.
+    let since: i64 = conn
+        .query_row(
+            "SELECT MAX(saved_at) FROM notes WHERE project_id = ?1 AND path != ?2 AND deleted_at IS NULL",
+            params![project_id, rel_path],
+            |r| r.get::<_, Option<i64>>(0),
+        )?
+        .unwrap_or(0);
+    let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 ORDER BY path")?;
+    let edited: Vec<String> = stmt.query_map(params![project_id, session, since], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     Ok(edited
         .into_iter()
         .filter(|e| !e.starts_with("memorycastle/"))

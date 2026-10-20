@@ -623,3 +623,33 @@ fn an_unfilled_draft_is_not_a_note() {
     assert!(draft::is_unfilled(&skeleton));
     assert!(!draft::is_unfilled("# Chose one chunk per call\n\n## Decision\nbecause"));
 }
+
+#[test]
+fn a_resume_keeps_the_note_saved_before_it() {
+    use memorycastle::draft;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "r", None);
+    let root = std::env::temp_dir().join(format!("mc-resume-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    for f in ["a", "b", "c"] {
+        std::fs::write(root.join(format!("src/{f}.rs")), "fn x() {}\n").unwrap();
+    }
+    store::set_session(&conn, p.id, "s1", Some("claude")).unwrap();
+    store::record_edit(&conn, p.id, &root, "src/a.rs").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    save(&mut conn, &p, "memorycastle/journal/2026-10-20-a.md", "# Chose a\nDate: 2026-10-20\nFiles: `src/a.rs`\n\n## Decision\nbecause");
+    // A restart declares a fresh id, then the resumed one: the declared
+    // start moves past the note, the session's own rows do not.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    store::set_session(&conn, p.id, "fresh", Some("claude")).unwrap();
+    store::set_session(&conn, p.id, "s1", Some("claude")).unwrap();
+    store::record_edit(&conn, p.id, &root, "src/b.rs").unwrap();
+    let o = draft::owed(&conn, p.id).unwrap().expect("the edit after the note is owed");
+    assert_eq!(o.last_note.as_ref().map(|n| n.0.as_str()), Some("memorycastle/journal/2026-10-20-a.md"), "the note before the resume still counts");
+    assert_eq!(o.files, vec!["src/b.rs".to_string()]);
+    // The next note is told only about what followed the previous one.
+    store::record_edit(&conn, p.id, &root, "src/c.rs").unwrap();
+    let missing = store::files_missing_from_note(&conn, p.id, "memorycastle/journal/2026-10-20-b.md", "# Chose b\nFiles: `src/b.rs`\n").unwrap();
+    assert_eq!(missing, vec!["src/c.rs".to_string()], "src/a.rs belongs to the earlier note");
+    let _ = std::fs::remove_dir_all(&root);
+}
