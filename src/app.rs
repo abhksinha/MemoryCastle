@@ -127,6 +127,7 @@ impl Context {
             .map(|r| r.root.clone())
             .ok_or_else(|| err!("saving files needs a git checkout of project '{}'", project.name))?;
         let (mut added, mut updated, mut unchanged) = (0, 0, 0);
+        let mut changed_rel: Vec<String> = Vec::new();
         let user = store::git_user(&root);
         let agent = store::current_agent(&self.conn, project.id)?;
         for f in files {
@@ -140,8 +141,8 @@ impl Context {
                 content = filled;
             }
             match store::save_note(&mut self.conn, &project, &rel, &content, &SaveOptions { source, force })? {
-                SaveOutcome::Added => added += 1,
-                SaveOutcome::Updated => updated += 1,
+                SaveOutcome::Added => { added += 1; changed_rel.push(rel.clone()) }
+                SaveOutcome::Updated => { updated += 1; changed_rel.push(rel.clone()) }
                 SaveOutcome::Unchanged => unchanged += 1,
             }
             // What the named code looks like now, so a later search can say
@@ -149,9 +150,9 @@ impl Context {
             crate::graph::refresh_note_code(&self.conn, project.id, &root, &rel)?;
         }
         let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
-        // What the store can say about the saved notes against the rest.
-        for f in files {
-            let rel = store::relative_note_path(&root, f)?;
+        // What the store can say about the notes that changed, against the
+        // rest; an unchanged note was flagged when it was saved.
+        for rel in &changed_rel {
             let id: Option<i64> = self.conn.query_row("SELECT id FROM notes WHERE project_id = ?1 AND path = ?2", rusqlite::params![project.id, rel], |r| r.get(0)).ok();
             if let Some(q) = id.and_then(|id| crate::quality::of_note(&self.conn, project.id, id).ok().flatten()) {
                 for fl in &q.flags {

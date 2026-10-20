@@ -265,6 +265,14 @@ enum Cmd {
     /// agent's edit tool.
     #[command(hide = true)]
     Changed,
+    /// Ingest what arrived on disk: save every journal note edited since
+    /// its last save and refresh the code index, incrementally. One line
+    /// when something changed, nothing otherwise. The session-start hook
+    /// and the after-bash hook (after a pull, merge or checkout) call it,
+    /// so a note written by hand or pulled from a teammate is searchable
+    /// before the first prompt, with no step to remember.
+    #[command(hide = true)]
+    Sync,
     /// Record a file read reported by an agent hook (no output; keyword path).
     #[command(hide = true)]
     Read {
@@ -890,6 +898,33 @@ fn run(cli: Cli) -> Result<()> {
                 ranges.join(", ")
             );
             std::process::exit(2);
+        }
+        Cmd::Sync => {
+            let Some(root) = ctx.repo.as_ref().map(|r| r.root.clone()) else { return Ok(()) };
+            let mut files: Vec<PathBuf> = Vec::new();
+            for dir in ["memorycastle/journal", "journal"] {
+                let Ok(rd) = std::fs::read_dir(root.join(dir)) else { continue };
+                files.extend(rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "md")));
+            }
+            files.sort();
+            let mut parts = Vec::new();
+            if !files.is_empty() {
+                let (added, updated, _, _) = ctx.save_files(&files, false, false, "sync")?;
+                if added + updated > 0 {
+                    parts.push(format!("ingested {} note{}{}", added + updated, if added + updated == 1 { "" } else { "s" }, if added > 0 && updated > 0 { format!(" ({added} new, {updated} updated)") } else if updated > 0 { " (updated)".into() } else { " (new)".into() }));
+                }
+            }
+            if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
+                if memorycastle::code::has_index(&ctx.conn, pid)? {
+                    let st = memorycastle::code::index(&mut ctx.conn, pid, &root)?;
+                    if st.files_indexed + st.files_removed > 0 {
+                        parts.push(format!("code index: {} file{} changed", st.files_indexed + st.files_removed, if st.files_indexed + st.files_removed == 1 { "" } else { "s" }));
+                    }
+                }
+            }
+            if !parts.is_empty() {
+                println!("{}", parts.join("; "));
+            }
         }
         Cmd::Changed => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };

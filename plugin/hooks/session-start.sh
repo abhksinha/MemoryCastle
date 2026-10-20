@@ -8,6 +8,11 @@ sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\
 [ -n "$sid" ] && memcastle session "$sid" --agent claude >/dev/null 2>&1
 # Warm model for the session: every lookup is 90 ms instead of 230 ms cold.
 memcastle serve --detach >/dev/null 2>&1
+# Ingest what arrived on disk since last time: notes written by hand or
+# pulled from a teammate, and code the index has not seen. One line only
+# when something changed.
+synced=$(memcastle sync 2>/dev/null)
+[ -n "$synced" ] && echo "memorycastle: $synced"
 memcastle status 2>/dev/null | grep -E '^(project:|notes:|observed|benchmark|label log|ceiling:|warning:|changed on disk)'
 # After a compaction the draft written by pre-compact.sh is the one thing
 # the summary must not lose; after a fresh start it is last session's debt.

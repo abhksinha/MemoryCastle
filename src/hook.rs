@@ -197,6 +197,12 @@ fn emit(agent: Agent, event: &str, reply: Reply) -> i32 {
 
 /// The hook body, agent-independent: the same steps the Claude plugin's
 /// scripts take, with the same once-per-session rules.
+/// A shell command that can bring notes or code from elsewhere into the
+/// checkout: the after-bash hook then ingests what arrived.
+pub fn brings_notes(cmd: &str) -> bool {
+    ["git pull", "git merge", "git checkout", "git switch", "git rebase", "git stash pop", "git cherry-pick"].iter().any(|k| cmd.contains(k))
+}
+
 pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
     let input = read_input(agent);
     let cwd = std::env::current_dir().ok();
@@ -206,8 +212,12 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
                 run(&["session", sid, "--agent", agent.name()], None);
             }
             run(&["serve", "--detach"], None);
+            let (synced, _, _) = run(&["sync"], None);
             let (status, _, _) = run(&["status"], None);
             let mut lines: Vec<String> = status.lines().filter(|l| l.starts_with("project:") || l.starts_with("notes:") || l.starts_with("observed") || l.starts_with("label log") || l.starts_with("warning:") || l.starts_with("changed on disk")).map(str::to_string).collect();
+            if !synced.is_empty() {
+                lines.push(format!("memorycastle: {synced}"));
+            }
             let (owed, _, _) = run(&["owed"], None);
             if !owed.is_empty() {
                 lines.push(format!("memorycastle: {owed}. Draft or append with: memcastle draft"));
@@ -261,7 +271,13 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             Reply::Nothing
         }
         "after-bash" => {
-            let is_commit = input.command.as_deref().map(|c| c.contains("git commit")).unwrap_or(false);
+            let cmd = input.command.as_deref().unwrap_or("");
+            let is_commit = cmd.contains("git commit");
+            if brings_notes(cmd) {
+                // A pull, merge or checkout may have brought notes and code from elsewhere.
+                let (synced, _, _) = run(&["sync"], None);
+                return Ok(emit(agent, event, if synced.is_empty() { Reply::Nothing } else { Reply::Context(format!("memorycastle: {synced}")) }));
+            }
             if !is_commit {
                 // Files the command changed: the edit hook for shell edits.
                 let (changed, _, _) = run(&["changed"], None);
