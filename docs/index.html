@@ -103,15 +103,7 @@
   .points li::marker { color: var(--accent); }
   .points strong { color: var(--fg); font-weight: 600; }
   .stats { margin: 22px 0 26px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-  .stats .card { position: relative; padding-bottom: 18px; }
   .stats .stat { margin-bottom: 0; }
-  .more { position: absolute; right: 10px; top: 10px; width: 22px; height: 22px; display: grid; place-items: center; font: 600 12px/1 Georgia, 'Times New Roman', serif; font-style: italic; color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 50%; padding: 0; cursor: pointer; }
-  .more:hover { color: var(--fg); border-color: var(--fg); }
-  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: grid; place-items: center; padding: 20px; z-index: 50; }
-  .overlay[hidden] { display: none; }
-  .sheet { position: relative; background: var(--card); border: 1px solid var(--line); border-radius: var(--r); padding: 28px 28px 24px; max-width: 520px; width: 100%; }
-  .sheet p { margin: 10px 0 0; font-size: 16px; line-height: 1.55; color: var(--fg); }
-  .sheet .more { top: 12px; right: 12px; font-style: normal; font-family: inherit; }
   .stats .stat { font-size: clamp(30px, 4vw, 40px); }
   .stat small { display: block; font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-top: 8px; }
   .card.accent { background: var(--accent-soft); border-color: transparent; }
@@ -183,11 +175,12 @@
     .tablewrap td:first-child { width: auto; color: var(--fg); font-weight: 600; padding-bottom: 6px; }
     .tablewrap td[data-label]:not(:first-child)::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
     .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
-    .stats .card { padding: 16px 14px 14px; }
-    .stats .card .n { font-size: 10.5px; letter-spacing: .08em; padding-right: 18px; }
+    .stats .face { padding: 16px 14px 14px; }
+    .stats .card .n { font-size: 10.5px; letter-spacing: .08em; }
+    .stats .back p { font-size: 13px; }
+    .stats .card.flip.on { grid-column: 1 / -1; }
     .stats .stat { font-size: 28px; }
     .stat small { font-size: 12.5px; line-height: 1.35; }
-    .more { right: 8px; top: 8px; }
   }
   /* Nine stat cards: three rows of three, two per row below 900 px with the last one full width. */
   .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -195,6 +188,26 @@
     .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
   }
+  /* Stat cards turn over on a click to show how the number was measured. */
+  .stats .card.flip { --face: var(--card); --edge: var(--line); position: relative; padding: 0; background: none; border: 0; box-shadow: none; cursor: pointer; outline: none; transform-style: preserve-3d; transition: transform .6s cubic-bezier(.2,.7,.2,1), min-height .35s ease; }
+  .stats .card.flip.accent { --face: var(--accent-soft); --edge: transparent; }
+  .stats .card.flip.amber { --face: var(--amber-soft); --edge: transparent; }
+  .stats .card.flip.teal { --face: var(--teal-soft); --edge: transparent; }
+  .stats .card.flip.rose { --face: var(--rose-soft); --edge: transparent; }
+  .stats .face { background: var(--face); border: 1px solid var(--edge); border-radius: var(--r); box-shadow: var(--shadow); padding: 26px 26px 18px; -webkit-backface-visibility: hidden; backface-visibility: hidden; }
+  .stats .front { height: 100%; transition: transform .2s ease; }
+  .stats .card.flip:hover .front { transform: translateY(-2px); }
+  .stats .card.flip:focus-visible .face { outline: 2px solid var(--fg); outline-offset: 2px; }
+  .stats .back { position: absolute; inset: 0; transform: rotateY(180deg); text-align: left; overflow: hidden; }
+  .stats .back p { margin: 6px 0 0; font-size: 13.5px; line-height: 1.5; color: var(--fg); }
+  /* Swap faces at the half turn too, so a renderer that ignores backface-visibility never shows a mirrored side. */
+  .stats .back { visibility: hidden; transition: visibility 0s .3s; }
+  .stats .card.flip.on .back { visibility: visible; }
+  .stats .card.flip .front { transition: transform .2s ease, visibility 0s .3s; }
+  .stats .card.flip.on .front { visibility: hidden; }
+  .stats .card.flip.on { transform: perspective(1200px) rotateY(180deg); }
+  .stats .card.flip:not(.on) { transform: perspective(1200px) rotateY(0); }
+  @media (prefers-reduced-motion: reduce) { .stats .card.flip { transition: none; } }
 </style>
 </head>
 <body>
@@ -213,17 +226,16 @@
     <h1>Memory for coding agents.<br><em>Written by the one who did the work.</em></h1>
     <p class="lead">One 6 MB Rust binary, one SQLite file, no LLM, no key, no server. Claude Code, Codex, Gemini CLI, Cursor and the rest forget everything between sessions. memorycastle keeps, per repository, what was decided, what was rejected, what was measured, and the exact lines of code it lives in.</p>
     <div class="grid stats reveal">
-      <div class="card accent"><div class="n">Agent tokens</div><div class="stat">2.5x<small>fewer than Mem0, 2x fewer than cognee</small></div><button class="more" data-title="Agent tokens" data-more="Four Codex tasks on the same clone: 700k tokens against 1,772k for Mem0 and 1,401k for cognee. Every arm passed every rubric; the difference is what the agent read to get there."aria-label="more" title="more">i</button></div>
-      <div class="card accent"><div class="n">Retrieval read</div><div class="stat">4x<small>less than cognee, 2x less than Mem0</small></div><button class="more" data-title="Retrieval read" data-more="Bytes the memory tool returned over the four tasks: 92 KB against 376 KB and 194 KB. One line and the Decision sentence per hit, then the code spans to read."aria-label="more" title="more">i</button></div>
-      <div class="card teal"><div class="n">Re-index an edited note</div><div class="stat">69x<small>faster than cognee, 158x than Mem0 with key</small></div><button class="more" data-title="Re-index an edited note" data-more="0.19 s against 13.1 s for cognee local and 30 s for Mem0 with a key. The old copy is replaced; Mem0 raw is as fast but keeps every old copy."aria-label="more" title="more">i</button></div>
-      <div class="card teal"><div class="n">Memory while answering</div><div class="stat">34x<small>less than Mem0, 83x less than cognee</small></div><button class="more" data-title="Memory while answering" data-more="9 MB for a keyword answer against 310 MB for Mem0 raw and 745 MB for cognee local. A meaning answer loads the model: 300 MB, released after five idle minutes."aria-label="more" title="more">i</button></div>
-      <div class="card amber"><div class="n">Absent questions answered</div><div class="stat">0 of 11<small>against 11 of 11 for every other system</small></div><button class="more" data-title="Absent questions answered" data-more="Eleven questions per journal whose right answer is nothing. memorycastle says &quot;no relevant note&quot;; Mem0, cognee and grep return the nearest wrong chunk, scored."aria-label="more" title="more">i</button></div>
-      <div class="card rose"><div class="n">Right note ranked first</div><div class="stat">3 of 3<small>journals, above Mem0 and cognee</small></div><button class="more" data-title="Right note ranked first" data-more="MRR 0.85, 0.98 and 0.94 against Mem0 raw 0.83, 0.96 and 0.93. Every system finds the note in the top three; the gaps are one rank swap, and all three go our way."aria-label="more" title="more">i</button></div>
-      <div class="card teal"><div class="n">Disk to install</div><div class="stat">0.4 GB<small>against 2.4 GB for cognee, 1.0 GB for Mem0</small></div><button class="more" data-title="Disk to install" data-more="One 5 MB binary, the 43 MB ONNX runtime and one 314 MB model file, measured on the machine the comparison ran on. cognee is a Python virtualenv of 2.4 GB, Mem0 one of 1.0 GB plus a vector database; cognee's Claude plugin keeps a second virtualenv of its own. Stores: a 45-note journal is 1.1 MB in memorycastle, 1.5 MB in Mem0 raw, 28 to 118 MB in cognee." aria-label="more" title="more">i</button></div>
-      <div class="card"><div class="n">The trade we chose</div><div class="stat">10x<small>larger embedding model than Mem0 uses</small></div><button class="more" data-title="The trade we chose" data-more="EmbeddingGemma 2, 300M parameters, against the 33M model Mem0 runs locally. Ingest is paid once per note: 2 s against 0.3 s. Rank is paid on every question for the life of the project, and the small model, measured inside our own fusion, lost it on all three journals: MRR 0.74 against 0.84 on the largest. So Mem0 ingests 7x faster and answers in 5 ms; we take that loss for the rank."aria-label="more" title="more">i</button></div>
-      <div class="card rose"><div class="n">Design philosophy</div><div class="stat">Simpler<small>the agent that did the work writes the note; embeddings rank it</small></div><button class="more" data-title="Design philosophy" data-more="The simpler, the more effective. No LLM sits between the work and the memory: the agent that made the decision writes the note while the facts are in its context, in its own words, with the files and functions it touched. memorycastle chunks it, embeds it with EmbeddingGemma and fuses that with keyword search, so nothing is extracted, summarised or rewritten on the way in. That is why the right note ranked first on all three journals, above Mem0 and cognee, and why a question with no answer gets none." aria-label="more" title="more">i</button></div>
+      <div class="card flip accent" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Agent tokens</div><div class="stat">2.5x<small>fewer than Mem0, 2x fewer than cognee</small></div></div><div class="face back" aria-hidden="true"><div class="n">Agent tokens</div><p>Four Codex tasks on the same clone: 700k tokens against 1,772k for Mem0 and 1,401k for cognee. Every arm passed every rubric; the difference is what the agent read to get there.</p></div></div>
+      <div class="card flip accent" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Retrieval read</div><div class="stat">4x<small>less than cognee, 2x less than Mem0</small></div></div><div class="face back" aria-hidden="true"><div class="n">Retrieval read</div><p>Bytes the memory tool returned over the four tasks: 92 KB against 376 KB and 194 KB. One line and the Decision sentence per hit, then the code spans to read.</p></div></div>
+      <div class="card flip teal" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Re-index an edited note</div><div class="stat">69x<small>faster than cognee, 158x than Mem0 with key</small></div></div><div class="face back" aria-hidden="true"><div class="n">Re-index an edited note</div><p>0.19 s against 13.1 s for cognee local and 30 s for Mem0 with a key. The old copy is replaced; Mem0 raw is as fast but keeps every old copy.</p></div></div>
+      <div class="card flip teal" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Memory while answering</div><div class="stat">34x<small>less than Mem0, 83x less than cognee</small></div></div><div class="face back" aria-hidden="true"><div class="n">Memory while answering</div><p>9 MB for a keyword answer against 310 MB for Mem0 raw and 745 MB for cognee local. A meaning answer loads the model: 300 MB, released after five idle minutes.</p></div></div>
+      <div class="card flip amber" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Absent questions answered</div><div class="stat">0 of 11<small>against 11 of 11 for every other system</small></div></div><div class="face back" aria-hidden="true"><div class="n">Absent questions answered</div><p>Eleven questions per journal whose right answer is nothing. memorycastle says &quot;no relevant note&quot;; Mem0, cognee and grep return the nearest wrong chunk, scored.</p></div></div>
+      <div class="card flip rose" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Right note ranked first</div><div class="stat">3 of 3<small>journals, above Mem0 and cognee</small></div></div><div class="face back" aria-hidden="true"><div class="n">Right note ranked first</div><p>MRR 0.85, 0.98 and 0.94 against Mem0 raw 0.83, 0.96 and 0.93. Every system finds the note in the top three; the gaps are one rank swap, and all three go our way.</p></div></div>
+      <div class="card flip teal" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Disk to install</div><div class="stat">0.4 GB<small>against 2.4 GB for cognee, 1.0 GB for Mem0</small></div></div><div class="face back" aria-hidden="true"><div class="n">Disk to install</div><p>One 5 MB binary, the 43 MB ONNX runtime and one 314 MB model file, measured on the machine the comparison ran on. cognee is a Python virtualenv of 2.4 GB, Mem0 one of 1.0 GB plus a vector database; cognee's Claude plugin keeps a second virtualenv of its own. Stores: a 45-note journal is 1.1 MB in memorycastle, 1.5 MB in Mem0 raw, 28 to 118 MB in cognee.</p></div></div>
+      <div class="card flip" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">The trade we chose</div><div class="stat">10x<small>larger embedding model than Mem0 uses</small></div></div><div class="face back" aria-hidden="true"><div class="n">The trade we chose</div><p>EmbeddingGemma 2, 300M parameters, against the 33M model Mem0 runs locally. Ingest is paid once per note: 2 s against 0.3 s. Rank is paid on every question for the life of the project, and the small model, measured inside our own fusion, lost it on all three journals: MRR 0.74 against 0.84 on the largest. So Mem0 ingests 7x faster and answers in 5 ms; we take that loss for the rank.</p></div></div>
+      <div class="card flip rose" tabindex="0" role="button" aria-expanded="false"><div class="face front"><div class="n">Design philosophy</div><div class="stat">Simpler<small>the agent that did the work writes the note; embeddings rank it</small></div></div><div class="face back" aria-hidden="true"><div class="n">Design philosophy</div><p>The simpler, the more effective. No LLM sits between the work and the memory: the agent that made the decision writes the note while the facts are in its context, in its own words, with the files and functions it touched. memorycastle chunks it, embeds it with EmbeddingGemma and fuses that with keyword search, so nothing is extracted, summarised or rewritten on the way in. That is why the right note ranked first on all three journals, above Mem0 and cognee, and why a question with no answer gets none.</p></div></div>
     </div>
-    <div class="overlay" id="overlay" hidden><div class="sheet"><div class="n" id="ov-title"></div><p id="ov-text"></p><button class="more" id="ov-close" aria-label="close" title="close">&times;</button></div></div>
     <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
 memcastle install</code></pre>
     <p class="muted" style="margin-top:14px;font-size:15px">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
@@ -613,9 +625,13 @@ memcastle uninstall --purge       # the reverse, notes stay</code></pre>
   });
 </script>
 <script>
-(function(){var o=document.getElementById('overlay'),t=document.getElementById('ov-title'),x=document.getElementById('ov-text');
-document.querySelectorAll('.stats .more').forEach(function(b){b.addEventListener('click',function(){t.textContent=b.dataset.title;x.textContent=b.dataset.more;o.hidden=false;});});
-function close(){o.hidden=true;}document.getElementById('ov-close').addEventListener('click',close);o.addEventListener('click',function(e){if(e.target===o)close();});document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});})();
+(function(){
+function turn(c){var on=!c.classList.contains('on'),b=c.querySelector('.back');
+c.style.minHeight='';c.classList.toggle('on',on);
+if(on){c.style.minHeight=Math.max(c.offsetHeight,b.scrollHeight)+'px';}c.setAttribute('aria-expanded',on);b.setAttribute('aria-hidden',!on);c.querySelector('.front').setAttribute('aria-hidden',on);}
+document.querySelectorAll('.stats .card.flip').forEach(function(c){c.addEventListener('click',function(){turn(c);});
+c.addEventListener('keydown',function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();turn(c);}});});
+document.addEventListener('keydown',function(e){if(e.key==='Escape')document.querySelectorAll('.stats .card.flip.on').forEach(turn);});})();
 </script>
 </body>
 </html>
