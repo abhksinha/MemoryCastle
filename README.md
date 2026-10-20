@@ -177,7 +177,9 @@ ledger `status` reports savings two ways: the controlled A/B on fixed
 questions, and the observed figure (bytes of files a printed span stood in
 for, minus what was read and the lookup output; an upper bound, so the
 status line writes it with a tilde). Codex transcripts are imported after
-the fact.
+the fact. Codex, Gemini CLI and Cursor have no status line setting of their
+own; `memcastle status --line` prints the same short line for any bar, for
+example tmux: `set -g status-right '#(cd #{pane_current_path} && memcastle status --line)'`.
 
 ## What it costs
 

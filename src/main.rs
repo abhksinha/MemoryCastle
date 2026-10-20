@@ -198,7 +198,13 @@ enum Cmd {
         keyword: bool,
     },
     /// Counts, active space, file size and notes changed on disk since saved.
-    Status,
+    Status {
+        /// One short line for a status bar: `<repo> | N notes | ~S (P%) this session, ~A (Q%) all sessions tokens saved`.
+        /// The Claude Code status line prints this; for Codex, Gemini CLI or Cursor put it in tmux:
+        /// `set -g status-right '#(cd #{pane_current_path} && memcastle status --line)'`.
+        #[arg(long)]
+        line: bool,
+    },
     /// Check journal notes for shape problems (missing sections, no files, thin decision) without saving.
     Lint {
         /// Notes to check; default every note under memorycastle/journal/.
@@ -996,9 +1002,30 @@ fn run(cli: Cli) -> Result<()> {
             });
             store::record_read_lines(&ctx.conn, p.id, &repo.root, &rel, bytes, range, None)?;
         }
-        Cmd::Status => {
+        Cmd::Status { line } => {
             let root = ctx.repo.as_ref().map(|r| r.root.clone());
             let st = store::status(&mut ctx.conn, ctx.project.as_ref(), root.as_deref(), &ctx.db_path)?;
+            if line {
+                let mut parts = Vec::new();
+                if let Some(r) = &root {
+                    parts.push(r.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                }
+                parts.push(format!("{} notes", st.notes));
+                let mut sav = Vec::new();
+                if st.usage.session.is_some() {
+                    let o = &st.usage.observed_session;
+                    sav.push(format!("~{} ({:.0}%) this session", fmt_tokens(o.saved_tokens), o.saved_pct.round()));
+                }
+                if st.usage.observed.reads > 0 {
+                    let o = &st.usage.observed;
+                    sav.push(format!("~{} ({:.0}%) all sessions", fmt_tokens(o.saved_tokens), o.saved_pct.round()));
+                }
+                if !sav.is_empty() {
+                    parts.push(format!("{} tokens saved", sav.join(", ")));
+                }
+                println!("{}", parts.join(" | "));
+                return Ok(());
+            }
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&st)?);
             } else {
