@@ -15,8 +15,7 @@ demotes a superseded decision; it indexes an edited note in place in
 four agent tasks on 50% fewer tokens than cognee and 61% fewer than Mem0.
 Mem0's bare vector mode, a 33M-parameter model over raw chunks, ingests
 and queries faster and ranks as well; it has no floor, no supersession
-and keeps old copies on every edit. Every cell, both ways, is in
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+and keeps old copies on every edit.
 
 Claude Code, Codex, Gemini CLI, Antigravity, Cursor, GitHub Copilot and
 OpenCode forget everything between sessions. memorycastle gives them one memory per repository: what was
@@ -195,9 +194,8 @@ example tmux: `set -g status-right '#(cd #{pane_current_path} && memcastle statu
 Two private gold sets, 97 questions over real journals: recall@3 1.000 and
 0.962, against 0.958 for grep with MRR 0.73 versus 0.92. A controlled A/B
 with Codex on a real project: 32 to 53% fewer tokens for the whole run.
-Method and raw numbers in [docs/BENCHMARKS.md](docs/BENCHMARKS.md); the
-design in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). The A/B is the
-figure to quote; the observed one is a bound you can inspect read by read.
+The A/B is the figure to quote; the observed one is a bound you can
+inspect read by read.
 
 ## Commands you will actually type
 
@@ -226,7 +224,7 @@ Environment: `MEMORYCASTLE_HOME` (data dir), `MEMORYCASTLE_MODEL` (`int8`,
 `q4`, `q4f16`), `MEMORYCASTLE_NO_LEDGER` (for benchmark loops),
 `MEMORYCASTLE_ORT_DYLIB` (an existing ONNX Runtime; the air-gapped path).
 The engineering rule applied throughout: do less, allocate less, move less,
-measure. See `Resource_Conscious_Software_Engineering.md`.
+measure.
 
 ## License
 

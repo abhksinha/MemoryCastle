@@ -4,6 +4,13 @@ target/
 *.db-shm
 .DS_Store
 .enola/
-
 # This repo keeps its own journal local (notes stay in the store; memcastle export rewrites them)
 memorycastle/
+# Design and measurement docs, benchmark tools and the one-off publish script stay local
+Lightweight_Agent_Memory_Architecture_v3.1.md
+Resource_Conscious_Software_Engineering.md
+docs/ARCHITECTURE.md
+docs/BENCHMARKS.md
+docs/gold.example.json
+examples/
+scripts/publish.sh
