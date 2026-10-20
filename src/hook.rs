@@ -143,11 +143,13 @@ fn repo_root_of(file: &str) -> Option<std::path::PathBuf> {
     crate::project::Repo::discover(&start).map(|r| r.root)
 }
 
-/// What a hook wants to say back: context for the model, or a block with a reason.
+/// What a hook wants to say back: context for the model, a block with a
+/// reason, or a line for the user only (never sent to the model).
 enum Reply {
     Nothing,
     Context(String),
     Block(String),
+    Notice(String),
 }
 
 /// Prints the reply in the agent's shape and returns the exit code.
@@ -192,6 +194,13 @@ fn emit(agent: Agent, event: &str, reply: Reply) -> i32 {
             eprintln!("{r}");
             2
         }
+        // Codex shows `systemMessage` to the user and keeps it out of the
+        // model's context: the stats line Codex has no status bar for.
+        (Agent::Codex, Reply::Notice(t)) => {
+            println!("{}", serde_json::json!({"systemMessage": t}));
+            0
+        }
+        (_, Reply::Notice(_)) => emit(agent, event, Reply::Nothing),
     }
 }
 
@@ -310,7 +319,9 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             if rc == 2 {
                 Reply::Block(format!("memorycastle: {reason}. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at {draft}: set the title to the decision, fill the sections, then: memcastle save {draft}. If no decision was made, stop again and say so."))
             } else {
-                Reply::Nothing
+                // After every turn, the savings line the Claude status bar shows.
+                let (line, _, _) = run(&["status", "--line"], None);
+                if line.is_empty() { Reply::Nothing } else { Reply::Notice(line) }
             }
         }
         _ => Reply::Nothing,
