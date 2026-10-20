@@ -1130,11 +1130,16 @@ fn run(cli: Cli) -> Result<()> {
                         }
                     }
                 }
-                for n in &notes {
+                // A hub file names dozens of notes: the newest few, then a count.
+                let cap = if kind == graph::Kind::File && at.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
+                for n in notes.iter().take(cap) {
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                     let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
                     stood += store::note_bytes(&ctx.conn, n.id)?;
+                }
+                if notes.len() > cap {
+                    out.push_str(&format!("   +{} more notes name {target}; `links {target} --at <line>` shows the ones about that definition\n", notes.len() - cap));
                 }
                 if context {
                     if let Some(r) = &root {

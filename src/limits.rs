@@ -109,6 +109,9 @@ pub const BENCHMARK_LINE: &str = "benchmark (controlled A/B, Codex on AbhiGram, 
 /// `if`, a loop) and `status` lists such definitions, since a note that
 /// points at them points at nothing readable.
 pub const SPAN_WIDE: u32 = 150;
+/// Notes `links <file>` lists before saying "+N more": a hub file names
+/// dozens, nobody reads a list that long, and `--at <line>` narrows it.
+pub const LINKS_NOTES: usize = 5;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.

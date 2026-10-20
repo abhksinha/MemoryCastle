@@ -268,10 +268,14 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                     stood += std::fs::metadata(r.join(&d.path)).map(|m| m.len() as usize).unwrap_or(0).min(crate::limits::USAGE_FILE_CAP);
                 }
             }
-            for n in &notes {
+            let cap = if kind == crate::graph::Kind::File { crate::limits::LINKS_NOTES } else { notes.len() };
+            for n in notes.iter().take(cap) {
                 let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                 text.push_str(&format!("{}  {}  {}  ({}){}\n", n.path, n.title, crate::render::fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup));
                 stood += crate::store::note_bytes(&ctx.conn, n.id)?;
+            }
+            if notes.len() > cap {
+                text.push_str(&format!("   +{} more notes name {target}\n", notes.len() - cap));
             }
             if text.is_empty() {
                 text = format!("no notes link to {target}\n");
