@@ -7,7 +7,7 @@
 //! index, notes saved, past transcripts imported into the ledger, and the
 //! embedding server started. Every step is idempotent and reported.
 
-use crate::app::{AGENT_SNIPPET, SNIPPET_MARKER};
+use crate::app::{AGENT_SNIPPET, LEAD, LEAD_MARKER, SNIPPET_MARKER};
 use crate::{err, Result};
 use std::path::{Path, PathBuf};
 
@@ -104,6 +104,7 @@ pub struct Step {
     pub done: bool,
 }
 
+#[derive(Default)]
 pub struct Options {
     pub dry_run: bool,
     /// Skip the machine-level config (plugin, MCP entries, status line).
@@ -150,6 +151,59 @@ pub fn upsert_snippet(text: &str) -> Option<String> {
     Some(out)
 }
 
+/// Puts the one-line lead after the file's first heading (or at the top)
+/// when the file has content beyond the memory section, so an agent that
+/// reads only the first screen is sent to the section. Idempotent by
+/// marker; an older lead is rewritten. Returns the new text when changed.
+pub fn upsert_lead(text: &str) -> Option<String> {
+    let own = remove_snippet(text).unwrap_or_else(|| text.to_string());
+    let has_other = own.lines().any(|l| !l.trim().is_empty() && !l.contains(LEAD_MARKER));
+    if !has_other {
+        return None;
+    }
+    if let Some(line) = text.lines().find(|l| l.contains(LEAD_MARKER)) {
+        if line == LEAD {
+            return None;
+        }
+        return Some(text.replacen(line, LEAD, 1));
+    }
+    let lines: Vec<&str> = text.lines().collect();
+    let h1 = lines.iter().position(|l| l.starts_with("# "));
+    let mut out = String::with_capacity(text.len() + LEAD.len() + 4);
+    match h1 {
+        Some(i) => {
+            for l in &lines[..=i] {
+                out.push_str(l);
+                out.push('\n');
+            }
+            out.push('\n');
+            out.push_str(LEAD);
+            out.push('\n');
+            let rest = &lines[i + 1..];
+            let rest: Vec<&str> = rest.iter().copied().skip_while(|l| l.trim().is_empty()).collect();
+            if !rest.is_empty() {
+                out.push('\n');
+                out.push_str(&rest.join("\n"));
+                out.push('\n');
+            }
+        }
+        None => {
+            out.push_str(LEAD);
+            out.push_str("\n\n");
+            out.push_str(text.trim_start_matches('\n'));
+        }
+    }
+    Some(out)
+}
+
+/// Removes the lead line. Returns the new text when it changed.
+pub fn remove_lead(text: &str) -> Option<String> {
+    let line = text.lines().find(|l| l.contains(LEAD_MARKER))?;
+    let out = text.replacen(&format!("{line}\n\n"), "", 1);
+    let out = if out.len() == text.len() { text.replacen(&format!("{line}\n"), "", 1) } else { out };
+    Some(out.replacen(line, "", 1))
+}
+
 fn write_if(path: &Path, text: &str, dry: bool) -> Result<()> {
     if dry {
         return Ok(());
@@ -161,14 +215,25 @@ fn write_if(path: &Path, text: &str, dry: bool) -> Result<()> {
 }
 
 /// The memory section upserted into one instruction file, repo or user level.
-fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
+pub fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
     let text = std::fs::read_to_string(path).unwrap_or_default();
-    match upsert_snippet(&text) {
-        Some(new) => {
+    let section = upsert_snippet(&text);
+    let after = section.clone().unwrap_or_else(|| text.clone());
+    let lead = upsert_lead(&after);
+    match (section, lead) {
+        (None, None) => Ok(Step { what: format!("{label}: memory section current"), done: false }),
+        (section, lead) => {
+            let new = lead.unwrap_or(after);
             write_if(path, &new, o.dry_run)?;
-            Ok(Step { what: format!("{label}: memory section {}", if text.is_empty() { "created" } else if text.contains("## Memory (memorycastle)") { "refreshed" } else { "added" }), done: true })
+            let what = match section {
+                Some(_) if text.is_empty() => "memory section created",
+                Some(_) if text.contains("## Memory (memorycastle)") => "memory section refreshed",
+                Some(_) => "memory section added",
+                None => "lead line added at the top",
+            };
+            let lead_note = if what.starts_with("memory section") && new.contains(LEAD_MARKER) && !text.contains(LEAD_MARKER) { ", lead line at the top" } else { "" };
+            Ok(Step { what: format!("{label}: {what}{lead_note}"), done: true })
         }
-        None => Ok(Step { what: format!("{label}: memory section current"), done: false }),
     }
 }
 
@@ -443,7 +508,8 @@ pub fn remove_snippet(text: &str) -> Option<String> {
 
 fn uninstall_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
     let Ok(text) = std::fs::read_to_string(path) else { return Ok(Step { what: format!("{label}: no memory section"), done: false }) };
-    match remove_snippet(&text) {
+    let text = remove_lead(&text).unwrap_or(text);
+    match remove_snippet(&text).or_else(|| if text.contains(LEAD_MARKER) { None } else { Some(text.clone()) }.filter(|t| t != &std::fs::read_to_string(path).unwrap_or_default())) {
         Some(new) if new.trim().is_empty() => {
             if !o.dry_run {
                 std::fs::remove_file(path)?;
@@ -604,6 +670,21 @@ mod tests {
         let unmarked = "# X\n\n## Memory (memorycastle)\nold\n## After\nkeep\n";
         let r = upsert_snippet(unmarked).unwrap();
         assert!(!r.contains("\nold\n") && r.contains("## After\nkeep"), "{r}");
+    }
+
+    #[test]
+    fn lead_goes_under_the_first_heading_once_and_only_with_other_content() {
+        let with = upsert_snippet("# CLAUDE.md\n\nBuild with cargo.\n\n## Tests\ncargo test\n").unwrap();
+        let led = upsert_lead(&with).unwrap();
+        assert!(led.starts_with(&format!("# CLAUDE.md\n\n{LEAD}\n\nBuild with cargo.\n")), "{led}");
+        assert_eq!(led.matches(LEAD_MARKER).count(), 1);
+        assert!(upsert_lead(&led).is_none(), "current lead is left alone");
+        let stale = led.replace(LEAD, "Memory: old words <!-- memorycastle lead -->");
+        assert!(upsert_lead(&stale).unwrap().contains(LEAD), "an older lead is rewritten");
+        assert!(upsert_lead(&upsert_snippet("").unwrap()).is_none(), "a file that is only the section gets no lead");
+        let no_h1 = upsert_lead("Build with cargo.\n").unwrap();
+        assert!(no_h1.starts_with(LEAD), "{no_h1}");
+        assert_eq!(remove_lead(&led).unwrap(), with, "removal restores the file");
     }
 
     #[test]

@@ -225,6 +225,14 @@ impl Context {
 /// but not the current marker. Bump when the snippet changes.
 pub const SNIPPET_MARKER: &str = "<!-- memorycastle snippet 9 -->";
 
+/// Marker on the one-line lead `install` puts at the top of an instruction
+/// file that has content of its own, so the memory section is found from
+/// the first screen. Rewritten when the text changes, removed by `uninstall`.
+pub const LEAD_MARKER: &str = "<!-- memorycastle lead -->";
+
+/// The lead itself, one line, about 40 tokens.
+pub const LEAD: &str = "Memory: this repo uses memorycastle. Before an edit `memcastle links <file|symbol>`; before a decision `memcastle search \"<question>\"`; after a task, a note. Rules and commands: `## Memory (memorycastle)` below. <!-- memorycastle lead -->";
+
 pub const AGENT_SNIPPET: &str = r#"## Memory (memorycastle)
 
 Three rules, every session:

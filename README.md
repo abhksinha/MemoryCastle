@@ -206,6 +206,7 @@ memcastle links <file> [--at <line>]     # notes about the file, or the function
 memcastle status                          # counts, savings, notes about files that no longer exist
 memcastle quality --flagged               # notes the store can see are weak
 memcastle save memorycastle/journal/<note>.md
+memcastle init --into CLAUDE.md          # the memory section into one file, plus a one-line lead under its first heading
 ```
 
 `memcastle` is the command; `memorycastle` is the same binary under the

@@ -390,7 +390,11 @@ enum Cmd {
         dry_run: bool,
     },
     /// Print the snippet for CLAUDE.md, AGENTS.md or GEMINI.md.
-    Init,
+    Init {
+        /// Write it into this file instead (the section upserted, a one-line lead under the file's first heading); `>>` only appends.
+        #[arg(long, value_name = "FILE")]
+        into: Option<PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -418,8 +422,14 @@ fn main() {
 }
 
 fn run(cli: Cli) -> Result<()> {
-    if let Cmd::Init = cli.cmd {
-        print!("{AGENT_SNIPPET}");
+    if let Cmd::Init { into } = &cli.cmd {
+        match into {
+            None => print!("{AGENT_SNIPPET}"),
+            Some(path) => {
+                let step = memorycastle::install::install_snippet(path, &path.display().to_string(), &memorycastle::install::Options::default())?;
+                println!("{}", step.what);
+            }
+        }
         return Ok(());
     }
     if let Cmd::Mcp = cli.cmd {
@@ -1319,7 +1329,7 @@ fn run(cli: Cli) -> Result<()> {
             let n = store::export(&ctx.conn, pid, &root)?;
             println!("wrote {n} notes into {}", root.display());
         }
-        Cmd::Init | Cmd::Mcp => unreachable!(),
+        Cmd::Init { .. } | Cmd::Mcp => unreachable!(),
     }
     Ok(())
 }
