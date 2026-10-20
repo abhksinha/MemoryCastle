@@ -65,6 +65,7 @@ Environment: `MEMORYCASTLE_HOME` (data dir, default `~/.local/share/memorycastle
 
 ## Decisions made in code that refine the design doc
 
+- A plain word in the question also matches by its stem as a prefix (`fts::build`: `"batching" OR "batch"*`); the `porter` tokenizer was measured and rejected (AbhiGram MRR 0.911 to 0.866: it stems too far and shifts which words are rare), and so was a weight for Decision/Rejected/Measured headings (it ranks note shape, not relevance).
 - FTS terms are joined with `OR`, not implicit AND: a question whose words are only partly in a note still ranks it (BM25 weighs the rare terms). Identifier-only queries behave the same either way.
 - `forget` without `--purge` keeps the note text (for revival on re-save) but deletes its chunks, so the hot search path has no `deleted_at` join. `verify_clean` proves nothing derived remains.
 - The HF `tokenizers` crate cost 376 MB resident; `embed/tokenizer.rs` replaces it (14 MB, 3 ms load, parity-tested). Special tokens written inside notes are encoded as text on purpose: memory is data.

@@ -238,8 +238,7 @@ pub fn search(
             if h.heading.to_ascii_lowercase().contains(c) {
                 t.weight *= SECTION_CUE_WEIGHT;
             }
-        }
-        t.score *= t.weight;
+        }        t.score *= t.weight;
         // Heading and text together: a title holds the words a body implies.
         let with_heading = format!("{}\n{}", h.heading, h.text);
         t.coverage = coverage(&terms, &with_heading);

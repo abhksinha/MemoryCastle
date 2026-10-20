@@ -54,6 +54,18 @@ pub fn build(text: &str) -> Option<String> {
             q.push(c);
         }
         q.push('"');
+        // A plain word also matches its other forms through its stem as a
+        // prefix ("batching" finds "Batches"), beside the exact term so an
+        // exact match still scores on both.
+        let lower = t.to_ascii_lowercase();
+        if t.chars().all(|c| c.is_ascii_alphabetic()) && !is_identifier(t) {
+            let s = crate::search::stem(&lower);
+            if s.len() < lower.len() {
+                q.push_str(" OR \"");
+                q.push_str(s);
+                q.push_str("\"*");
+            }
+        }
     }
     Some(q)
 }
@@ -92,10 +104,18 @@ mod tests {
         assert_eq!(build("B-42").unwrap(), "\"B-42\"");
         assert_eq!(build("snake_case here").unwrap(), "\"snake_case\" OR \"here\"");
         assert_eq!(build("2026-10-18").unwrap(), "\"2026-10-18\"");
-        assert_eq!(build("ui/status/StatusGl.kt").unwrap(), "\"ui\" OR \"status\" OR \"StatusGl\" OR \"kt\"");
+        assert_eq!(build("ui/status/StatusGl.kt").unwrap(), "\"ui\" OR \"status\" OR \"statu\"* OR \"StatusGl\" OR \"kt\"");
         assert_eq!(build("say \"hi\" now").unwrap(), "\"say\" OR \"hi\" OR \"now\"");
         assert_eq!(build("-- ... ???"), None);
         assert_eq!(build("").as_deref(), None);
+    }
+
+    #[test]
+    fn a_plain_word_also_matches_by_its_stem() {
+        assert_eq!(build("batching").unwrap(), "\"batching\" OR \"batch\"*");
+        // Identifiers and short words stay exact.
+        assert_eq!(build("embed_missing").unwrap(), "\"embed_missing\"");
+        assert_eq!(build("uses").unwrap(), "\"uses\"");
     }
 
     #[test]
