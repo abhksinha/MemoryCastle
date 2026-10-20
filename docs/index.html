@@ -27,17 +27,6 @@
     --rose: hsl(var(--h4) 70% 68%); --rose-soft: hsl(var(--h4) 35% 16%);
     --code-bg: hsl(24 12% 13%); --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 14px 40px hsl(0 0% 0% / .4);
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: hsl(24 14% 7%); --bg2: hsl(24 12% 10%); --fg: hsl(36 30% 93%); --muted: hsl(30 10% 64%);
-      --line: hsl(24 10% 18%); --card: hsl(24 12% 11%);
-      --accent: hsl(var(--h) 85% 64%); --accent-soft: hsl(var(--h) 50% 17%);
-      --amber: hsl(var(--h2) 85% 62%); --amber-soft: hsl(var(--h2) 45% 15%);
-      --teal: hsl(var(--h3) 60% 60%); --teal-soft: hsl(var(--h3) 35% 15%);
-      --rose: hsl(var(--h4) 70% 68%); --rose-soft: hsl(var(--h4) 35% 16%);
-      --code-bg: hsl(24 12% 13%); --shadow: 0 1px 2px hsl(0 0% 0% / .4), 0 14px 40px hsl(0 0% 0% / .4);
-    }
-  }
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
   body { margin: 0; background: var(--bg); color: var(--fg); font: 17px/1.6 -apple-system, ui-sans-serif, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif; -webkit-font-smoothing: antialiased; letter-spacing: -.005em; transition: background .25s, color .25s; }
@@ -57,7 +46,7 @@
   nav a { color: var(--muted); font-size: 14px; }
   nav a:hover { color: var(--fg); text-decoration: none; }
   nav .links { display: flex; gap: 18px; }
-  @media (max-width: 760px) { nav .links { display: none; } }
+  @media (max-width: 900px) { nav .links { display: none; } }
   #theme { border: 1px solid var(--line); background: var(--card); color: var(--fg); border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
 
   .hero { padding: 110px 0 70px; text-align: center; position: relative; overflow: hidden; }
@@ -159,6 +148,47 @@
   .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
   .reveal.in { opacity: 1; transform: none; }
   @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+
+  /* Phones. A grid child defaults to min-width: auto, so one long line in a
+     pre widened its card and the page to 1188px; here every grid child may
+     shrink and long code scrolls inside its own box. */
+  html { overflow-x: clip; }
+  .change > *, .feature > *, .grid > *, .charts > *, .steps > *, .stats > *, .bars .row > * { min-width: 0; }
+  .charts { grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); }
+  .grid, .stats { grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); }
+  .steps { grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr)); }
+  .hero pre { max-width: 100%; }
+  .formula { overflow-wrap: anywhere; }
+  @media (max-width: 600px) {
+    body { font-size: 16px; }
+    .wrap { padding: 0 16px; }
+    .hero { padding: 64px 0 48px; }
+    section { padding: 56px 0; }
+    nav { gap: 12px; }
+    .card { padding: 20px; }
+    .formula { padding: 20px; margin: 20px 0; }
+    pre { padding: 14px 16px; border-radius: 12px; }
+    code, pre { font-size: 13px; }
+    .change { padding: 14px 16px; }
+    .feature { gap: 20px; }
+    .feature + .feature { margin-top: 48px; }
+    .sub { margin-bottom: 28px; }
+    /* Tables stack: one block per row, its first cell the heading, every
+       other cell labelled with its column (data-label, set by the script). */
+    .tablewrap table, .tablewrap tbody, .tablewrap tr, .tablewrap td { display: block; width: auto; }
+    .tablewrap thead { display: none; }
+    .tablewrap tr { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+    .tablewrap tr:last-child { border-bottom: 0; }
+    .tablewrap td { padding: 3px 0; border: 0; overflow-wrap: break-word; }
+    .tablewrap td:first-child { width: auto; color: var(--fg); font-weight: 600; padding-bottom: 6px; }
+    .tablewrap td[data-label]:not(:first-child)::before { content: attr(data-label); display: block; font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-top: 6px; }
+    .stats { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .stats .card { padding: 16px 14px 14px; }
+    .stats .card .n { font-size: 10.5px; letter-spacing: .08em; padding-right: 18px; }
+    .stats .stat { font-size: 28px; }
+    .stat small { font-size: 12.5px; line-height: 1.35; }
+    .more { right: 8px; top: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -548,12 +578,11 @@ memcastle uninstall --purge       # the reverse, notes stay</code></pre>
   (function () {
     var root = document.documentElement, btn = document.getElementById('theme');
     function current() {
-      var t = root.getAttribute('data-theme');
-      if (t) return t;
-      return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      // Light unless the reader picked dark with the button.
+      return root.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
     }
     function apply(t) { root.setAttribute('data-theme', t); btn.textContent = t === 'dark' ? 'light' : 'dark'; }
-    try { var saved = localStorage.getItem('theme'); if (saved) apply(saved); else btn.textContent = current() === 'dark' ? 'light' : 'dark'; } catch (e) { btn.textContent = current() === 'dark' ? 'light' : 'dark'; }
+    try { var saved = localStorage.getItem('theme'); apply(saved === 'dark' ? 'dark' : 'light'); } catch (e) { apply('light'); }
     btn.addEventListener('click', function () {
       var next = current() === 'dark' ? 'light' : 'dark';
       apply(next);
@@ -566,6 +595,15 @@ memcastle uninstall --purge       # the reverse, notes stay</code></pre>
       document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
     }
   })();
+</script>
+<script>
+  // Column names onto each cell, for the stacked table layout on phones.
+  document.querySelectorAll('.tablewrap table').forEach(function (t) {
+    var heads = Array.prototype.map.call(t.querySelectorAll('thead th'), function (th) { return th.textContent.trim(); });
+    t.querySelectorAll('tbody tr').forEach(function (tr) {
+      Array.prototype.forEach.call(tr.children, function (td, i) { if (heads[i]) td.setAttribute('data-label', heads[i]); });
+    });
+  });
 </script>
 <script>
 (function(){var o=document.getElementById('overlay'),t=document.getElementById('ov-title'),x=document.getElementById('ov-text');
