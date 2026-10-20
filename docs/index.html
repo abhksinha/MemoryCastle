@@ -109,6 +109,9 @@
   .card p { margin: 0; color: var(--muted); font-size: 15.5px; line-height: 1.55; }
   .card .n { font-size: 12px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
   .stat { font-size: clamp(34px, 5vw, 48px); font-weight: 700; letter-spacing: -.04em; line-height: 1; margin: 2px 0 12px; }
+  .stats { margin: 22px 0 26px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .stats .card p { font-size: 13.5px; color: var(--muted); margin: 0; line-height: 1.45; }
+  .stats .stat { font-size: clamp(30px, 4vw, 40px); }
   .stat small { display: block; font-size: 14px; font-weight: 500; letter-spacing: 0; color: var(--muted); margin-top: 8px; }
   .card.accent { background: var(--accent-soft); border-color: transparent; }
   .card.amber { background: var(--amber-soft); border-color: transparent; }
@@ -162,6 +165,16 @@
     <h1>Memory for coding agents.<br><em>Written by the one who did the work.</em></h1>
     <p class="lead">One 6 MB Rust binary, one SQLite file, no LLM, no key, no server. Claude Code, Codex, Gemini CLI, Cursor and the rest forget everything between sessions. memorycastle keeps, per repository, what was decided, what was rejected, what was measured, and the exact lines of code it lives in.</p>
     <p class="lead" style="margin-top:14px"><strong>Measured against Mem0 and cognee, the two best-known open-source agent memories, each with and without a paid OpenAI key: memorycastle wins 11 of 16 rows, no competitor more than 3, with no key at all, and ranks the right note first more often on all three journals.</strong> Keyword answers in 2.5 ms from a 9 MB process. A note edited and re-indexed in place in 0.19 s. Four agent tasks on 50% fewer tokens than cognee and 61% fewer than Mem0. The only one that answers "no relevant note" when there is none, and the only one that keeps a reversed decision reversed. Where Mem0 wins, it is a bare vector store with a model a tenth the size, and we say so. <a href="#compare">The numbers.</a></p>
+    <div class="grid stats reveal">
+      <div class="card accent"><div class="n">Agent tokens</div><div class="stat">2.5x<small>fewer than Mem0, 2x fewer than cognee</small></div><p>700k against 1,772k and 1,401k over the same four tasks, every rubric passed.</p></div>
+      <div class="card accent"><div class="n">Retrieval read</div><div class="stat">4x<small>less than cognee, 2x less than Mem0</small></div><p>92 KB against 376 KB and 194 KB for the same four correct answers.</p></div>
+      <div class="card teal"><div class="n">Re-index one edited note</div><div class="stat">69x<small>faster than cognee, 158x than Mem0 with key</small></div><p>0.19 s against 13.1 s and 30 s, and the old copy is replaced, not kept.</p></div>
+      <div class="card teal"><div class="n">Memory while answering</div><div class="stat">34x<small>less than Mem0, 83x less than cognee</small></div><p>9 MB for a keyword answer against 310 MB and 745 MB. Meaning answers 300 MB.</p></div>
+      <div class="card amber"><div class="n">Tokens to ingest ten notes</div><div class="stat">0<small>against 970k for Mem0 with key</small></div><p>No API, no key, no bill. Mem0 and cognee in their intended modes pay per note.</p></div>
+      <div class="card amber"><div class="n">Absent questions answered</div><div class="stat">0 of 11<small>against 11 of 11 for every other system</small></div><p>"No relevant note" is a real answer. The others return the nearest wrong one.</p></div>
+      <div class="card rose"><div class="n">Right note ranked first</div><div class="stat">3 of 3<small>journals, ahead of Mem0 and cognee</small></div><p>MRR 0.85, 0.98 and 0.94; the gaps are one rank swap, and all three go our way.</p></div>
+      <div class="card"><div class="n">Where Mem0 wins</div><div class="stat">7x<small>faster ingest, 10x faster query</small></div><p>A 33M model over raw chunks: 2.9 s for ten notes, 5 ms a query. It is a vector store, and we say so.</p></div>
+    </div>
     <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
 memcastle install</code></pre>
     <p class="muted" style="margin-top:14px;font-size:15px">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
