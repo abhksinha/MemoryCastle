@@ -890,6 +890,14 @@ fn run(cli: Cli) -> Result<()> {
                     let list: Vec<String> = st.dangling_files.iter().map(|(f, n)| format!("{f} ({n})")).collect();
                     println!("notes about files that no longer exist: {}", list.join(", "));
                 }
+                if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
+                  if let Ok(wide) = memorycastle::code::wide_defs(&ctx.conn, pid, 5) {
+                    if !wide.is_empty() {
+                        let list: Vec<String> = wide.iter().map(|(p, n, w)| format!("{p} {n} ({w} lines)")).collect();
+                        println!("definitions wider than {} lines, where a note points at nothing readable: {}", memorycastle::limits::SPAN_WIDE, list.join(", "));
+                    }
+                  }
+                }
                 let observed_line = |label: &str, o: &store::Observed| {
                     println!(
                         "observed ({label}): {}-{} tokens saved ({:.0}-{:.0}%) over {} reads guided by a printed span ({:.1} KB read of {:.1} KB) and {} files edited unread after a lookup ({:.1} KB); floor is a 40-line read, net of {} tokens of lookup output; {} file reads seen, {} guided reads followed by another read of the same file",
@@ -1013,18 +1021,39 @@ fn run(cli: Cli) -> Result<()> {
             // agent is editing, so notes about it come first and the file's
             // own notes are shown only when the symbol has none.
             let mut target = target;
+            // The definition the line sits in, in this file only; when it is
+            // wider than `SPAN_WIDE` the innermost block holding the line is
+            // the span to read, and the `at:` line says so.
+            let mut at_def: Option<memorycastle::code::Def> = None;
+            let mut at_line = String::new();
             if let (Some(line), true) = (at, target.contains('/') || target.contains('.')) {
-                if let Some(r) = ctx.repo.as_ref().map(|r| r.root.clone()) {
-                    memorycastle::code::refresh(&mut ctx.conn, pid, &r)?;
+                let root = ctx.repo.as_ref().map(|r| r.root.clone());
+                if let Some(r) = &root {
+                    memorycastle::code::refresh(&mut ctx.conn, pid, r)?;
                 }
                 if let Some(d) = memorycastle::code::def_enclosing(&ctx.conn, pid, &target, line)? {
+                    let width = d.end.saturating_sub(d.line) + 1;
+                    let narrowed = root.as_ref().and_then(|r| memorycastle::code::narrow_span(r, &d, line));
+                    at_line = match &narrowed {
+                        Some((h, a, b)) => {
+                            store::record_span(&ctx.conn, pid, &d.path, *a, *b, 0)?;
+                            format!("at: {} ({}) {}:{}-{} holds line {line}, {width} lines, too wide: read {}:{}-{}  {}", d.name, d.kind, d.path, d.line, d.end, d.path, a, b, h)
+                        }
+                        None if width > memorycastle::limits::SPAN_WIDE => {
+                            let (a, b) = (line.saturating_sub(20).max(d.line), (line + 20).min(d.end));
+                            store::record_span(&ctx.conn, pid, &d.path, a, b, 0)?;
+                            format!("at: {} ({}) {}:{}-{} holds line {line}, {width} lines, too wide: read {}:{}-{}", d.name, d.kind, d.path, d.line, d.end, d.path, a, b)
+                        }
+                        None => {
+                            store::record_span(&ctx.conn, pid, &d.path, d.line, d.end, 0)?;
+                            format!("at: {} ({}) {}:{}-{} holds line {line}", d.name, d.kind, d.path, d.line, d.end)
+                        }
+                    };
                     graph::ensure_links(&mut ctx.conn, pid)?;
                     if !graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &d.name)?.is_empty() {
-                        if !cli.json {
-                            println!("about: {} ({}:{}-{} holds line {line})", d.name, d.path, d.line, d.end);
-                        }
-                        target = d.name;
+                        target = d.name.clone();
                     }
+                    at_def = Some(d);
                 }
             }
             if once {
@@ -1045,16 +1074,17 @@ fn run(cli: Cli) -> Result<()> {
             if notes.is_empty() && kind == graph::Kind::File {
                 notes = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &target)?;
             }
-            let defs = if kind == graph::Kind::Symbol { memorycastle::code::defs_named(&ctx.conn, pid, &target)? } else { Vec::new() };
+            let defs = match &at_def {
+                Some(d) if kind == graph::Kind::Symbol => vec![d.clone()],
+                _ if kind == graph::Kind::Symbol => memorycastle::code::defs_named(&ctx.conn, pid, &target)?,
+                _ => Vec::new(),
+            };
             // With no note, the code index still answers: what the file
             // defines and who uses it, or the definition the line sits in.
             let facts: Vec<String> = if notes.is_empty() && kind == graph::Kind::File {
                 let mut f = memorycastle::code::file_facts(&ctx.conn, pid, &target)?;
-                if let Some(line) = at {
-                    if let Some(d) = memorycastle::code::def_enclosing(&ctx.conn, pid, &target, line)? {
-                        f.insert(0, format!("at: {} ({}) {}:{}-{} holds line {line}", d.name, d.kind, d.path, d.line, d.end));
-                        store::record_span(&ctx.conn, pid, &d.path, d.line, d.end, 0)?;
-                    }
+                if !at_line.is_empty() {
+                    f.insert(0, at_line.clone());
                 }
                 f
             } else {
@@ -1074,6 +1104,10 @@ fn run(cli: Cli) -> Result<()> {
                 let root = ctx.repo.as_ref().map(|r| r.root.clone());
                 let mut out = String::new();
                 let mut stood = 0usize;
+                if !at_line.is_empty() {
+                    out.push_str(&at_line);
+                    out.push('\n');
+                }
                 for d in &defs {
                     let span = match &root {
                         Some(r) => memorycastle::code::current_span(&ctx.conn, pid, r, d)?,

@@ -847,3 +847,113 @@ pub fn users_line(conn: &Connection, project_id: i64, name: &str, defining: &str
     let more = if using.len() > cap { format!(" +{} more", using.len() - cap) } else { String::new() };
     Ok(Some(format!("used from: {} files  {}{more}  (--context for the lines)", using.len(), using.iter().take(cap).cloned().collect::<Vec<_>>().join(", "))))
 }
+
+/// The innermost block of a wide definition that holds `line`: a match arm,
+/// an `if`, a loop, a closure (brace depth), or an indented suite in
+/// Python. Narrows level by level while the span is wider than
+/// `limits::SPAN_WIDE`; returns the header text and the span, or None when
+/// the definition is not wide or no inner block holds the line.
+pub fn narrow_span(root: &Path, d: &Def, line: u32) -> Option<(String, u32, u32)> {
+    let wide = crate::limits::SPAN_WIDE;
+    if d.end.saturating_sub(d.line) < wide || line < d.line || line > d.end {
+        return None;
+    }
+    let text = std::fs::read_to_string(root.join(&d.path)).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let py = ext_of(&d.path) == "py";
+    let target = (line as usize).saturating_sub(1);
+    let (mut a, mut b) = ((d.line as usize).saturating_sub(1), (d.end as usize).saturating_sub(1).min(lines.len().saturating_sub(1)));
+    let mut found: Option<(String, u32, u32)> = None;
+    for _ in 0..8 {
+        if b.saturating_sub(a) < wide as usize {
+            break;
+        }
+        let mut best: Option<(usize, usize)> = None;
+        if py {
+            let indent = |l: &str| l.len() - l.trim_start().len();
+            let base = indent(lines[a]);
+            // the shallowest indent inside the block
+            let inner = lines[a + 1..=b].iter().filter(|l| !l.trim().is_empty()).map(|l| indent(l)).filter(|i| *i > base).min();
+            if let Some(inner) = inner {
+                for i in (a + 1..=target).rev() {
+                    let l = lines[i];
+                    if !l.trim().is_empty() && indent(l) == inner && l.trim_end().ends_with(':') {
+                        let e = span_end(&lines, i, true);
+                        if e >= target {
+                            best = Some((i, e));
+                        }
+                        break;
+                    }
+                }
+            }
+        } else {
+            // direct children of the block: lines met at depth 1 that open a block
+            let mut depth: i32 = 0;
+            for i in a..=target {
+                let code = strip_strings_and_comments(lines[i]);
+                let before = depth;
+                let opens = code.matches('{').count() as i32;
+                let closes = code.matches('}').count() as i32;
+                depth += opens - closes;
+                if i > a && before == 1 && opens > closes {
+                    let e = span_end(&lines, i, false);
+                    if e >= target {
+                        best = Some((i, e));
+                    }
+                }
+            }
+        }
+        match best {
+            Some((i, e)) if (i, e) != (a, b) && e.saturating_sub(i) < b.saturating_sub(a) => {
+                let mut header = lines[i].trim().to_string();
+                if header.len() > 60 {
+                    header.truncate(57);
+                    header.push_str("...");
+                }
+                found = Some((header, i as u32 + 1, e as u32 + 1));
+                a = i;
+                b = e;
+            }
+            _ => break,
+        }
+    }
+    found
+}
+
+/// Definitions wider than `limits::SPAN_WIDE`, widest first: the ones a
+/// note cannot point at readably.
+pub fn wide_defs(conn: &Connection, project_id: i64, limit: usize) -> Result<Vec<(String, String, u32)>> {
+    let mut stmt = conn.prepare_cached("SELECT path, name, end_line - line + 1 AS w FROM code_defs WHERE project_id = ?1 AND kind = 'fn' AND w > ?2 ORDER BY w DESC LIMIT ?3")?;
+    let rows = stmt.query_map(params![project_id, crate::limits::SPAN_WIDE as i64, limit as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32)))?;
+    Ok(rows.collect::<rusqlite::Result<_>>()?)
+}
+
+#[cfg(test)]
+mod narrow_tests {
+    use super::*;
+    #[test]
+    fn narrows_a_wide_function_to_the_arm_holding_the_line() {
+        let dir = std::env::temp_dir().join(format!("mc-narrow-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut src = String::from("fn run() {\n    match cmd {\n");
+        for arm in 0..4 {
+            src.push_str(&format!("        Cmd::A{arm} {{ x }} => {{\n"));
+            for i in 0..60 {
+                src.push_str(&format!("            let v{i} = {arm};\n"));
+            }
+            src.push_str("        }\n");
+        }
+        src.push_str("    }\n}\n");
+        std::fs::write(dir.join("w.rs"), &src).unwrap();
+        let lines: Vec<&str> = src.lines().collect();
+        let d = Def { path: "w.rs".into(), name: "run".into(), kind: "fn", line: 1, end: lines.len() as u32, anchor: "fn run() {".into() };
+        // line inside the third arm: 2 header lines + 2 arms of 62 + header + 10
+        let line = 2 + 62 * 2 + 1 + 10;
+        let (h, a, b) = narrow_span(&dir, &d, line as u32).expect("wide function narrows");
+        assert!(h.starts_with("Cmd::A2"), "{h}");
+        assert_eq!(a, 2 + 62 * 2 + 1);
+        assert_eq!(b, a + 61);
+        assert!(narrow_span(&dir, &Def { end: 100, ..d.clone() }, 50).is_none(), "a narrow definition is left alone");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}

@@ -277,7 +277,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 text = format!("no notes link to {target}\n");
                 // The code index still answers for a file nobody wrote about.
                 if target.contains('/') || target.contains('.') {
-                    for f in crate::code::file_facts(&ctx.conn, pid, &target)? {
+                    for f in crate::code::file_facts(&ctx.conn, pid, target)? {
                         text.push_str(&format!("   {f}\n"));
                     }
                 }

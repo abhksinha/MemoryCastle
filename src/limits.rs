@@ -104,6 +104,11 @@ pub const RECENT_SESSIONS: usize = 7;
 /// The controlled A/B (same questions, memory vs grep agent, Codex,
 /// 2026-10-18, AbhiGram): the one figure with no counterfactual guess.
 pub const BENCHMARK_LINE: &str = "benchmark (controlled A/B, Codex on AbhiGram, 2026-10-18): retrieval tokens 63% less on average (44%, 55%, 91%), whole run 32% to 53% less; Antigravity six-turn sessions 34% less cost";
+/// A definition wider than this is too wide to read as one span: `links
+/// --at` narrows to the innermost block holding the line (a match arm, an
+/// `if`, a loop) and `status` lists such definitions, since a note that
+/// points at them points at nothing readable.
+pub const SPAN_WIDE: u32 = 150;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.
