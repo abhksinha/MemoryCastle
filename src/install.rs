@@ -396,8 +396,9 @@ fn claude_statusline(home: &Path, o: &Options) -> Result<Step> {
 /// The status line script `install` writes for Claude Code.
 pub const STATUSLINE: &str = r#"#!/bin/sh
 # Claude Code status line (installed by memorycastle): model, repo, notes,
-# and savings. "~N tokens saved" is the observed ceiling: bytes of files a
-# printed span stood in for, minus what was read and the lookup output.
+# and savings, this session and all sessions. "~N tokens saved" is the
+# observed ceiling: bytes of files a printed span stood in for, minus what
+# was read and the lookup output.
 input=$(cat)
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // ""')
@@ -406,11 +407,11 @@ if command -v memorycastle >/dev/null 2>&1; then
   mc=$(cd "$dir" 2>/dev/null && memorycastle status 2>/dev/null)
   notes=$(printf '%s' "$mc" | sed -n 's/^notes: \([0-9]*\).*/\1/p')
   ses=$(printf '%s' "$mc" | sed -n 's/^observed (this session): [0-9.k-]*-\([0-9.k]*\) tokens saved ([0-9-]*-\([0-9]*%\)).*/~\1 (\2) this session/p')
-  rec=$(printf '%s' "$mc" | sed -n 's/^observed (last \([0-9]*\) sessions): [0-9.k-]*-\([0-9.k]*\) tokens saved ([0-9-]*-\([0-9]*%\)).*/~\2 (\3) last \1 sessions/p')
+  all=$(printf '%s' "$mc" | sed -n 's/^observed (all time): [0-9.kM-]*-\([0-9.kM]*\) tokens saved ([0-9-]*-\([0-9]*%\)).*/~\1 (\2) all sessions/p')
   [ -n "$notes" ] && line="$line | $notes notes"
   sav=""
   [ -n "$ses" ] && sav="$ses"
-  [ -n "$rec" ] && sav="${sav:+$sav, }$rec"
+  [ -n "$all" ] && sav="${sav:+$sav, }$all"
   [ -n "$sav" ] && line="$line | $sav tokens saved"
 fi
 printf '%s' "$line"
