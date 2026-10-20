@@ -189,6 +189,12 @@
     .stat small { font-size: 12.5px; line-height: 1.35; }
     .more { right: 8px; top: 8px; }
   }
+  /* Nine stat cards: three rows of three, two per row below 900 px with the last one full width. */
+  .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  @media (max-width: 900px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stats > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+  }
 </style>
 </head>
 <body>
@@ -215,6 +221,7 @@
       <div class="card rose"><div class="n">Right note ranked first</div><div class="stat">3 of 3<small>journals, above Mem0 and cognee</small></div><button class="more" data-title="Right note ranked first" data-more="MRR 0.85, 0.98 and 0.94 against Mem0 raw 0.83, 0.96 and 0.93. Every system finds the note in the top three; the gaps are one rank swap, and all three go our way."aria-label="more" title="more">i</button></div>
       <div class="card teal"><div class="n">Disk to install</div><div class="stat">0.4 GB<small>against 2.4 GB for cognee, 1.0 GB for Mem0</small></div><button class="more" data-title="Disk to install" data-more="One 5 MB binary, the 43 MB ONNX runtime and one 314 MB model file, measured on the machine the comparison ran on. cognee is a Python virtualenv of 2.4 GB, Mem0 one of 1.0 GB plus a vector database; cognee's Claude plugin keeps a second virtualenv of its own. Stores: a 45-note journal is 1.1 MB in memorycastle, 1.5 MB in Mem0 raw, 28 to 118 MB in cognee." aria-label="more" title="more">i</button></div>
       <div class="card"><div class="n">The trade we chose</div><div class="stat">10x<small>larger embedding model than Mem0 uses</small></div><button class="more" data-title="The trade we chose" data-more="EmbeddingGemma 2, 300M parameters, against the 33M model Mem0 runs locally. Ingest is paid once per note: 2 s against 0.3 s. Rank is paid on every question for the life of the project, and the small model, measured inside our own fusion, lost it on all three journals: MRR 0.74 against 0.84 on the largest. So Mem0 ingests 7x faster and answers in 5 ms; we take that loss for the rank."aria-label="more" title="more">i</button></div>
+      <div class="card rose"><div class="n">Design philosophy</div><div class="stat">Simpler<small>the agent that did the work writes the note; embeddings rank it</small></div><button class="more" data-title="Design philosophy" data-more="The simpler, the more effective. No LLM sits between the work and the memory: the agent that made the decision writes the note while the facts are in its context, in its own words, with the files and functions it touched. memorycastle chunks it, embeds it with EmbeddingGemma and fuses that with keyword search, so nothing is extracted, summarised or rewritten on the way in. That is why the right note ranked first on all three journals, above Mem0 and cognee, and why a question with no answer gets none." aria-label="more" title="more">i</button></div>
     </div>
     <div class="overlay" id="overlay" hidden><div class="sheet"><div class="n" id="ov-title"></div><p id="ov-text"></p><button class="more" id="ov-close" aria-label="close" title="close">&times;</button></div></div>
     <pre><code>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
