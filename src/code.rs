@@ -30,10 +30,11 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "11";
-/// Callees kept per definition; a function calling more is a dispatcher
-/// and its list is a table, not navigation.
-pub const MAX_CALLS_PER_DEF: usize = 64;
+pub const CODE_VERSION: &str = "12";
+/// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
+/// storage must not be, or a dispatcher's later callees lose their caller
+/// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
+pub const MAX_CALLS_PER_DEF: usize = 512;
 /// Shortest name that can be a call edge: the `name(` shape is evidence
 /// enough for a three-letter name (`run(`), where a bare mention is not.
 pub const MIN_CALL_LEN: usize = 3;
