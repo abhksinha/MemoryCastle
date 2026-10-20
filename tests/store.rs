@@ -615,3 +615,11 @@ fn a_common_identifier_proves_nothing_a_rare_one_does() {
     assert_eq!(hits[0].path, "memorycastle/journal/blur.md");
     assert_eq!(hits[0].trace.confidence, 1.0);
 }
+
+#[test]
+fn an_unfilled_draft_is_not_a_note() {
+    use memorycastle::draft;
+    let skeleton = format!("# {}\nAuthor: a | Date: 2026-10-20\n\n## Decision\n<what was chosen and why>\n", draft::PLACEHOLDER_TITLE);
+    assert!(draft::is_unfilled(&skeleton));
+    assert!(!draft::is_unfilled("# Chose one chunk per call\n\n## Decision\nbecause"));
+}

@@ -11,6 +11,11 @@ use std::path::{Path, PathBuf};
 /// The placeholder title; `lint` refuses it.
 pub const PLACEHOLDER_TITLE: &str = "<state the decision in one line>";
 
+/// True when the note's title is still the draft placeholder.
+pub fn is_unfilled(content: &str) -> bool {
+    content.lines().find(|l| l.starts_with("# ")).is_some_and(|l| l[2..].trim() == PLACEHOLDER_TITLE)
+}
+
 /// What a session owes: code edited after the last note it saved.
 #[derive(Debug, Clone)]
 pub struct Owed {

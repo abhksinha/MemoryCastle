@@ -133,6 +133,12 @@ impl Context {
         for f in files {
             let rel = store::relative_note_path(&root, f)?;
             let mut content = std::fs::read_to_string(f).map_err(|e| err!("{}: {e}", f.display()))?;
+            // An unfilled draft is not a note: `install` and `sync` saved the
+            // stop hook's skeleton as one, and it then answered searches.
+            if crate::draft::is_unfilled(&content) {
+                eprintln!("memorycastle: {rel}: skipped, still the draft skeleton; fill it in or delete it");
+                continue;
+            }
             // Attribution never depends on the writer: a missing Author or
             // Date is filled from the session and the file name, in the file.
             if let Some(filled) = store::fill_header(&content, &rel, user.as_deref(), agent.as_deref()) {
@@ -166,6 +172,9 @@ impl Context {
     /// Saves text (from an agent) as a note at `rel_path` in the current project.
     pub fn save_text(&mut self, rel_path: &str, content: &str, force: bool, keyword_only: bool) -> Result<(SaveOutcome, usize)> {
         let project = self.require_project()?.clone();
+        if crate::draft::is_unfilled(content) {
+            return Err(err!("{rel_path}: still the draft skeleton; state the decision in the title and fill the sections"));
+        }
         let outcome = store::save_note(&mut self.conn, &project, rel_path, content, &SaveOptions { source: "agent", force })?;
         if let Some(r) = self.repo.as_ref().map(|r| r.root.clone()) {
             crate::graph::refresh_note_code(&self.conn, project.id, &r, rel_path)?;
