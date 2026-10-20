@@ -193,6 +193,7 @@ be calibrated, which is what memorycastle's confidence is.
 | ingest, 10 notes, from empty | 21 s, 535 MB, 0 tokens | **2.9 s, 300 MB, 0 tokens** | 685 s, 213 MB, 970k prompt + 30k completion + 43k embedding tokens | 193 s, 8.8 GB | 135 s, 511 MB, 183k tokens | Mem0 raw | 7x over memorycastle; memorycastle 33x over Mem0 llm and 6 to 9x over cognee |
 | ingest, 45 notes, from empty | 68 s, 472 MB, 0 tokens | **3.3 s, 308 MB, 0 tokens** | 1,393 s, 235 MB, 2.35M prompt + 39k + 48k tokens | 72 s, 4.9 GB | 86 s, 586 MB | Mem0 raw | 20x over memorycastle; memorycastle 20x over Mem0 llm |
 | one note edited, re-ingest | **0.19 s, old chunks replaced** | 0.15 s, but no content hash: the old chunks stay, every edit adds copies | not measured; about 6.5 s per chunk from the ingest rate, so about 30 s | 13.1 s, 3.0 GB | not measured | memorycastle | the only one that is both fast and correct |
+| disk to install | **0.4 GB**: binary 4.9 MB, ONNX runtime 43 MB, one model file 314 MB (int8) | 1.0 GB virtualenv (mem0ai, fastembed, Qdrant client) | the same 1.0 GB plus the provider | 2.4 GB virtualenv; the Claude plugin keeps a second one | 2.4 GB | memorycastle | 2.5x under Mem0, 6x under cognee; measured 2026-10-20 after the run |
 | store on disk, 10 / 45 notes | **under 1 MB / 1.1 MB** | 0.9 MB / 1.5 MB | 7.7 MB / 8.9 MB | 25 MB / 28 MB | 70 MB / 118 MB | tie, memorycastle and Mem0 raw | |
 | left running after a session | one `serve` process, 270 MB, 66 MB after 5 min idle, exits after 30 min | none (the MCP server is per session, 300 MB while it runs) | none | none | none | tie | |
 
@@ -251,7 +252,7 @@ retrieval bytes on the measured-number task are the lowest of any arm.
 | nothing on the topic | "no relevant note" | the nearest memories, at whatever score | the nearest wrong note | memorycastle |
 | the function a note describes has changed | labelled `code changed since` | no equivalent | no equivalent | not applicable |
 
-Score over the 16 rows above: memorycastle 11, Mem0 raw 3, cognee 0,
+Score over the 17 rows above: memorycastle 12, Mem0 raw 3, cognee 0,
 ties 2. Mem0's three are speed rows that belong to a model a tenth the
 size. memorycastle's eleven are the three ranking rows and the rows about
 being right: nothing when there is nothing, the reversed decision kept reversed,
