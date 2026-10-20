@@ -1046,10 +1046,30 @@ fn run(cli: Cli) -> Result<()> {
                 notes = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &target)?;
             }
             let defs = if kind == graph::Kind::Symbol { memorycastle::code::defs_named(&ctx.conn, pid, &target)? } else { Vec::new() };
+            // With no note, the code index still answers: what the file
+            // defines and who uses it, or the definition the line sits in.
+            let facts: Vec<String> = if notes.is_empty() && kind == graph::Kind::File {
+                let mut f = memorycastle::code::file_facts(&ctx.conn, pid, &target)?;
+                if let Some(line) = at {
+                    if let Some(d) = memorycastle::code::def_enclosing(&ctx.conn, pid, &target, line)? {
+                        f.insert(0, format!("at: {} ({}) {}:{}-{} holds line {line}", d.name, d.kind, d.path, d.line, d.end));
+                        store::record_span(&ctx.conn, pid, &d.path, d.line, d.end, 0)?;
+                    }
+                }
+                f
+            } else {
+                Vec::new()
+            };
             if cli.json {
-                println!("{}", serde_json::json!({"notes": notes, "definitions": defs}));
+                println!("{}", serde_json::json!({"notes": notes, "definitions": defs, "code": facts}));
             } else if notes.is_empty() && defs.is_empty() {
                 println!("no notes link to {target}");
+                for f in &facts {
+                    println!("   {f}");
+                }
+                if !facts.is_empty() {
+                    store::record_usage(&ctx.conn, pid, "links", facts.iter().map(|f| f.len() + 4).sum(), 0)?;
+                }
             } else {
                 let root = ctx.repo.as_ref().map(|r| r.root.clone());
                 let mut out = String::new();
@@ -1069,6 +1089,11 @@ fn run(cli: Cli) -> Result<()> {
                     }
                     if let Some((a, b)) = span {
                         store::record_span(&ctx.conn, pid, &d.path, a, b, 0)?;
+                    }
+                    if !context {
+                        if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
+                            out.push_str(&format!("   {l}\n"));
+                        }
                     }
                 }
                 for n in &notes {

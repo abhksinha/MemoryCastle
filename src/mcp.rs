@@ -275,6 +275,12 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             }
             if text.is_empty() {
                 text = format!("no notes link to {target}\n");
+                // The code index still answers for a file nobody wrote about.
+                if target.contains('/') || target.contains('.') {
+                    for f in crate::code::file_facts(&ctx.conn, pid, &target)? {
+                        text.push_str(&format!("   {f}\n"));
+                    }
+                }
             }
             crate::store::record_usage(&ctx.conn, pid, "links", text.len(), stood)?;
             Ok(json!({"text": text, "notes": notes.iter().map(|n| json!({"path": n.path, "title": n.title})).collect::<Vec<_>>(), "definitions": spans}))

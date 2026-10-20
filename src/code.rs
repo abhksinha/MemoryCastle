@@ -798,3 +798,52 @@ mod tests {
         assert_eq!(spans, [(1, 1), (2, 6)], "{spans:?}");
     }
 }
+
+/// What the code index knows about a file, for `links <file>` when no note
+/// names it: its definitions, the files that import it and the files that
+/// use its names. Lines in the `links` grammar; empty when the file is not
+/// indexed. Bounded by `limits::CONTEXT_ITEMS` names per line.
+pub fn file_facts(conn: &Connection, project_id: i64, path: &str) -> Result<Vec<String>> {
+    let paths = paths_ending_with(conn, project_id, path)?;
+    let Some(p) = paths.first() else { return Ok(Vec::new()) };
+    let cap = crate::limits::CONTEXT_ITEMS;
+    let mut out = Vec::new();
+    let mut stmt = conn.prepare_cached("SELECT name, kind, line, end_line FROM code_defs WHERE project_id = ?1 AND path = ?2 ORDER BY line")?;
+    let defs: Vec<(String, String, i64, i64)> = stmt
+        .query_map(params![project_id, p], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    if !defs.is_empty() {
+        let shown: Vec<String> = defs.iter().take(cap).map(|(n, k, a, b)| if b > a { format!("{k} {n}:{a}-{b}") } else { format!("{k} {n}:{a}") }).collect();
+        let more = if defs.len() > cap { format!(" +{} more", defs.len() - cap) } else { String::new() };
+        out.push(format!("defines: {} in {p}  {}{more}", defs.len(), shown.join(", ")));
+    }
+    let mut imp = conn.prepare_cached("SELECT src FROM code_imports WHERE project_id = ?1 AND dst = ?2 ORDER BY src")?;
+    let importers: Vec<String> = imp.query_map(params![project_id, p], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    if !importers.is_empty() {
+        let more = if importers.len() > cap { format!(" +{} more", importers.len() - cap) } else { String::new() };
+        out.push(format!("imported by: {} files  {}{more}", importers.len(), importers.iter().take(cap).cloned().collect::<Vec<_>>().join(", ")));
+    }
+    let mut users = conn.prepare_cached(
+        "SELECT m.src, SUM(m.n) AS n FROM code_mentions m JOIN code_defs d ON d.project_id = m.project_id AND d.name = m.name \
+         WHERE d.project_id = ?1 AND d.path = ?2 AND m.src != ?2 GROUP BY m.src ORDER BY n DESC",
+    )?;
+    let using: Vec<String> = users.query_map(params![project_id, p], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    if !using.is_empty() {
+        let more = if using.len() > cap { format!(" +{} more", using.len() - cap) } else { String::new() };
+        out.push(format!("used from: {} files  {}{more}", using.len(), using.iter().take(cap).cloned().collect::<Vec<_>>().join(", ")));
+    }
+    Ok(out)
+}
+
+/// The files that use a name, most mentions first, as one `links` line.
+pub fn users_line(conn: &Connection, project_id: i64, name: &str, defining: &str) -> Result<Option<String>> {
+    let short = name.rsplit("::").next().unwrap_or(name).rsplit('.').next().unwrap_or(name).trim_end_matches("()");
+    let cap = crate::limits::CONTEXT_ITEMS;
+    let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND src != ?3 ORDER BY n DESC")?;
+    let using: Vec<String> = stmt.query_map(params![project_id, short, defining], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    if using.is_empty() {
+        return Ok(None);
+    }
+    let more = if using.len() > cap { format!(" +{} more", using.len() - cap) } else { String::new() };
+    Ok(Some(format!("used from: {} files  {}{more}  (--context for the lines)", using.len(), using.iter().take(cap).cloned().collect::<Vec<_>>().join(", "))))
+}

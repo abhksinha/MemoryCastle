@@ -119,7 +119,16 @@ pub fn extract(note_path: &str, content: &str) -> Vec<(Kind, String)> {
             if span.is_empty() || span.len() > 80 || span.contains(' ') {
                 continue;
             }
-            if looks_like_path(span) {
+            // `path:12-40` names the path; a home or absolute path is outside
+            // the checkout and cannot be a file node; a dated `.md` name is a
+            // note.
+            let span = strip_line_range(span);
+            if span.starts_with("~/") || span.starts_with('/') {
+                continue;
+            }
+            if is_note_name(span) {
+                push(Kind::Note, resolve_note_ref(note_path, span));
+            } else if looks_like_path(span) {
                 push(Kind::File, span.to_string());
             } else if symbols < MAX_SYMBOLS && looks_like_symbol(span) {
                 symbols += 1;
@@ -128,6 +137,20 @@ pub fn extract(note_path: &str, content: &str) -> Vec<(Kind, String)> {
         }
     }
     out
+}
+
+/// `src/code.rs:412-434` and `src/main.rs:491` name the file.
+pub fn strip_line_range(span: &str) -> &str {
+    match span.rsplit_once(':') {
+        Some((p, r)) if !r.is_empty() && r.split('-').all(|x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit())) && p.contains('.') => p,
+        _ => span,
+    }
+}
+
+/// A journal note named bare: `2026-10-19-benchmark-mem0.md`.
+pub fn is_note_name(t: &str) -> bool {
+    let b = t.as_bytes();
+    t.ends_with(".md") && !t.contains('/') && b.len() > 14 && b[..10].iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() }) && b[10] == b'-'
 }
 
 /// A code symbol: identifier segments joined by `::` or `.`, starting with a
@@ -255,7 +278,7 @@ pub fn code_changed(conn: &Connection, project_id: i64, root: &Path, note_id: i6
 
 /// Bump when `extract` changes what it finds; stores with older links are
 /// rebuilt in one pass on the next graph command.
-pub const LINKS_VERSION: &str = "4";
+pub const LINKS_VERSION: &str = "5";
 
 /// Builds links for live notes that have none (stores created before the
 /// links table) or that were linked by an older extractor. One pass over
@@ -1065,6 +1088,21 @@ mod tests {
         assert!(l.contains(&(Kind::Symbol, "Scope::single".into())));
         assert!(!l.iter().any(|(_, t)| t == "rotated"), "plain words are not symbols");
         assert!(!l.iter().any(|(_, t)| t == "not_a_symbol_in_code"), "fenced code is skipped");
+    }
+
+    #[test]
+    fn ranges_home_paths_and_bare_note_names() {
+        let note = "# T\nFiles: src/a.rs\n\n## Decision\nSee `src/code.rs:412-434` and `src/main.rs:491`, the key in `~/.claude/settings.json`, the socket at `/tmp/x.sock`, and `2026-10-19-benchmark-mem0.md`.\n";
+        let l = extract("memorycastle/journal/2026-10-20-t.md", note);
+        assert!(l.contains(&(Kind::File, "src/code.rs".into())), "line range stripped");
+        assert!(l.contains(&(Kind::File, "src/main.rs".into())), "single line stripped");
+        assert!(!l.iter().any(|(_, t)| t.contains("settings.json") || t.contains("x.sock")), "paths outside the checkout are not file nodes");
+        assert!(l.contains(&(Kind::Note, "memorycastle/journal/2026-10-19-benchmark-mem0.md".into())), "a dated .md name is a note");
+        assert_eq!(strip_line_range("src/a.rs:1-2"), "src/a.rs");
+        assert_eq!(strip_line_range("host:8080"), "host:8080", "no dot, not a path");
+        assert_eq!(strip_line_range("Scope::single"), "Scope::single");
+        assert!(is_note_name("2026-10-19-x.md"));
+        assert!(!is_note_name("README.md"));
     }
 
     #[test]
