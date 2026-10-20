@@ -213,8 +213,9 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             }
             run(&["serve", "--detach"], None);
             let (synced, _, _) = run(&["sync"], None);
+            // Only what the agent acts on; the savings lines are the user's.
             let (status, _, _) = run(&["status"], None);
-            let mut lines: Vec<String> = status.lines().filter(|l| l.starts_with("project:") || l.starts_with("notes:") || l.starts_with("observed") || l.starts_with("label log") || l.starts_with("warning:") || l.starts_with("changed on disk")).map(str::to_string).collect();
+            let mut lines: Vec<String> = status.lines().filter(|l| l.starts_with("project:") || l.starts_with("notes:") || l.starts_with("warning:") || l.starts_with("changed on disk")).map(str::to_string).collect();
             if !synced.is_empty() {
                 lines.push(format!("memorycastle: {synced}"));
             }

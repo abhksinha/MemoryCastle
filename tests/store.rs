@@ -596,3 +596,22 @@ fn reading_a_served_note_counts_as_opened() {
     ins(5000, "recall");
     assert_eq!(quality::label_totals(&conn, p.id).unwrap(), (2, 1), "the read row is an open, not a serve");
 }
+
+#[test]
+fn a_common_identifier_proves_nothing_a_rare_one_does() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "ag", None);
+    let topics = ["login tokens", "push wakes", "group calls", "media upload", "status editor", "backup restore", "contact lists", "relay hosts", "crash reports", "theme colours", "keyboard input", "device linking"];
+    for (i, t) in topics.iter().enumerate() {
+        save(&mut conn, &p, &format!("memorycastle/journal/n{i}.md"), &format!("# AbhiGram {t}\n\n## Decision\nAbhiGram handles {t} on the server side for now."));
+    }
+    save(&mut conn, &p, "memorycastle/journal/blur.md", "# Frosted shapes\n\n## Decision\nAbhiGram blurs once in `blur_rgba` with three box passes.");
+    let scope = Scope::single(p.id);
+    let q = |s: &str| search(&conn, &scope, s, &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap().0;
+    // The project's name is in every note: it is vocabulary, not evidence.
+    assert!(q("how does AbhiGram pick theme colours").iter().all(|h| h.trace.confidence < 1.0), "a name in every note proved a hit");
+    // A rare identifier found verbatim still settles it.
+    let hits = q("where is blur_rgba called");
+    assert_eq!(hits[0].path, "memorycastle/journal/blur.md");
+    assert_eq!(hits[0].trace.confidence, 1.0);
+}

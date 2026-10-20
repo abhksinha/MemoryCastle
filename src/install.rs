@@ -265,11 +265,13 @@ fn install_section(path: &Path, label: &str, o: &Options, short: bool) -> Result
 
 /// The repo-level part for one agent: its instruction file.
 pub fn install_repo(root: &Path, agent: Agent, o: &Options) -> Result<Step> {
-    // CLAUDE.md and GEMINI.md are read beside a user-level file that holds
-    // the full rules, so the repo copy is short. AGENTS.md is the only file
-    // Cursor, Copilot and Antigravity read, so it keeps the full form.
-    let short = matches!(agent, Agent::Claude | Agent::Gemini);
-    install_section(&root.join(agent.instruction_file()), agent.instruction_file(), o, short)
+    // Every repo file gets the short form. Claude, Codex, Gemini and
+    // OpenCode read it beside a user-level file that holds the full rules,
+    // and a second full copy was measured at about 2.7k tokens on every
+    // model call (Codex reads both `AGENTS.md` files), more than the whole
+    // saving on a 10-note journal. Cursor, Copilot and Antigravity read only
+    // the repo file; the short form names `memcastle guide` for the rest.
+    install_section(&root.join(agent.instruction_file()), agent.instruction_file(), o, true)
 }
 
 /// Machine-level config for one agent.

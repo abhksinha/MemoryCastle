@@ -131,6 +131,8 @@ pub fn search(
     };
     ex.bm25_ms = t.elapsed().as_secs_f32() * 1000.0;
     ex.bm25_hits = bm25.len();
+    // Identifiers from the question that prove a hit when found verbatim.
+    let idents = rare_identifiers(conn, scope, query)?;
 
     // 2. Decide whether the model runs.
     let space = embed::active_space(conn)?;
@@ -156,7 +158,7 @@ pub fn search(
             true
         }
         (Mode::Auto, _, ModelSource::Lazy(_)) => {
-            if bm25.first().is_some_and(|&id| exact_identifier_hit(conn, query, id).unwrap_or(false)) {
+            if bm25.first().is_some_and(|&id| exact_identifier_hit(conn, &idents, id).unwrap_or(false)) {
                 ex.model_reason = "cold model, exact identifier hit";
                 false
             } else {
@@ -201,7 +203,6 @@ pub fn search(
 
     // 4. Fuse.
     let terms: Vec<String> = fts::terms(query).iter().filter(|t| !is_stopword(t)).map(|t| t.to_ascii_lowercase()).collect();
-    let idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
     // An acronym written in capitals (NDK, JWT) is rare and topical even at
     // three letters; everyday short words are not.
     let acronyms: Vec<String> = fts::terms(query).iter().filter(|t| t.len() >= 3 && t.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())).map(|t| t.to_ascii_lowercase()).collect();
@@ -546,14 +547,49 @@ pub fn focus(text: &str, query: &str, max_bytes: usize) -> (String, u32) {
     (out, line)
 }
 
-/// True when an identifier-looking query term appears verbatim in the chunk.
-fn exact_identifier_hit(conn: &Connection, query: &str, chunk_id: i64) -> Result<bool> {
-    let idents: Vec<&str> = fts::terms(query).into_iter().filter(|t| fts::is_identifier(t)).collect();
+/// Identifier-looking query terms that are rare in the scope: at most
+/// `DISTINCTIVE_MAX_SHARE` of its chunks hold them. A common one is the
+/// project's own vocabulary (its name, a core type): "AbhiGram" sits in
+/// every note of AbhiGram, so finding it verbatim proves nothing, and as a
+/// proof it had recall print three unrelated notes at confidence 1.00.
+/// Under ten chunks every identifier counts, as for distinctive words.
+fn rare_identifiers(conn: &Connection, scope: &Scope, query: &str) -> Result<Vec<String>> {
+    let idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
+    if idents.is_empty() {
+        return Ok(idents);
+    }
+    let total: i64 = conn.query_row(
+        &format!("SELECT count(*) FROM chunks WHERE project_id IN {}", scope.placeholders(1)),
+        rusqlite::params_from_iter(scope.ids()),
+        |r| r.get(0),
+    )?;
+    if total < 10 {
+        return Ok(idents);
+    }
+    let limit = ((total as f32) * crate::limits::DISTINCTIVE_MAX_SHARE).max(1.0) as i64;
+    let sql = format!(
+        "SELECT count(*) FROM chunks_fts JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ?1 AND c.project_id IN {}",
+        scope.placeholders(2)
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let mut out = Vec::with_capacity(idents.len());
+    for t in idents {
+        let q = format!("\"{}\"", t.replace('"', ""));
+        let df: i64 = stmt.query_row(rusqlite::params_from_iter(std::iter::once(rusqlite::types::Value::from(q)).chain(scope.ids().map(rusqlite::types::Value::from))), |r| r.get(0)).unwrap_or(0);
+        if df <= limit {
+            out.push(t);
+        }
+    }
+    Ok(out)
+}
+
+/// True when one of the question's rare identifiers appears verbatim in the chunk.
+fn exact_identifier_hit(conn: &Connection, idents: &[String], chunk_id: i64) -> Result<bool> {
     if idents.is_empty() {
         return Ok(false);
     }
     let text: String = conn.query_row("SELECT text FROM chunks WHERE id = ?1", [chunk_id], |r| r.get(0))?;
-    Ok(idents.iter().any(|t| text.contains(t)))
+    Ok(idents.iter().any(|t| text.contains(t.as_str())))
 }
 
 /// A plain scan over the scope's vectors in `space`, keeping the top 100 by
