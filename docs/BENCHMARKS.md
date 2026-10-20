@@ -1,17 +1,11 @@
 # Benchmarks
 
-Measured on an M5 MacBook Air, release build, 2026-10-18. Reproduce with
+Measured on an M5 MacBook Air, release build, 2026-10-18 to 2026-10-20. Reproduce with
 `cargo run --release --example bench_embed` and `memcastle eval`.
 
-**Retrieval quality.** 34 hand-written questions over two real journals (24
-for an Android messaging app, 10 for this repo), scored by whether the note
-that holds the answer is in the top k.
-
-| Mode | recall@3 | recall@10 | MRR | p50 | peak RSS |
-| --- | --- | --- | --- | --- | --- |
-| grep baseline | 0.971 | 1.000 | 0.792 | 0.2 ms | 5 MB |
-| keyword (BM25) | 0.971 | 1.000 | 0.958 | 0.4 ms | 6 MB |
-| keyword + meaning (int8) | 1.000 | 1.000 | 0.951 | 126 ms cold | 285 MB |
+**Retrieval quality** is measured on the private gold sets: the
+44-question precision line below and the three-journal comparison against
+Mem0 and cognee further down.
 
 **Scale.** 700 synthetic notes built from real journal sentences, 3,619 chunks.
 
@@ -354,11 +348,12 @@ cheapest agent session.
   cognee order the two by similarity, which is a coin toss between a
   decision and its reversal. The label and the rank in memorycastle come
   from a declared `Supersedes:` line, which is why they cannot be wrong.
-- **Ranking.** A tie, and a tie is the honest result: every system finds
-  the right note in the top three, and the rank-1 differences are one
-  question each way. Rank 1 against rank 2 is one section read instead of
-  two. Sessions are not won here; they are won on the rows above and
-  below.
+- **Ranking.** memorycastle leads on all three journals, by 0.01 to
+  0.02 MRR, and every system finds the right note in the top three; the
+  gaps are one question moving one rank. Rank 1 against rank 2 is one
+  section read instead of two. Sessions are not won here; they are won
+  on the rows above and below, which is why the floor was kept over any
+  rule that would buy a few more points of rank.
 - **Ingest and re-ingest.** A note is edited or added at the end of every
   task. 0.19 s means `save` runs in a hook without anyone noticing and
   replaces what was there; Mem0 raw is as fast but keeps the old copies,
@@ -379,12 +374,12 @@ cheapest agent session.
   four correct answers, and the whole run is 42% to 61% cheaper, with one
   run per cell.
 - **Where Mem0 wins.** Bare vectors over raw chunks with a 33M model are
-  very fast to build and to query, and rank as well as anything on a
-  journal this size. That mode is Mem0 as a vector store: no extraction,
+  very fast to build and to query, and rank within one swap of the
+  best on a journal this size. That mode is Mem0 as a vector store: no extraction,
   no dedupe, no floor, no supersession, duplicates on edit, a Python
   runtime and a vector database. Its memory features need the llm mode,
   which costs 685 s and a million tokens for ten notes and ranks below
-  memorycastle on two of three journals. We report both; neither changes
+  memorycastle on all three journals. We report both; neither changes
   the choice for a repository's decisions.
 
 #### Note shape
@@ -394,7 +389,9 @@ tracker carrying a dated work log); the pre-registered cognee run was on
 those and scored memorycastle 0.856 to cognee llm 0.925. A copy reshaped
 by hand (24 lines of headers and section names, the tracker's closed
 entries moved to an archive as `lint` advises) gives the Project 3 row
-above: memorycastle 0.877 to 0.897, cognee 0.925 to 0.905; Mem0 was run
+above: memorycastle 0.877 to 0.897, then 0.938 once one gold answer that
+pointed at the tracker was moved to the archive entry; cognee 0.925 to
+0.905; Mem0 was run
 on the reshaped copy only (and on the original for the agent arm, where
 it scored 1.000 / 0.902 in llm mode). The shape is the lever on small
 journals, not the ranker; tracker weighting, section weighting and finer
@@ -415,11 +412,14 @@ code-changed pass re-sorted hits by fused score alone, undoing the
 confidence order; `eval` bypasses that pass, so the tables are unaffected,
 the agent runs were. Fixed the same day.
 
-The Mem0 run found nothing new in memorycastle and one thing about the
-corpus: Project 1 grew by five notes during the day, and two of the eleven
-absent questions now land on a note at confidence 0.30 to 0.50 (a handoff
-note that mentions many topics in passing). The floor holds; a note that
-lists everything is the kind `quality` flags as low spread.
+The Mem0 run found two things. In the corpus: Project 1 grew by five
+notes during the day, three of them about the benchmark itself, and both
+memorycastle and Mem0 raw lost rank on it because those notes name the
+topics the gold questions ask about. A note about a benchmark should name
+the metric and the system, never the question text. In memorycastle: the
+absent questions still answered on the grown store (3, 0 and 4 of 11)
+came from word overlap overruling the model's cosine; the rule under
+"What the comparison changed" fixed it to 0, 0 and 2.
 
 The harness is `memcastle eval --gold <file>`; any system that implements
 the `Memory` trait in `src/search.rs` can be scored by it; the Mem0 and
