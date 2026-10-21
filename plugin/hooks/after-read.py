@@ -6,6 +6,9 @@ try:
     h = json.load(sys.stdin)
 except Exception:
     sys.exit(0)
+# This event's session, for every memorycastle call below.
+if h.get("session_id"):
+    os.environ["MEMORYCASTLE_SESSION"] = h["session_id"]
 tool = h.get("tool_name", "")
 inp = h.get("tool_input", {}) or {}
 resp = h.get("tool_response", "")

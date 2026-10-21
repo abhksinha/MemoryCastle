@@ -1,6 +1,6 @@
 [package]
 name = "memorycastle"
-version = "0.11.22"
+version = "0.11.23"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/abhksinha/MemoryCastle"

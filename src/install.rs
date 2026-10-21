@@ -521,21 +521,17 @@ pub const STATUSLINE: &str = r#"#!/bin/sh
 # Claude Code status line (installed by memorycastle): model, repo, notes,
 # and savings, this session and all sessions. "~N tokens saved" is the
 # observed ceiling: bytes of files a printed span stood in for, minus what
-# was read and the lookup output.
+# was read and the lookup output. "This session" is this window's
+# session_id, not the session last started in the repo; the line itself
+# comes from the binary (status --line), so it changes with it.
 input=$(cat)
 model=$(printf '%s' "$input" | jq -r '.model.display_name // ""')
 dir=$(printf '%s' "$input" | jq -r '.workspace.current_dir // .cwd // ""')
+sid=$(printf '%s' "$input" | jq -r '.session_id // ""')
 line="$model  $(basename "$dir")"
 if command -v memorycastle >/dev/null 2>&1; then
-  mc=$(cd "$dir" 2>/dev/null && memorycastle status 2>/dev/null)
-  notes=$(printf '%s' "$mc" | sed -n 's/^notes: \([0-9]*\).*/\1/p')
-  ses=$(printf '%s' "$mc" | sed -n 's/^observed (this session): [0-9.k-]*-\([0-9.k]*\) tokens saved ([0-9-]*-\([0-9]*%\)).*/~\1 (\2) this session/p')
-  all=$(printf '%s' "$mc" | sed -n 's/^observed (all time): [0-9.kM-]*-\([0-9.kM]*\) tokens saved ([0-9-]*-\([0-9]*%\)).*/~\1 (\2) all sessions/p')
-  [ -n "$notes" ] && line="$line | $notes notes"
-  sav=""
-  [ -n "$ses" ] && sav="$ses"
-  [ -n "$all" ] && sav="${sav:+$sav, }$all"
-  [ -n "$sav" ] && line="$line | $sav tokens saved"
+  mc=$(cd "$dir" 2>/dev/null && memorycastle status --line --session "$sid" 2>/dev/null)
+  [ -n "$mc" ] && line="$model  $mc"
 fi
 printf '%s' "$line"
 "#;

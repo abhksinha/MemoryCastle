@@ -75,6 +75,11 @@ struct Input {
     file: Option<String>,
     old_first_line: Option<String>,
     command: Option<String>,
+    /// SessionStart's `source`: `compact` after a compaction.
+    source: Option<String>,
+    /// The edit's new text (`new_string`, `content`, a patch's added lines),
+    /// for the rejected-approach tripwire.
+    new_text: Option<String>,
 }
 
 fn read_input(agent: Agent) -> Input {
@@ -103,7 +108,15 @@ fn read_input(agent: Agent) -> Input {
         let patch = tool_in.as_str().map(str::to_string).or_else(|| str_at(&["tool_input", "patch"])).or_else(|| command.clone()).unwrap_or_default();
         old_first_line = patch.lines().skip_while(|l| !l.starts_with("@@")).skip(1).find(|l| (l.starts_with('-') || l.starts_with(' ')) && l.len() > 1).map(|l| l[1..].to_string());
     }
-    Input { session, prompt: str_at(&["prompt"]), file, old_first_line, command }
+    let mut new_text = str_at(&["tool_input", "new_string"]).or_else(|| str_at(&["tool_input", "new_str"])).or_else(|| str_at(&["tool_input", "content"]));
+    if new_text.is_none() && agent == Agent::Codex {
+        let patch = tool_in.as_str().map(str::to_string).or_else(|| str_at(&["tool_input", "patch"])).or_else(|| command.clone()).unwrap_or_default();
+        let added: Vec<&str> = patch.lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| &l[1..]).collect();
+        if !added.is_empty() {
+            new_text = Some(added.join("\n"));
+        }
+    }
+    Input { session, prompt: str_at(&["prompt"]), file, old_first_line, command, source: str_at(&["source"]), new_text }
 }
 
 /// Runs this same binary with `args`, from `dir` when given; stdout and the exit code.
@@ -204,6 +217,9 @@ fn emit(agent: Agent, event: &str, reply: Reply) -> i32 {
     }
 }
 
+/// The three rules, said again after a compaction.
+const ROUTINE: &str = "1. Before editing a file or function: memcastle links <file|symbol>, read only the printed range.\n2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --sections.\n3. After a task that decided, rejected or measured something: write memorycastle/journal/<date>-<topic>.md, then memcastle save it.";
+
 /// The hook body, agent-independent: the same steps the Claude plugin's
 /// scripts take, with the same once-per-session rules.
 /// A shell command that can bring notes or code from elsewhere into the
@@ -214,6 +230,11 @@ pub fn brings_notes(cmd: &str) -> bool {
 
 pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
     let input = read_input(agent);
+    // Every subcommand this hook spawns belongs to this event's session,
+    // not to whichever session was declared last in the repo.
+    if let Some(sid) = &input.session {
+        std::env::set_var("MEMORYCASTLE_SESSION", sid);
+    }
     let cwd = std::env::current_dir().ok();
     let reply = match event {
         "session-start" => {
@@ -230,11 +251,18 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             }
             // What the hooks do, so silence reads as "nothing matched".
             if !lines.is_empty() {
-                lines.push("memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); an edit prints the notes about that file or function (silent when none); a note is asked for at compaction and stop.".into());
+                lines.push("memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); the first edit of a file this session prints its ranges and notes; a note is asked for at compaction and stop.".into());
+            }
+            // After compaction the summary has lost what was looked up.
+            if input.source.as_deref() == Some("compact") {
+                run(&["gate", "--reset"], None);
+                lines.push(format!("memorycastle routine (context was compacted; the edit gate starts over):\n{}", ROUTINE));
             }
             let (owed, _, _) = run(&["owed"], None);
-            if !owed.is_empty() {
+            if owed.starts_with("note owed") {
                 lines.push(format!("memorycastle: {owed}. Draft or append with: memcastle draft"));
+            } else if !owed.is_empty() {
+                lines.push(format!("memorycastle: {owed}"));
             }
             if lines.is_empty() { Reply::Nothing } else { Reply::Context(lines.join("\n")) }
         }
@@ -264,16 +292,27 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
                 let text = std::fs::read_to_string(&abs).ok()?;
                 text.lines().position(|l| l.contains(first)).map(|i| (i + 1).to_string())
             });
-            let mut args = vec!["links", rel.as_str(), "--once"];
+            // The edit gate: the first edit of the file this session is
+            // stopped once with what `links` knows; later ones get context.
+            let abs_s = abs.display().to_string();
+            let mut args = vec!["gate", abs_s.as_str()];
             if let Some(a) = &at {
                 args.push("--at");
                 args.push(a);
             }
-            let (out, _, _) = run(&args, Some(&root));
-            if out.is_empty() || out.starts_with("no notes link to") {
+            let (out, reason, rc) = match &input.new_text {
+                Some(t) => {
+                    args.push("--new-stdin");
+                    run_in(&args, Some(&root), t)
+                }
+                None => run(&args, Some(&root)),
+            };
+            if rc == 2 && !reason.is_empty() {
+                Reply::Block(reason)
+            } else if out.is_empty() {
                 Reply::Nothing
             } else {
-                Reply::Context(format!("memorycastle: notes about {rel} (read the printed ranges, not the file):\n{out}"))
+                Reply::Context(out)
             }
         }
         "after-edit" => {
@@ -316,7 +355,10 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
         "stop" => {
             let (draft, _, _) = run(&["draft"], None);
             let (_, reason, rc) = run(&["owed", "--once", "stop"], None);
-            if rc == 2 {
+            if rc == 2 && draft.is_empty() {
+                // Nothing owed, but the saved note's Files: line misses edited files.
+                Reply::Block(format!("memorycastle: {reason}. If those edits belong to no decision, stop again and say so."))
+            } else if rc == 2 {
                 Reply::Block(format!("memorycastle: {reason}. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at {draft}: set the title to the decision, fill the sections, then: memcastle save {draft}. If no decision was made, stop again and say so."))
             } else {
                 // After every turn, the savings line the Claude status bar shows.

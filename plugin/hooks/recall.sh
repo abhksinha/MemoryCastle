@@ -5,6 +5,10 @@
 # instructions: the agent reads the note before trusting it.
 command -v memorycastle >/dev/null 2>&1 || exit 0
 input=$(cat)
+sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+# This event's session, for every memcastle call below (not the session
+# last started in the repo).
+[ -n "$sid" ] && export MEMORYCASTLE_SESSION="$sid"
 prompt=$(printf '%s' "$input" | python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("prompt",""))
 except Exception: pass' 2>/dev/null)

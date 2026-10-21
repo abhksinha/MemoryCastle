@@ -51,6 +51,23 @@ pub fn owed(conn: &Connection, project_id: i64) -> Result<Option<Owed>> {
     Ok(Some(Owed { files: rows.into_iter().map(|r| r.0).collect(), last_note, first_edit }))
 }
 
+/// The last note this session saved, when its `Files:` line leaves out
+/// files edited for it (since the note before it): the note path and the
+/// files. `save` warns about the same thing; the stop hook holds on it.
+pub fn uncovered(conn: &Connection, project_id: i64, root: &Path) -> Result<Option<(String, Vec<String>)>> {
+    let started = store::session_started(conn, project_id)?.unwrap_or(0);
+    let Ok(note): rusqlite::Result<String> = conn.query_row(
+        "SELECT path FROM notes WHERE project_id = ?1 AND saved_at >= ?2 AND deleted_at IS NULL ORDER BY saved_at DESC LIMIT 1",
+        params![project_id, started],
+        |r| r.get(0),
+    ) else {
+        return Ok(None);
+    };
+    let Ok(content) = std::fs::read_to_string(root.join(&note)) else { return Ok(None) };
+    let missing = store::files_missing_from_note(conn, project_id, &note, &content)?;
+    Ok(if missing.is_empty() { None } else { Some((note, missing)) })
+}
+
 /// Writes the draft and returns its path, or None when nothing is owed.
 /// When a note or draft with today's name exists already, its path is
 /// returned so the hook can say "append to".

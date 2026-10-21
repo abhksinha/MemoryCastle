@@ -86,6 +86,15 @@ pub const RECALL_MAX_NOTES: usize = 3;
 pub const OWED_REMIND_FILES: usize = 5;
 pub const OWED_REMIND_SECS: i64 = 30 * 60;
 pub const OWED_REMIND_COOLDOWN_SECS: i64 = 30 * 60;
+/// The edit gate's area search (`gate::check`, first edit in a directory
+/// or a new file): hits shown, and the top confidence that turns the
+/// context into a block. 0.60 is cosine 0.72, between the off-topic peak
+/// and the right note's median, a little stricter than recall.
+pub const GATE_SEARCH_K: usize = 3;
+pub const GATE_SEARCH_BLOCK: f32 = 0.60;
+/// Characters of the Rejected line a tripwire quotes: enough for the
+/// measurement, under a line of context.
+pub const TRIP_LINE_CHARS: usize = 220;
 /// Code spans printed per note in `search --sections` (symbols the note names).
 pub const SEARCH_CODE_SPANS: usize = 4;
 /// Files listed per hit in search output; the rest is "+n more".

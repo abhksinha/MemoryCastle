@@ -21,6 +21,7 @@ pub mod embed;
 pub mod error;
 pub mod eval;
 pub mod fts;
+pub mod gate;
 pub mod graph;
 pub mod hook;
 pub mod importlog;
@@ -37,6 +38,7 @@ pub mod secrets;
 pub mod serve;
 pub mod store;
 pub mod sys;
+pub mod tripwire;
 
 pub use error::{Error, Result};
 pub use project::Repo;

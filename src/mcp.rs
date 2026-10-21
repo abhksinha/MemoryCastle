@@ -244,6 +244,9 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 notes = crate::graph::notes_for(&ctx.conn, pid, crate::graph::Kind::Symbol, target)?;
             }
             let defs = if kind == crate::graph::Kind::Symbol { crate::code::defs_named(&ctx.conn, pid, target)? } else { Vec::new() };
+            // The edit gate's record: these files were looked up.
+            let looked: Vec<String> = if kind == crate::graph::Kind::File { crate::code::paths_ending_with(&ctx.conn, pid, target)? } else { defs.iter().map(|d| d.path.clone()).collect() };
+            crate::gate::mark(&ctx.conn, pid, &looked)?;
             // Spans as the CLI prints them: re-anchored, recorded as served
             // (so a following ranged read counts as guided), with the
             // output and the file it stood in for in the ledger.

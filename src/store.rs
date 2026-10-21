@@ -576,7 +576,7 @@ pub fn stale_instructions(root: &Path) -> Vec<String> {
 /// read-only store.
 pub fn record_usage(conn: &Connection, project_id: i64, cmd: &str, served: usize, stood_for: usize) -> Result<()> {
     let session = current_session(conn, project_id)?;
-    record_usage_at(conn, project_id, cmd, served, stood_for, crate::sys::now(), session.as_deref())
+    record_usage_at(conn, project_id, &via(cmd), served, stood_for, crate::sys::now(), session.as_deref())
 }
 
 /// As `record_usage`, at a given time and session (imported transcripts).
@@ -637,7 +637,7 @@ pub fn usage_summary(conn: &Connection, project_id: i64) -> Result<Usage> {
     if let Some(sid) = &u.session {
         u.observed_session = observed(conn, project_id, Some(sid))?;
         let (calls_s, served_s, stood_s): (i64, i64, i64) = conn.query_row(
-            "SELECT count(*), coalesce(sum(served), 0), coalesce(sum(stood_for), 0) FROM usage WHERE project_id = ?1 AND session = ?2",
+            "SELECT count(*) FILTER (WHERE cmd NOT LIKE 'gate%'), coalesce(sum(served), 0), coalesce(sum(stood_for), 0) FROM usage WHERE project_id = ?1 AND session = ?2",
             params![project_id, sid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
@@ -773,7 +773,16 @@ pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<Strin
     Ok(None)
 }
 
+/// The session a call belongs to: `MEMORYCASTLE_SESSION` when the caller
+/// knows it (every hook sets it from its own event, and the children it
+/// spawns inherit it), else the session last declared for the project. The
+/// declared slot alone mixed concurrent sessions in one repo: a second
+/// window, or a Codex session, took over the first one's status line, edit
+/// gate, owed files and stop hold.
 pub fn current_session(conn: &Connection, project_id: i64) -> Result<Option<String>> {
+    if let Some(s) = std::env::var("MEMORYCASTLE_SESSION").ok().filter(|s| !s.is_empty()) {
+        return Ok(Some(s));
+    }
     crate::db::meta_get(conn, &format!("session:{project_id}"))
 }
 
@@ -786,14 +795,33 @@ pub fn set_session(conn: &Connection, project_id: i64, id: &str, agent: Option<&
     if !same {
         crate::db::meta_set(conn, &format!("session_at:{project_id}"), &crate::sys::now().to_string())?;
     }
+    // Per session as well, so a session other than the last declared one
+    // still knows when it began and which agent it is.
+    let at_key = format!("session_at:{project_id}:{id}");
+    if crate::db::meta_get(conn, &at_key)?.is_none() {
+        crate::db::meta_set(conn, &at_key, &crate::sys::now().to_string())?;
+    }
     if let Some(a) = agent {
         crate::db::meta_set(conn, &format!("agent:{project_id}"), a)?;
+        crate::db::meta_set(conn, &format!("agent:{project_id}:{id}"), a)?;
     }
     Ok(())
 }
 
 /// The label log: which notes a search printed and how much of each.
+/// A lookup the edit gate ran for the agent is logged as `gate-<cmd>` (or
+/// `gateblock-<cmd>` when blocking was on), not as the agent's own: the gate
+/// raising the lookup count says nothing about whether anything was read,
+/// and the label log's opened rate per mode is what tells context from block.
+fn via(cmd: &str) -> String {
+    match std::env::var("MEMORYCASTLE_VIA") {
+        Ok(v) if !v.is_empty() => format!("{v}-{cmd}"),
+        _ => cmd.to_string(),
+    }
+}
+
 pub fn record_served_notes(conn: &Connection, project_id: i64, notes: &[i64], mode: &str) -> Result<()> {
+    let mode = &via(mode);
     if crate::db::is_readonly(conn) || notes.is_empty() || std::env::var_os("MEMORYCASTLE_NO_LEDGER").is_some() {
         return Ok(());
     }
@@ -808,6 +836,11 @@ pub fn record_served_notes(conn: &Connection, project_id: i64, notes: &[i64], mo
 
 /// The agent the session-start hook declared (`session <id> --agent claude`).
 pub fn current_agent(conn: &Connection, project_id: i64) -> Result<Option<String>> {
+    if let Some(sid) = current_session(conn, project_id)? {
+        if let Some(a) = crate::db::meta_get(conn, &format!("agent:{project_id}:{sid}"))? {
+            return Ok(Some(a));
+        }
+    }
     crate::db::meta_get(conn, &format!("agent:{project_id}"))
 }
 
@@ -817,8 +850,15 @@ pub fn current_agent(conn: &Connection, project_id: i64) -> Result<Option<String
 /// restart declared another id first, then the old one again), and a note
 /// saved before the restart no longer counted.
 pub fn session_started(conn: &Connection, project_id: i64) -> Result<Option<i64>> {
-    let declared: Option<i64> = crate::db::meta_get(conn, &format!("session_at:{project_id}"))?.and_then(|v| v.parse().ok());
-    let Some(session) = current_session(conn, project_id)? else { return Ok(declared) };
+    let slot: Option<i64> = crate::db::meta_get(conn, &format!("session_at:{project_id}"))?.and_then(|v| v.parse().ok());
+    let Some(session) = current_session(conn, project_id)? else { return Ok(slot) };
+    // This session's own declared time; the project's slot only when this
+    // is the session it belongs to (stores from before the per-session key).
+    let declared: Option<i64> = match crate::db::meta_get(conn, &format!("session_at:{project_id}:{session}"))?.and_then(|v| v.parse().ok()) {
+        Some(t) => Some(t),
+        None if crate::db::meta_get(conn, &format!("session:{project_id}"))?.as_deref() == Some(session.as_str()) => slot,
+        None => None,
+    };
     let first: Option<i64> = conn.query_row(
         "SELECT MIN(at) FROM (SELECT MIN(at) AS at FROM edits WHERE project_id = ?1 AND session = ?2 UNION ALL SELECT MIN(at) FROM reads WHERE project_id = ?1 AND session = ?2)",
         params![project_id, session],

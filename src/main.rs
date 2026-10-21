@@ -204,6 +204,10 @@ enum Cmd {
         /// `set -g status-right '#(cd #{pane_current_path} && memcastle status --line)'`.
         #[arg(long)]
         line: bool,
+        /// The agent session to report as "this session" (the status line passes Claude's `session_id`);
+        /// default: the session last declared in this repo.
+        #[arg(long)]
+        session: Option<String>,
     },
     /// Check journal notes for shape problems (missing sections, no files, thin decision) without saving.
     Lint {
@@ -259,6 +263,34 @@ enum Cmd {
     #[command(hide = true)]
     Guard {
         path: String,
+    },
+    /// Before an edit (called by the edit and shell hooks): the first edit
+    /// of a file this session exits 2 with what `links` knows about it, so
+    /// the hook can stop the edit once; the first edit in a directory, or a
+    /// new file, searches the area too. Prints context on stdout otherwise.
+    #[command(hide = true)]
+    Gate {
+        /// The file about to be written (absolute or relative to the cwd).
+        path: Option<String>,
+        /// The line being edited, when the tool says.
+        #[arg(long)]
+        at: Option<u32>,
+        /// Forget the files looked up this session (after compaction).
+        #[arg(long)]
+        reset: bool,
+        /// Read the Claude Code PreToolUse JSON on stdin (file, line, new
+        /// text) and answer in its shape: the plugin's edit hook is this flag
+        /// alone, so what the gate does changes with the binary.
+        #[arg(long)]
+        hook: bool,
+        /// The edit's new text on stdin (for `hook <agent>`): checked by the
+        /// rejected-approach tripwire.
+        #[arg(long)]
+        new_stdin: bool,
+        /// Replay the rejected-approach tripwire over every commit since the
+        /// first note: one line per trip (`commit path name note:line`).
+        #[arg(long)]
+        replay: bool,
     },
     /// Record a file edit reported by an agent hook (no output; keyword path).
     #[command(hide = true)]
@@ -806,12 +838,36 @@ fn run(cli: Cli) -> Result<()> {
         }
         Cmd::Owed { once, remind } => {
             let Some(p) = &ctx.project else { return Ok(()) };
-            if let Some(o) = memorycastle::draft::owed(&ctx.conn, p.id)? {
+            let owed = memorycastle::draft::owed(&ctx.conn, p.id)?;
+            // Nothing edited since the last note: does that note's `Files:`
+            // name what was edited for it? Held once per session on its own
+            // key, so a session already held for the note is held for this too.
+            // Only at stop (or asked plainly): compaction is no moment to
+            // hold over a Files: line, and it has no draft to point at.
+            let files_check = matches!(once.as_deref(), None | Some("stop"));
+            if let (None, false, true, Some(repo)) = (&owed, remind, files_check, &ctx.repo) {
+                if let Some((note, missing)) = memorycastle::draft::uncovered(&ctx.conn, p.id, &repo.root)? {
+                    let line = format!("{note} does not name files edited for it: {}. Add them to its Files: line, then: memcastle save {note}", missing.join(", "));
+                    if let Some(event) = once {
+                        let key = format!("blocked:{event}-files:{}", p.id);
+                        let session = store::current_session(&ctx.conn, p.id)?.unwrap_or_default();
+                        if memorycastle::db::meta_get(&ctx.conn, &key)?.as_deref() != Some(session.as_str()) {
+                            memorycastle::db::meta_set(&ctx.conn, &key, &session)?;
+                            eprintln!("{line}");
+                            std::process::exit(2);
+                        }
+                        return Ok(());
+                    }
+                    println!("{line}");
+                }
+                return Ok(());
+            }
+            if let Some(o) = owed {
                 if remind {
                     use memorycastle::limits::{OWED_REMIND_COOLDOWN_SECS, OWED_REMIND_FILES, OWED_REMIND_SECS};
                     let now = memorycastle::sys::now();
                     let enough = o.files.len() >= OWED_REMIND_FILES || now - o.first_edit >= OWED_REMIND_SECS;
-                    let key = format!("reminded:{}", p.id);
+                    let key = format!("reminded:{}:{}", p.id, store::current_session(&ctx.conn, p.id)?.unwrap_or_default());
                     let last: i64 = memorycastle::db::meta_get(&ctx.conn, &key)?.and_then(|v| v.parse().ok()).unwrap_or(0);
                     if !enough || now - last < OWED_REMIND_COOLDOWN_SECS {
                         return Ok(());
@@ -921,7 +977,9 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
-                if memorycastle::code::has_index(&ctx.conn, pid)? {
+                // A repo that keeps a journal gets a code index even when
+                // nobody ran `graph --code`: `links` answers from it.
+                if memorycastle::code::has_index(&ctx.conn, pid)? || root.join("memorycastle/journal").is_dir() {
                     let st = memorycastle::code::index(&mut ctx.conn, pid, &root)?;
                     if st.files_indexed + st.files_removed > 0 {
                         parts.push(format!("code index: {} file{} changed", st.files_indexed + st.files_removed, if st.files_indexed + st.files_removed == 1 { "" } else { "s" }));
@@ -976,7 +1034,21 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             let exe = std::env::current_exe()?;
+            let have = memorycastle::gate::seen(&ctx.conn, p.id)?;
             for rel in changed.iter().take(memorycastle::limits::CHANGED_MAX_FILES) {
+                // The tripwire for shell edits: the lines the checkout added
+                // against HEAD, the file at HEAD as the before.
+                let git = |args: &[&str]| std::process::Command::new("git").args(args).current_dir(&repo.root).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+                let before = git(&["show", &format!("HEAD:{rel}")]);
+                let added: String = match before.is_empty() {
+                    true => std::fs::read_to_string(repo.root.join(rel.as_str())).unwrap_or_default(),
+                    false => git(&["diff", "-U0", "HEAD", "--", rel]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| &l[1..]).collect::<Vec<_>>().join("\n"),
+                };
+                let trips: Vec<_> = memorycastle::tripwire::check(&ctx.conn, p.id, rel, &before, &added, None, None)?.into_iter().filter(|t| !have.contains(&format!("trip:{}:{}", t.note, t.name))).collect();
+                if !trips.is_empty() {
+                    memorycastle::gate::mark(&ctx.conn, p.id, &trips.iter().map(|t| format!("trip:{}:{}", t.note, t.name)).collect::<Vec<_>>())?;
+                    println!("{}\nIf the note's reason no longer holds, say why and supersede the note; otherwise take the rejected approach back out.", memorycastle::tripwire::render(&trips));
+                }
                 let _ = std::process::Command::new(&exe).args(["edited", rel]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
                 let o = std::process::Command::new(&exe).args(["links", rel, "--once"]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
                 if let Ok(o) = o {
@@ -997,6 +1069,77 @@ fn run(cli: Cli) -> Result<()> {
             };
             if !rel.starts_with("memorycastle/") {
                 store::record_edit(&ctx.conn, p.id, &repo.root, &rel)?;
+                // A file the code index has not seen (a Write that created
+                // it): index it now, so `links` finds its definitions.
+                if memorycastle::code::paths_ending_with(&ctx.conn, p.id, &rel)?.iter().all(|f| f != &rel) {
+                    memorycastle::code::refresh(&mut ctx.conn, p.id, &repo.root)?;
+                }
+            }
+        }
+        Cmd::Gate { path, at, reset, hook, new_stdin, replay } => {
+            let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
+            if reset {
+                return memorycastle::gate::reset(&ctx.conn, p.id);
+            }
+            if replay {
+                let git = |args: &[&str]| std::process::Command::new("git").args(args).current_dir(&repo.root).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
+                let first: i64 = ctx.conn.query_row("SELECT min(coalesce(dated, saved_at)) FROM notes WHERE project_id = ?1 AND deleted_at IS NULL", [p.id], |r| r.get::<_, Option<i64>>(0))?.unwrap_or(0);
+                let (mut commits, mut files, mut trips) = (0, 0, 0);
+                // A note counts from the commit that added it, not its date:
+                // the commit that writes a note often holds the code it describes.
+                let mut known = std::collections::HashMap::new();
+                let mut at = 0i64;
+                for l in git(&["log", "--reverse", "--diff-filter=A", "--format=@%ct", "--name-only", "--", "memorycastle/journal"]).lines() {
+                    if let Some(t) = l.strip_prefix('@') {
+                        at = t.parse().unwrap_or(0);
+                    } else if !l.is_empty() {
+                        known.entry(l.to_string()).or_insert(at);
+                    }
+                }
+                for line in git(&["log", "--reverse", "--no-merges", "--format=%H %ct", &format!("--since={first}")]).lines() {
+                    let Some((c, t)) = line.split_once(' ') else { continue };
+                    let t: i64 = t.parse().unwrap_or(0);
+                    commits += 1;
+                    for path in git(&["diff-tree", "--no-commit-id", "-r", "--name-only", c]).lines() {
+                        if path.starts_with("memorycastle/") || path.ends_with(".md") {
+                            continue;
+                        }
+                        files += 1;
+                        let before = git(&["show", &format!("{c}^:{path}")]);
+                        let added: String = git(&["diff", "-U0", &format!("{c}^"), c, "--", path]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| &l[1..]).collect::<Vec<_>>().join("\n");
+                        for tr in memorycastle::tripwire::check(&ctx.conn, p.id, path, &before, &added, Some(t), Some(&known))? {
+                            trips += 1;
+                            println!("{} {path}  `{}`  {}:{}", &c[..7], tr.name, tr.note, tr.line);
+                        }
+                    }
+                }
+                println!("replay: {commits} commits, {files} file changes, {trips} trips");
+                return Ok(());
+            }
+            let mut input = String::new();
+            if hook || new_stdin {
+                let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
+            }
+            let (path, at, new_text) = if hook {
+                let Some(e) = memorycastle::gate::claude_edit(&input) else { return Ok(()) };
+                (Some(e.file), e.at, e.new_text)
+            } else {
+                (path, at, new_stdin.then_some(input))
+            };
+            let Some(path) = path else { return Ok(()) };
+            let abs = std::env::current_dir()?.join(&path);
+            let Ok(rel) = abs.strip_prefix(&repo.root) else { return Ok(()) };
+            let rel = rel.to_string_lossy().into_owned();
+            match memorycastle::gate::check(&ctx.conn, p.id, &repo.root, &rel, at, abs.exists(), new_text.as_deref())? {
+                memorycastle::gate::Outcome::Pass => {}
+                memorycastle::gate::Outcome::Context(t) if hook => {
+                    println!("{}", serde_json::json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": t}}));
+                }
+                memorycastle::gate::Outcome::Context(t) => println!("{t}"),
+                memorycastle::gate::Outcome::Block(t) => {
+                    eprintln!("{t}");
+                    std::process::exit(2);
+                }
             }
         }
         Cmd::Read { path, bytes, lines } => {
@@ -1022,7 +1165,10 @@ fn run(cli: Cli) -> Result<()> {
             });
             store::record_read_lines(&ctx.conn, p.id, &repo.root, &rel, bytes, range, None)?;
         }
-        Cmd::Status { line } => {
+        Cmd::Status { line, session } => {
+            if let Some(s) = session.filter(|s| !s.is_empty()) {
+                std::env::set_var("MEMORYCASTLE_SESSION", s);
+            }
             let root = ctx.repo.as_ref().map(|r| r.root.clone());
             let st = store::status(&mut ctx.conn, ctx.project.as_ref(), root.as_deref(), &ctx.db_path)?;
             if line {
@@ -1255,6 +1401,15 @@ fn run(cli: Cli) -> Result<()> {
                 _ if kind == graph::Kind::Symbol => memorycastle::code::defs_named(&ctx.conn, pid, &target)?,
                 _ => Vec::new(),
             };
+            // A lookup is what the edit gate asks for: the files it answered
+            // about need no gate this session.
+            let looked: Vec<String> = match (&at_def, kind) {
+                (Some(d), _) => vec![d.path.clone()],
+                (None, graph::Kind::File) => memorycastle::code::paths_ending_with(&ctx.conn, pid, &target)?,
+                (None, graph::Kind::Symbol) => defs.iter().map(|d| d.path.clone()).collect(),
+                _ => Vec::new(),
+            };
+            memorycastle::gate::mark(&ctx.conn, pid, &looked)?;
             // With no note, the code index still answers: what the file
             // defines and who uses it, or the definition the line sits in.
             let facts: Vec<String> = if notes.is_empty() && kind == graph::Kind::File {
