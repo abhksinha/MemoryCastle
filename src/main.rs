@@ -1050,7 +1050,8 @@ fn run(cli: Cli) -> Result<()> {
                     println!("{}\nIf the note's reason no longer holds, say why and supersede the note; otherwise take the rejected approach back out.", memorycastle::tripwire::render(&trips));
                 }
                 let _ = std::process::Command::new(&exe).args(["edited", rel]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
-                let o = std::process::Command::new(&exe).args(["links", rel, "--once"]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
+                // The hook's lookup, not the agent's: logged as `changed-links`.
+                let o = std::process::Command::new(&exe).args(["links", rel, "--once"]).env("MEMORYCASTLE_VIA", "changed").current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
                 if let Ok(o) = o {
                     let text = String::from_utf8_lossy(&o.stdout);
                     let text = text.trim_end();
@@ -1470,7 +1471,10 @@ fn run(cli: Cli) -> Result<()> {
                     }
                 }
                 // A hub file names dozens of notes: the newest few, then a count.
-                let cap = if kind == graph::Kind::File && at.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
+                // Every note only when `--at` narrowed to a definition; a line
+                // outside any (a comment, a top-level constant block) lists
+                // the newest like a plain file lookup: 21 notes otherwise.
+                let cap = if kind == graph::Kind::File && at_def.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
                 if defs.len() > 1 && !context {
                     let callers = memorycastle::code::callers_of(&ctx.conn, pid, &target)?;
                     if !callers.is_empty() {

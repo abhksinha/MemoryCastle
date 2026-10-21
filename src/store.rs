@@ -637,7 +637,7 @@ pub fn usage_summary(conn: &Connection, project_id: i64) -> Result<Usage> {
     if let Some(sid) = &u.session {
         u.observed_session = observed(conn, project_id, Some(sid))?;
         let (calls_s, served_s, stood_s): (i64, i64, i64) = conn.query_row(
-            "SELECT count(*) FILTER (WHERE cmd NOT LIKE 'gate%'), coalesce(sum(served), 0), coalesce(sum(stood_for), 0) FROM usage WHERE project_id = ?1 AND session = ?2",
+            "SELECT count(*) FILTER (WHERE cmd NOT LIKE 'gate%' AND cmd NOT LIKE 'changed%'), coalesce(sum(served), 0), coalesce(sum(stood_for), 0) FROM usage WHERE project_id = ?1 AND session = ?2",
             params![project_id, sid],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?;
