@@ -1492,10 +1492,15 @@ fn run(cli: Cli) -> Result<()> {
                         out.push_str(&format!("   called by name: {}  {}{more}\n", callers.len(), shown.join(", ")));
                     }
                 }
-                for n in notes.iter().take(cap) {
+                for (i, n) in notes.iter().take(cap).enumerate() {
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                     let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
+                    if i < memorycastle::limits::LINKS_DECISIONS && n.superseded_by.is_none() {
+                        if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {
+                            out.push_str(&format!("   decision   {d}\n"));
+                        }
+                    }
                     stood += store::note_bytes(&ctx.conn, n.id)?;
                 }
                 if notes.len() > cap {

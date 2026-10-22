@@ -275,9 +275,14 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 }
             }
             let cap = if kind == crate::graph::Kind::File { crate::limits::LINKS_NOTES } else { notes.len() };
-            for n in notes.iter().take(cap) {
+            for (i, n) in notes.iter().take(cap).enumerate() {
                 let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                 text.push_str(&format!("{}  {}  {}  ({}){}\n", n.path, n.title, crate::render::fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup));
+                if i < crate::limits::LINKS_DECISIONS && n.superseded_by.is_none() {
+                    if let Some(d) = crate::store::decision_sentence(&ctx.conn, n.id)? {
+                        text.push_str(&format!("   decision   {d}\n"));
+                    }
+                }
                 stood += crate::store::note_bytes(&ctx.conn, n.id)?;
             }
             if notes.len() > cap {

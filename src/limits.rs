@@ -121,6 +121,10 @@ pub const SPAN_WIDE: u32 = 150;
 /// Notes `links <file>` lists before saying "+N more": a hub file names
 /// dozens, nobody reads a list that long, and `--at <line>` narrows it.
 pub const LINKS_NOTES: usize = 5;
+/// Notes in a `links` list printed with their first Decision sentence under
+/// the title: a list of titles gets skimmed (2026-10-19), a decision gets read,
+/// and the newest are the ones most likely to hold for the code today.
+pub const LINKS_DECISIONS: usize = 2;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.
