@@ -132,6 +132,54 @@ pub trait Memory {
     fn search(&mut self, scope: &Scope, query: &str, opts: &SearchOptions) -> Result<Vec<Hit>>;
 }
 
+/// Per note, the working-set weight 0 to 1 it earns: over the working files
+/// it touches (links the file, or a symbol defined in it, by bare name),
+/// the best of the file's session weight times its specificity,
+/// `ln(notes / reach) / ln(notes)`: a file one note is about counts in full,
+/// a file every note touches counts nothing. Without the discount a session
+/// working set reached a median 57% of rushtex's notes (2026-10-22).
+pub fn working_factors(conn: &Connection, scope: &Scope, working: &[(String, f32)]) -> Result<HashMap<i64, f32>> {
+    let short = |t: &str| t.rsplit("::").next().unwrap_or(t).rsplit('.').next().unwrap_or(t).trim_end_matches("()").to_string();
+    let mut out: HashMap<i64, f32> = HashMap::new();
+    for pid in scope.ids() {
+        let total: i64 = conn.query_row("SELECT COUNT(*) FROM notes WHERE project_id = ?1 AND deleted_at IS NULL", [pid], |r| r.get(0))?;
+        if total < 2 {
+            continue;
+        }
+        let mut files: Vec<(i64, String)> = Vec::new();
+        let mut syms: HashMap<String, Vec<i64>> = HashMap::new();
+        let mut stmt = conn.prepare_cached(
+            "SELECT l.note_id, l.kind, l.target FROM links l JOIN notes n ON n.id = l.note_id AND n.deleted_at IS NULL WHERE l.project_id = ?1 AND l.kind IN (0, 2)",
+        )?;
+        for row in stmt.query_map([pid], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))? {
+            let (note, kind, target) = row?;
+            if kind == 0 {
+                files.push((note, target));
+            } else {
+                syms.entry(short(&target)).or_default().push(note);
+            }
+        }
+        let mut defs = conn.prepare_cached("SELECT name FROM code_defs WHERE project_id = ?1 AND path = ?2")?;
+        for (path, w) in working {
+            let mut reached: std::collections::HashSet<i64> = files.iter().filter(|(_, t)| crate::graph::same_file(t, path)).map(|(n, _)| *n).collect();
+            for name in defs.query_map(rusqlite::params![pid, path], |r| r.get::<_, String>(0))? {
+                if let Some(ns) = syms.get(&name?) {
+                    reached.extend(ns.iter().copied());
+                }
+            }
+            if reached.is_empty() {
+                continue;
+            }
+            let specific = ((total as f32 / reached.len() as f32).ln() / (total as f32).ln()).clamp(0.0, 1.0);
+            for n in reached {
+                let e = out.entry(n).or_insert(0.0);
+                *e = e.max(w * specific);
+            }
+        }
+    }
+    Ok(out)
+}
+
 /// The model source for a search: already warm, loadable on demand, or absent.
 pub enum ModelSource<'a> {
     None,
@@ -343,29 +391,10 @@ pub fn search(
     // it orders hits inside a confidence quarter and never lifts one over
     // the floor.
     if !opts.working.is_empty() {
-        let mut defined: HashMap<String, f32> = HashMap::new();
-        for pid in scope.ids() {
-            for (path, w) in &opts.working {
-                let mut stmt = conn.prepare_cached("SELECT name FROM code_defs WHERE project_id = ?1 AND path = ?2")?;
-                for name in stmt.query_map(rusqlite::params![pid, path], |r| r.get::<_, String>(0))? {
-                    let e = defined.entry(name?).or_insert(0.0);
-                    *e = e.max(*w);
-                }
-            }
-        }
+        let factors = working_factors(conn, scope, &opts.working)?;
         for h in hits.iter_mut() {
-            let Some(l) = links.get(&h.note_id) else { continue };
-            let mut best = 0.0f32;
-            for (k, t) in l {
-                let w = match k {
-                    crate::graph::Kind::File => opts.working.iter().filter(|(f, _)| crate::graph::same_file(t, f)).map(|(_, w)| *w).fold(0.0, f32::max),
-                    crate::graph::Kind::Symbol => defined.iter().filter(|(n, _)| crate::graph::same_symbol(t, n)).map(|(_, w)| *w).fold(0.0, f32::max),
-                    crate::graph::Kind::Note => 0.0,
-                };
-                best = best.max(w);
-            }
-            if best > 0.0 {
-                h.trace.working = 1.0 + (WORKING_WEIGHT - 1.0) * best;
+            if let Some(f) = factors.get(&h.note_id) {
+                h.trace.working = 1.0 + (WORKING_WEIGHT - 1.0) * f;
                 h.trace.score *= h.trace.working;
             }
         }

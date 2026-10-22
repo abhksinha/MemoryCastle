@@ -74,12 +74,13 @@ pub const GRAPH_DIRECT_WEIGHT: f32 = 1.5;
 pub const GRAPH_BRIDGE_WEIGHT: f32 = 1.2;
 /// Most a note linked to a file the session is working on is weighted
 /// (`Context::working_set`), under `GRAPH_DIRECT_WEIGHT`: a file the question
-/// names is stronger evidence than a file the session touched. Measured
-/// 2026-10-22 on four gold sets with each question's answer files as the
-/// working set and with another question's: 1.2 raised MRR (0.747 to 0.803 on
-/// one set) but lost 3 of 182 when the files were the wrong ones; 1.1 keeps
-/// most of the gain and loses 1; top 3 found unchanged either way.
-pub const WORKING_WEIGHT: f32 = 1.1;
+/// names is stronger evidence than a file the session touched. Scaled per
+/// file by its specificity (`search::working_factors`). Measured 2026-10-22
+/// on four gold sets (182 questions), working set = the answer note's files,
+/// another question's, or either plus the project's three most edited
+/// files: at 1.2 MRR rose on three sets (0.747 to 0.803) and the wrong files
+/// lost nothing; 1.3 lost 2. Without the specificity discount 1.2 lost 3.
+pub const WORKING_WEIGHT: f32 = 1.2;
 /// The working set: edits and reads of this session in the last 30 min,
 /// edits weighing 1.0 and reads 0.5, halved every 10 min, top 10 files.
 pub const WORKING_WINDOW_SECS: i64 = 1800;
