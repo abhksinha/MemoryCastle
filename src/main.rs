@@ -15,12 +15,14 @@ change signature | call sites and constants to read | memcastle links <symbol> -
 new file | its notes, or what it defines and who uses it | memcastle links <file>
 history | how a decision changed | memcastle history <note.md>
 read as: path:a-b = read those lines, not the file
-read as: caller path:line 0.9 = chance the call reaches it, 1.0 same file to 0.2; under 0.3 counted only
+read as: caller path:line 0.9 = chance this call reaches this definition: 1.0 same file, 0.2 lowest
+read as: caller under 0.7 = check the call site; it may reach another definition
+read as: +N by name only, under 0.3 = calls too unlikely to list, counted only
 read as: too wide: read path:a-b = function over 150 lines, read the block shown
 read as: lines 9-11 Decision = note sections naming it; read those lines, not the note
 read as: decision <sentence> = the note's first Decision sentence (first two notes)
 read as: as foo::bar = spelling the note used, or the neighbour it was ranked by
-read as: superseded by X = decision reversed, read X
+read as: superseded by X = decision reversed, act on X
 read as: no notes link to X, nothing after = not indexed; check spelling or run graph --code
 limits: edges are by name; a call through a trait or a macro is missed
 ";
@@ -29,15 +31,16 @@ const SEARCH_HELP: &str = "\
 search: section | use case | command
 decide | a choice or a fix in an area with history | memcastle search \"<question>\"
 full sections | Decision, Rejected, Measured of the hits | memcastle search \"<question>\" --sections
-past work | user says \"like we did\", or resuming | memcastle search \"<topic>\" --sections
+past work | user says \"like we did X\", or resuming | memcastle search \"<X in its own words>\" --sections
 sister repo | question about a repo in a declared group | memcastle search \"<question>\" --related
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
 skip | routine edits, reading code, running tests | use links before an edit
 read as: note.md:13-14 0.71 Rejected = lines that matched, confidence 0 to 1, section
-read as: confidence = 1.00 exact identifier; 0.70+ answer; 0.30-0.70 verify; under 0.30 dropped
+read as: confidence = 1.00 exact identifier; 0.70 and up answer; 0.30 to 0.69 verify; under 0.30 dropped
+read as: verify = read the hit's lines and check them against the code
 read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; read those lines
 read as: decision <sentence> = the note's first Decision sentence
-read as: code changed since: <symbols> = code moved after the note; check it first
+read as: code changed since: <symbols> = that code changed after the note; run links <symbol> first
 read as: superseded by X = decision reversed, act on X
 read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
 read as: no relevant note = store has nothing; work from the code and say so
@@ -97,6 +100,7 @@ enum Cmd {
     /// Keyword first, meaning search when it pays.
     #[command(after_long_help = SEARCH_HELP)]
     Search {
+        /// The question in plain words; name the symbol or file when you know it.
         query: String,
         #[arg(short, default_value_t = 5)]
         k: usize,

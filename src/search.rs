@@ -380,7 +380,10 @@ pub fn search(
     for h in &mut hits {
         if let Some(mut parts) = by_note.get(&h.note_id).cloned() {
             parts.sort_by(|a, b| b.confidence.total_cmp(&a.confidence).then(a.line.cmp(&b.line)));
-            parts.dedup_by_key(|p| p.line);
+            // One entry per line: a chunk and its re-scored copy share it,
+            // and after the sort they need not be adjacent.
+            let mut seen_lines = std::collections::HashSet::new();
+            parts.retain(|p| seen_lines.insert(p.line));
             parts.truncate(crate::limits::SEARCH_CHUNKS_PER_NOTE);
             h.parts = parts;
         }

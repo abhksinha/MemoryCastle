@@ -4,8 +4,8 @@ Command: `memcastle` (same program as `memorycastle`). Notes in `memorycastle/jo
 
 ## Rules
 
-1. Before editing a file or function: `memcastle links <file|symbol>`; read only the printed range.
-2. Before a design choice or a fix in an area with history: `memcastle search "<question>" --sections`.
+1. Before editing: `memcastle links <file> --at <line>` (or `memcastle links <symbol>`); read only the printed range.
+2. Before a design choice or a fix in an area with history: `memcastle search "<question>"`, then `--sections` for the hits that matter.
 3. After a task that decided, rejected or measured something: write a note, then `memcastle save` it.
 
 ## Commands
@@ -14,7 +14,7 @@ section | use case | command
 --- | --- | ---
 decide | a choice or a fix in an area with history | `memcastle search "<question>"`
 full sections | Decision, Rejected, Measured of the hits | `memcastle search "<question>" --sections`
-past work | user says "like we did", or resuming | `memcastle search "<topic>" --sections`
+past work | user says "like we did X", or resuming | `memcastle search "<X in its own words>" --sections`
 sister repo | question about a repo in a declared group | `memcastle search "<question>" --related`
 ranking | why a hit ranked there, stage timings | `memcastle search "<question>" --explain`
 before edit | function holding a line, its notes | `memcastle links <file> --at <line>`
@@ -31,15 +31,18 @@ skip | routine edits, reading code, running tests | no search
 ## Read the answer
 
 - `note.md:13-14 0.71 Rejected` = the note's lines that matched, confidence 0 to 1, section
-- confidence = 1.00 exact identifier; 0.70+ answer; 0.30-0.70 verify; under 0.30 dropped
+- confidence = 1.00 exact identifier; 0.70 and up answer; 0.30 to 0.69 verify; under 0.30 dropped
+- verify = read the hit's lines and check them against the code
 - `lines 13-14 0.71 Rejected, 9-10 0.53 Decision` = the note's parts, best first; read those lines, not the note
 - `decision <sentence>` = the note's first Decision sentence
-- `code changed since: <symbols>` = code moved after the note; check it first
+- `code changed since: <symbols>` = that code changed after the note; run `links <symbol>` first
 - `superseded by X` = decision reversed; act on X
 - `read first a. path:a-b name score why` = code spans to read first: `sed -n 'a,bp' path`
 - `no relevant note` = the store has nothing; work from the code and say so
 - `path:a-b` = read those lines, not the file
-- `caller path:line 0.9` = chance the call reaches it, 1.0 same file to 0.2; under 0.3 counted only
+- `caller path:line 0.9` = chance this call reaches this definition: 1.0 same file, 0.2 lowest
+- caller under 0.7 = check the call site; it may reach another definition
+- `+N by name only, under 0.3` = calls too unlikely to list, counted only
 - `too wide: read path:a-b` = function over 150 lines; read the block shown
 - `as foo::bar` = spelling the note used, or the neighbour it was ranked by
 - `no notes link to X`, nothing after = not indexed; check spelling or run `memcastle graph --code`
@@ -51,7 +54,7 @@ skip | routine edits, reading code, running tests | no search
 - each prompt: notes the store is confident about, one line each, once per session
 - first edit of a file: its ranges and notes as context
 - whole read of a file (or a long note) a lookup gave ranges for: stopped once with the ranges
-- compaction, stop, after a commit: a note is asked for when code was edited since the last one; the second attempt passes
+- compaction, stop, after a commit: a note is asked for when code was edited since the last one; if the work was routine, say no decision was made; the second attempt passes
 
 ## When to write a note
 
@@ -92,7 +95,7 @@ What remains, questions for the user.
 - files and functions in backticks: they become links, so `links <name>` finds the note
 - numbers under `## Measured`
 - never edit an old note to change a decision: write a new one with `Supersedes:`
-- `save` fills Author and Date and names edited files and changed functions the note leaves out; commit the note with the code
+- write `Author:` and `Date:`, or leave them out and `save` fills them; `save` also marks the note a `Supersedes:` names, and names edited files and changed functions the note leaves out; commit the note with the code
 
 ## MCP
 

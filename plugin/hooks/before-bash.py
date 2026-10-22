@@ -31,7 +31,16 @@ cwd = h.get("cwd") or os.getcwd()
 # are under the first directory the command changes to.
 lead = re.search(r"(?:^|&&|;|\|\||\n)\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*(?:&&|;|\n)", cmd)
 if lead:
-    cwd = os.path.join(cwd, os.path.expanduser(lead.group(1).strip("'\"")))
+    target = lead.group(1).strip("'\"")
+    # `S=/tmp/x; cd $S`: variables assigned earlier in the command, then the
+    # environment. A directory still unknown means the paths are too: the
+    # gate stays out rather than resolve them against the repo.
+    for name, value in re.findall(r"(?:^|[;&\n]\s*)([A-Za-z_]\w*)=(\"[^\"]*\"|'[^']*'|[^\s;&|]+)", cmd):
+        target = re.sub(r"\$\{?" + name + r"\}?(?!\w)", lambda _: value.strip("'\""), target)
+    target = os.path.expandvars(os.path.expanduser(target))
+    if "$" in target or "`" in target:
+        sys.exit(0)
+    cwd = os.path.join(cwd, target)
 
 
 def absolute(p):
