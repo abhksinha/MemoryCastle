@@ -960,11 +960,11 @@ pub fn fill_header(content: &str, rel_path: &str, user: Option<&str>, agent: Opt
 /// Files the agent edited in this session (outside `memorycastle/`) that
 /// the note's `Files:` line does not name: the ledger knows what the task
 /// touched better than the writer remembers.
-pub fn files_missing_from_note(conn: &Connection, project_id: i64, rel_path: &str, content: &str) -> Result<Vec<String>> {
-    let Some(session) = current_session(conn, project_id)? else { return Ok(Vec::new()) };
-    let declared: Vec<String> = crate::graph::extract("", content).into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v).collect();
-    // Only what was edited since the previous note: a long session writes
-    // several notes, and each covers its own task, not the whole session.
+/// The code files this session edited since the previous note (not
+/// `rel_path`), and that note's save time: a long session writes several
+/// notes, and each covers its own task, not the whole session.
+pub fn edited_for_note(conn: &Connection, project_id: i64, rel_path: &str) -> Result<(i64, Vec<String>)> {
+    let Some(session) = current_session(conn, project_id)? else { return Ok((0, Vec::new())) };
     let since: i64 = conn
         .query_row(
             "SELECT MAX(saved_at) FROM notes WHERE project_id = ?1 AND path != ?2 AND deleted_at IS NULL",
@@ -974,9 +974,14 @@ pub fn files_missing_from_note(conn: &Connection, project_id: i64, rel_path: &st
         .unwrap_or(0);
     let mut stmt = conn.prepare_cached("SELECT DISTINCT path FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 ORDER BY path")?;
     let edited: Vec<String> = stmt.query_map(params![project_id, session, since], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    Ok((since, edited.into_iter().filter(|e| !e.starts_with("memorycastle/")).collect()))
+}
+
+pub fn files_missing_from_note(conn: &Connection, project_id: i64, rel_path: &str, content: &str) -> Result<Vec<String>> {
+    let declared: Vec<String> = crate::graph::extract("", content).into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v).collect();
+    let (_, edited) = edited_for_note(conn, project_id, rel_path)?;
     Ok(edited
         .into_iter()
-        .filter(|e| !e.starts_with("memorycastle/"))
         .filter(|e| !declared.iter().any(|d| e == d || e.ends_with(&format!("/{d}")) || d.ends_with(&format!("/{e}")) || Path::new(e).file_name() == Path::new(d).file_name()))
         .collect())
 }

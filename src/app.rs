@@ -154,6 +154,13 @@ impl Context {
             // What the named code looks like now, so a later search can say
             // whether it changed since this note was written.
             crate::graph::refresh_note_code(&self.conn, project.id, &root, &rel)?;
+            if changed_rel.last() == Some(&rel) && crate::chunk::dated(&content).is_some() {
+                let missing = crate::draft::unnamed(&self.conn, project.id, &root, &rel, &content)?;
+                if !missing.is_empty() {
+                    let list: Vec<String> = missing.iter().map(|(n, l)| format!("`{n}` ({l} lines)")).collect();
+                    eprintln!("memorycastle: {rel}: changed but not named: {}; name the ones this note decides about in backticks, so `links` finds it", list.join(", "));
+                }
+            }
         }
         let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
         // What the store can say about the notes that changed, against the

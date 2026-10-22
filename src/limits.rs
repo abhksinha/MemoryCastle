@@ -149,6 +149,10 @@ pub const CALL_CONF_TYPE: f32 = 0.5;
 pub const CALL_CONF_OTHER: f32 = 0.2;
 /// Edges under this are counted, not listed, and do not make neighbours.
 pub const CALL_MIN_CONF: f32 = 0.3;
+/// Changed functions a saved note does not name that `save` lists: a task
+/// changed a median 15 functions (2026-10-22), so the list is the most
+/// changed few, not all of them.
+pub const SAVE_UNNAMED_MAX: usize = 5;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.
