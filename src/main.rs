@@ -1032,12 +1032,23 @@ fn run(cli: Cli) -> Result<()> {
                 .collect();
             let state: String = now.iter().map(|(r, m)| format!("{r}\t{m}")).collect::<Vec<_>>().join("\n");
             memorycastle::db::meta_set(&ctx.conn, &key, &state)?;
-            if before.is_empty() && changed.len() > memorycastle::limits::CHANGED_MAX_FILES {
-                // First call in a session on a dirty checkout: nothing to attribute to the command.
+            if before.is_empty() && started == 0 && changed.len() > memorycastle::limits::CHANGED_MAX_FILES {
+                // First call with no session start to judge mtimes by, on a
+                // dirty checkout: nothing to attribute to the command.
                 return Ok(());
             }
             let exe = std::env::current_exe()?;
             let have = memorycastle::gate::seen(&ctx.conn, p.id)?;
+            // Every changed file is an edit; only the first few get the
+            // tripwire and a lookup printed, to keep the output short.
+            for rel in changed.iter().skip(memorycastle::limits::CHANGED_MAX_FILES) {
+                let mtime = now.iter().find(|(r, _)| r == *rel).map(|(_, m)| m.to_string()).unwrap_or_default();
+                let mut args = vec!["edited", rel.as_str()];
+                if !mtime.is_empty() && mtime != "0" {
+                    args.extend(["--mtime", mtime.as_str()]);
+                }
+                let _ = std::process::Command::new(&exe).args(&args).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
+            }
             for rel in changed.iter().take(memorycastle::limits::CHANGED_MAX_FILES) {
                 // The tripwire for shell edits: the lines the checkout added
                 // against HEAD, the file at HEAD as the before.
@@ -1381,18 +1392,20 @@ fn run(cli: Cli) -> Result<()> {
                         }
                     };
                     graph::ensure_links(&mut ctx.conn, pid)?;
-                    if !graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &d.name)?.is_empty() {
+                    if !graph::notes_for_def(&ctx.conn, pid, &d)?.is_empty() {
                         target = d.name.clone();
                     }
                     at_def = Some(d);
                 }
             }
-            if once {
-                if let Some(sid) = store::current_session(&ctx.conn, pid)? {
-                    let key = format!("links:{sid}:{target}");
-                    if memorycastle::db::meta_get(&ctx.conn, &key)?.is_some() {
-                        return Ok(());
-                    }
+            // Every lookup counts as shown this session, so the hooks' `--once`
+            // calls do not print again what the agent just asked for.
+            if let Some(sid) = store::current_session(&ctx.conn, pid)? {
+                let key = format!("links:{sid}:{target}");
+                if once && memorycastle::db::meta_get(&ctx.conn, &key)?.is_some() {
+                    return Ok(());
+                }
+                if !memorycastle::db::is_readonly(&ctx.conn) {
                     memorycastle::db::meta_set(&ctx.conn, &key, "1")?;
                 }
             }
@@ -1401,7 +1414,10 @@ fn run(cli: Cli) -> Result<()> {
                 memorycastle::code::refresh(&mut ctx.conn, pid, &r)?;
             }
             let kind = if target.ends_with(".md") && target.contains('/') { graph::Kind::Note } else if target.contains('/') || target.contains('.') { graph::Kind::File } else { graph::Kind::Symbol };
-            let mut notes = graph::notes_for(&ctx.conn, pid, kind, &target)?;
+            let mut notes = match &at_def {
+                Some(d) if kind == graph::Kind::Symbol => graph::notes_for_def(&ctx.conn, pid, d)?,
+                _ => graph::notes_for(&ctx.conn, pid, kind, &target)?,
+            };
             if notes.is_empty() && kind == graph::Kind::File {
                 notes = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &target)?;
             }

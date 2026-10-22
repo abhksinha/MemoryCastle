@@ -1118,7 +1118,7 @@ pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<
 
 /// The names that point at `d`'s file: its stem (with and without `_`) and
 /// every non-function definition in it (types, traits, objects).
-fn own_names(conn: &Connection, project_id: i64, path: &str) -> Result<HashSet<String>> {
+pub fn own_names(conn: &Connection, project_id: i64, path: &str) -> Result<HashSet<String>> {
     let stem = std::path::Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let mut own: HashSet<String> = [stem.to_string(), stem.replace('_', "")].into_iter().collect();
     let mut stmt = conn.prepare_cached("SELECT name FROM code_defs WHERE project_id = ?1 AND path = ?2 AND kind != 'fn'")?;

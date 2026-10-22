@@ -376,6 +376,28 @@ pub fn notes_for(conn: &Connection, project_id: i64, kind: Kind, target: &str) -
     Ok(out)
 }
 
+/// The notes about one definition: those naming its symbol, minus those that
+/// qualify the name with another module or type (`eval::run` is not
+/// `main.rs`'s `run`), judged like a call's qualifier (`code::own_names`).
+pub fn notes_for_def(conn: &Connection, project_id: i64, d: &crate::code::Def) -> Result<Vec<NoteRef>> {
+    let own = crate::code::own_names(conn, project_id, &d.path)?;
+    Ok(notes_for(conn, project_id, Kind::Symbol, &d.name)?
+        .into_iter()
+        .filter(|n| {
+            let head = n.via.rsplit_once("::").map(|(h, _)| h).or_else(|| n.via.rsplit_once('.').map(|(h, _)| h));
+            match head {
+                None => true,
+                Some(h) => {
+                    // `main.rs::run`, `code::span_end`, `Memory.search`: the last segment.
+                    let h = h.trim_end_matches(".rs").trim_end_matches(".py").trim_end_matches(".kt").trim_end_matches(".ts");
+                    let last = h.rsplit(['/', ':', '.']).next().unwrap_or(h);
+                    own.contains(last)
+                }
+            }
+        })
+        .collect())
+}
+
 /// Orders a file's notes for an edit inside `names[0]` when no note names
 /// that definition: notes naming one of its call neighbours (`names`, the
 /// functions it calls and the ones calling it) come first, most neighbours

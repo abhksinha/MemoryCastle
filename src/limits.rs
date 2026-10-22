@@ -286,8 +286,9 @@ const _: () = {
 };
 
 /// Files looked up after one shell command that changed them (`memcastle
-/// changed`): more than this on the first call of a session is a dirty
-/// checkout, not the command's work, and is skipped.
+/// changed`, each also gets the tripwire); every changed file is recorded as
+/// an edit. More than this on the first call of a session with no declared
+/// start is a dirty checkout, not the command's work, and is skipped.
 pub const CHANGED_MAX_FILES: usize = 3;
 /// Characters of the Decision sentence printed under a recall line.
 pub const RECALL_DECISION_CHARS: usize = 220;

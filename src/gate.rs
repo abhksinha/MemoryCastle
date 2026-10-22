@@ -176,12 +176,10 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     if !exists {
         let k = limits::GATE_SEARCH_K.to_string();
         let out = run(root, &["search", rel, "-k", &k]);
-        if let Some(top) = top_confidence(&out) {
-            if top >= limits::GATE_SEARCH_BLOCK {
-                block.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
-            } else {
-                context.push(format!("search \"{rel}\":\n{out}"));
-            }
+        // Under `GATE_SEARCH_BLOCK` nothing: a new path's words matched
+        // unrelated notes at 0.46 to 0.57 (`src/zz.rs` got `SPAN_WIDE`).
+        if top_confidence(&out).is_some_and(|top| top >= limits::GATE_SEARCH_BLOCK) {
+            block.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
         }
     }
     // Context by default; blocking is opt-in (`MEMORYCASTLE_GATE=block`)
