@@ -318,7 +318,9 @@ pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def], al
         if a >= b {
             continue;
         }
-        let body = lines[a..b].join("\n");
+        // Strings and comments blanked: `UNION ALL` in a SQL string is not
+        // the constant `ALL`.
+        let body = lines[a..b].iter().map(|l| code::strip_strings_and_comments(l)).collect::<Vec<_>>().join("\n");
         // constants: identifiers in the body that the index defines as const, in this file first
         let mut names: Vec<&str> = code::identifiers(&body).filter(|w| w.chars().any(|c| c.is_ascii_uppercase()) && *w != d.name).collect();
         names.sort_unstable();
