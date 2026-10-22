@@ -15,6 +15,9 @@ pub struct GoldQuestion {
     pub answer: String,
     #[serde(default)]
     pub related: bool,
+    /// Files the session is taken to be working on, weight 1 each.
+    #[serde(default)]
+    pub working: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -57,7 +60,7 @@ pub fn load_gold(path: &std::path::Path) -> Result<GoldSet> {
 /// Runs every question through `memory` with k = 10. A question whose
 /// project is unknown is skipped and counted.
 pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mode, label: &str) -> Result<Report> {
-    let opts = SearchOptions { k: 10, mode };
+    let opts = SearchOptions { k: 10, mode, working: Vec::new() };
     let mut ranks: Vec<Option<usize>> = Vec::with_capacity(gold.questions.len());
     let mut misses: Vec<(String, String, Vec<String>)> = Vec::new();
     let mut times: Vec<f64> = Vec::with_capacity(gold.questions.len());
@@ -74,6 +77,7 @@ pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mod
         let flags = ScopeFlags { related: q.related, ..Default::default() };
         let scope: Scope = project::resolve_scope(conn, Some(&p), &flags)?;
         let t0 = Instant::now();
+        let opts = SearchOptions { working: q.working.iter().map(|f| (f.clone(), 1.0)).collect(), ..opts.clone() };
         let hits = memory.search(&scope, &q.question, &opts)?;
         times.push(t0.elapsed().as_secs_f64() * 1000.0);
         if let Some(c) = hits.iter().filter(|h| h.path == q.answer).filter_map(|h| h.trace.cosine).reduce(f32::max) {

@@ -22,7 +22,7 @@ fn question_symbol_then_note_symbols_then_uses() {
     store::save_note(&mut conn, &p, "memorycastle/journal/2026-10-18-alpha_sum.md", note, &SaveOptions { source: "user", force: false }).unwrap();
     graph::ensure_links(&mut conn, id).unwrap();
     let scope = Scope::single(id);
-    let (hits, _) = search(&conn, &scope, "why does alpha_sum add one", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "why does alpha_sum add one", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(!hits.is_empty());
     let out = spans::ranked(&conn, id, Some(root), "why does alpha_sum add one", &hits).unwrap();
     let names: Vec<&str> = out.iter().map(|s| s.name.as_str()).collect();

@@ -88,11 +88,42 @@ impl Context {
     }
 
     pub fn search(&mut self, query: &str, flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {
-        let (mut hits, ex) = self.search_ranked(query, flags, opts)?;
+        let mut opts = opts.clone();
+        if opts.working.is_empty() {
+            opts.working = self.working_set()?;
+        }
+        let (mut hits, ex) = self.search_ranked(query, flags, &opts)?;
         if let Some(root) = self.repo.as_ref().map(|r| r.root.clone()) {
             search::mark_code_changed(&self.conn, &root, &mut hits)?;
         }
         Ok((hits, ex))
+    }
+
+    /// The files this session is working on: its edits and reads in the
+    /// last `WORKING_WINDOW_SECS`, an edit weighing 1.0 and a read
+    /// `WORKING_READ_WEIGHT`, halved every `WORKING_HALF_LIFE_SECS`, the
+    /// `WORKING_MAX_FILES` heaviest. Empty without a project or a session.
+    pub fn working_set(&self) -> Result<Vec<(String, f32)>> {
+        use crate::limits::{WORKING_HALF_LIFE_SECS, WORKING_MAX_FILES, WORKING_READ_WEIGHT, WORKING_WINDOW_SECS};
+        let Some(pid) = self.project.as_ref().map(|p| p.id) else { return Ok(Vec::new()) };
+        let Some(sid) = store::current_session(&self.conn, pid)? else { return Ok(Vec::new()) };
+        let now = crate::sys::now();
+        let mut w: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+        for (table, kind_w) in [("edits", 1.0f32), ("reads", WORKING_READ_WEIGHT)] {
+            let mut stmt = self.conn.prepare_cached(&format!(
+                "SELECT path, MAX(at) FROM {table} WHERE project_id = ?1 AND session = ?2 AND at >= ?3 AND path NOT LIKE 'memorycastle/%' GROUP BY path"
+            ))?;
+            for row in stmt.query_map(rusqlite::params![pid, sid, now - WORKING_WINDOW_SECS], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+                let (path, at) = row?;
+                let v = kind_w * 0.5f32.powf((now - at).max(0) as f32 / WORKING_HALF_LIFE_SECS);
+                let e = w.entry(path).or_insert(0.0);
+                *e = e.max(v);
+            }
+        }
+        let mut out: Vec<(String, f32)> = w.into_iter().collect();
+        out.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        out.truncate(WORKING_MAX_FILES);
+        Ok(out)
     }
 
     fn search_ranked(&mut self, query: &str, flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {

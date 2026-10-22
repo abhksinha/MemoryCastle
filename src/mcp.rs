@@ -195,7 +195,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             };
             let sections = args.get("sections").and_then(Value::as_bool).unwrap_or(false);
             let brief = args.get("brief").and_then(Value::as_bool).unwrap_or(true) && !sections;
-            let (hits, explain) = ctx.search(query, &flags, &SearchOptions { k, mode })?;
+            let (hits, explain) = ctx.search(query, &flags, &SearchOptions { k, mode, working: Vec::new() })?;
             let read = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {
                     crate::code::refresh(&mut ctx.conn, p.id, &r)?;

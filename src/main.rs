@@ -495,7 +495,7 @@ fn run(cli: Cli) -> Result<()> {
             let mode = if meaning { Mode::Meaning } else if keyword { Mode::Keyword } else { Mode::Auto };
             // Brief is the default; sections, the full block and explain (which needs the trace field) opt out.
             let brief = brief || !(sections || full || explain);
-            let (hits, ex) = ctx.search(&query, &scope.flags(), &SearchOptions { k, mode })?;
+            let (hits, ex) = ctx.search(&query, &scope.flags(), &SearchOptions { k, mode, working: Vec::new() })?;
             let read_spans = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {
                     memorycastle::code::refresh(&mut ctx.conn, p.id, &r)?;
@@ -792,7 +792,7 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             let Some(pid) = ctx.project.as_ref().map(|p| p.id) else { return Ok(()) };
-            let (hits, _) = ctx.search(&text, &ScopeFlags::default(), &SearchOptions { k: memorycastle::limits::RECALL_MAX_NOTES * 2, mode: Mode::Auto })?;
+            let (hits, _) = ctx.search(&text, &ScopeFlags::default(), &SearchOptions { k: memorycastle::limits::RECALL_MAX_NOTES * 2, mode: Mode::Auto, working: Vec::new() })?;
             let sid = store::current_session(&ctx.conn, pid)?;
             let mut out = String::new();
             let mut shown: Vec<i64> = Vec::new();

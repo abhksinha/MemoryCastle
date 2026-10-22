@@ -23,10 +23,13 @@ pub enum Mode {
     Meaning,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct SearchOptions {
     pub k: usize,
     pub mode: Mode,
+    /// Files this session is working on, repo-relative, with a weight 0 to
+    /// 1 (`Context::working_set`); notes linked to them rank higher.
+    pub working: Vec<(String, f32)>,
 }
 
 /// Where a result came from. Ranks are 1-based; `None` means that channel did
@@ -47,6 +50,9 @@ pub struct Trace {
     /// question names, 1.2 when a question symbol is defined in a file the
     /// note links, 1.0 otherwise.
     pub graph: f32,
+    /// Working-set weight applied: up to `WORKING_WEIGHT` when the note links
+    /// a file the session is working on, or a symbol defined in one.
+    pub working: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -332,9 +338,44 @@ pub fn search(
             h.trace.score *= h.trace.graph;
         }
     }
+    // Working set: notes about the files this session edited or read rank
+    // higher. A smaller factor than the graph's, and only the score moves, so
+    // it orders hits inside a confidence quarter and never lifts one over
+    // the floor.
+    if !opts.working.is_empty() {
+        let mut defined: HashMap<String, f32> = HashMap::new();
+        for pid in scope.ids() {
+            for (path, w) in &opts.working {
+                let mut stmt = conn.prepare_cached("SELECT name FROM code_defs WHERE project_id = ?1 AND path = ?2")?;
+                for name in stmt.query_map(rusqlite::params![pid, path], |r| r.get::<_, String>(0))? {
+                    let e = defined.entry(name?).or_insert(0.0);
+                    *e = e.max(*w);
+                }
+            }
+        }
+        for h in hits.iter_mut() {
+            let Some(l) = links.get(&h.note_id) else { continue };
+            let mut best = 0.0f32;
+            for (k, t) in l {
+                let w = match k {
+                    crate::graph::Kind::File => opts.working.iter().filter(|(f, _)| crate::graph::same_file(t, f)).map(|(_, w)| *w).fold(0.0, f32::max),
+                    crate::graph::Kind::Symbol => defined.iter().filter(|(n, _)| crate::graph::same_symbol(t, n)).map(|(_, w)| *w).fold(0.0, f32::max),
+                    crate::graph::Kind::Note => 0.0,
+                };
+                best = best.max(w);
+            }
+            if best > 0.0 {
+                h.trace.working = 1.0 + (WORKING_WEIGHT - 1.0) * best;
+                h.trace.score *= h.trace.working;
+            }
+        }
+    }
     for h in hits.iter_mut() {
         if h.trace.graph == 0.0 {
             h.trace.graph = 1.0;
+        }
+        if h.trace.working == 0.0 {
+            h.trace.working = 1.0;
         }
     }
     // Order by the number that is printed, in quarters: a 0.44 never sits
@@ -409,7 +450,7 @@ fn bm25_channel(conn: &Connection, scope: &Scope, fts_query: &str) -> Result<Vec
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
-pub use crate::limits::{COSINE_CEIL, COSINE_FLOOR, GRAPH_BRIDGE_WEIGHT, GRAPH_DIRECT_WEIGHT, MIN_CONFIDENCE, SECTION_CUE_WEIGHT};
+pub use crate::limits::{COSINE_CEIL, COSINE_FLOOR, GRAPH_BRIDGE_WEIGHT, GRAPH_DIRECT_WEIGHT, MIN_CONFIDENCE, SECTION_CUE_WEIGHT, WORKING_WEIGHT};
 
 /// After ranking, with the checkout at hand: a hit whose note names a symbol
 /// whose body changed since the note was saved is labelled and weighted by

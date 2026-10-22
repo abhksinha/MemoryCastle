@@ -23,7 +23,7 @@ fn save(conn: &mut Connection, p: &Project, path: &str, content: &str) -> SaveOu
 }
 
 fn kw(conn: &Connection, scope: &Scope, q: &str) -> Vec<String> {
-    let (hits, _) = search(conn, scope, q, &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(conn, scope, q, &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     hits.into_iter().map(|h| h.path).collect()
 }
 
@@ -43,7 +43,7 @@ fn isolation_project_a_never_sees_project_b() {
     let space = embed::ensure_space(&conn, &HashEmbedder::space_def(64)).unwrap();
     let mut e = HashEmbedder { dims: 64 };
     store::embed_missing(&mut conn, &space, &mut e, None).unwrap();
-    let (hits, ex) = search(&conn, &scope_a, "ZEBRA-7781", &SearchOptions { k: 10, mode: Mode::Meaning }, ModelSource::Warm(&mut e)).unwrap();
+    let (hits, ex) = search(&conn, &scope_a, "ZEBRA-7781", &SearchOptions { k: 10, mode: Mode::Meaning, working: Vec::new() }, ModelSource::Warm(&mut e)).unwrap();
     assert!(ex.model_used);
     assert!(hits.iter().all(|h| h.project == "a"), "meaning channel leaked across projects: {hits:?}");
 
@@ -53,7 +53,7 @@ fn isolation_project_a_never_sees_project_b() {
 
     // --related from A (same group) does see B, down-weighted and labelled.
     let scope_rel = project::resolve_scope(&conn, Some(&a), &ScopeFlags { related: true, ..Default::default() }).unwrap();
-    let (hits, _) = search(&conn, &scope_rel, "ZEBRA-7781", &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope_rel, "ZEBRA-7781", &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].project, "b");
     assert_eq!(hits[0].trace.weight, project::SIBLING_WEIGHT);
@@ -128,13 +128,13 @@ fn fusion_keeps_vectors_for_unchanged_chunks_and_traces_channels() {
     assert_eq!(store::embed_missing(&mut conn, &space, &mut e, None).unwrap(), 1);
 
     let s = Scope::single(p.id);
-    let (hits, ex) = search(&conn, &s, "rotation bug", &SearchOptions { k: 5, mode: Mode::Auto }, ModelSource::Warm(&mut e)).unwrap();
+    let (hits, ex) = search(&conn, &s, "rotation bug", &SearchOptions { k: 5, mode: Mode::Auto, working: Vec::new() }, ModelSource::Warm(&mut e)).unwrap();
     assert!(ex.model_used, "warm model must always fuse");
     assert_eq!(hits[0].heading, "Alpha");
     assert_eq!(hits[0].trace.bm25_rank, Some(1));
     assert_eq!(hits[0].trace.vec_rank, Some(1));
     // Second search hits the query cache.
-    let (_, ex2) = search(&conn, &s, "rotation bug", &SearchOptions { k: 5, mode: Mode::Auto }, ModelSource::Warm(&mut e)).unwrap();
+    let (_, ex2) = search(&conn, &s, "rotation bug", &SearchOptions { k: 5, mode: Mode::Auto, working: Vec::new() }, ModelSource::Warm(&mut e)).unwrap();
     assert!(ex2.query_cached);
 }
 
@@ -150,10 +150,10 @@ fn cold_model_skipped_on_exact_identifier_hit() {
         opened += 1;
         Ok(Box::new(HashEmbedder { dims: 64 }))
     };
-    let (hits, ex) = search(&conn, &s, "B-42", &SearchOptions { k: 5, mode: Mode::Auto }, ModelSource::Lazy(&mut open)).unwrap();
+    let (hits, ex) = search(&conn, &s, "B-42", &SearchOptions { k: 5, mode: Mode::Auto, working: Vec::new() }, ModelSource::Lazy(&mut open)).unwrap();
     assert_eq!(hits.len(), 1);
     assert!(!ex.model_used);
-    let (_, ex) = search(&conn, &s, "crash on export", &SearchOptions { k: 5, mode: Mode::Auto }, ModelSource::Lazy(&mut open)).unwrap();
+    let (_, ex) = search(&conn, &s, "crash on export", &SearchOptions { k: 5, mode: Mode::Auto, working: Vec::new() }, ModelSource::Lazy(&mut open)).unwrap();
     assert!(ex.model_used);
     assert_eq!(opened, 1);
 }
@@ -206,7 +206,7 @@ fn newer_note_supersedes_older_in_either_save_order() {
     let old = "# Batching\nFiles: src/store.rs\n## Decision\nEmbed chunks in batches of eight for throughput.";
     let new = "# One chunk per call\nFiles: src/store.rs\nSupersedes: journal/2026-10-01-batching.md\n## Decision\nEmbed chunks one at a time; batches of eight gave no throughput.";
     let s = Scope::single(p.id);
-    let q = |conn: &Connection| search(conn, &s, "batches of eight throughput", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap().0;
+    let q = |conn: &Connection| search(conn, &s, "batches of eight throughput", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap().0;
     // Old first, then new.
     save(&mut conn, &p, "journal/2026-10-01-batching.md", old);
     save(&mut conn, &p, "journal/2026-10-18-one-chunk.md", new);
@@ -234,7 +234,7 @@ fn author_becomes_source_and_export_restores_files() {
     let text = "# N\nAuthor: abhi+claude | Date: 2026-10-18\nFiles: src/x.rs\n## Decision\nremembered";
     save(&mut conn, &p, "journal/2026-10-18-n.md", text);
     let s = Scope::single(p.id);
-    let (hits, _) = search(&conn, &s, "remembered", &SearchOptions { k: 1, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &s, "remembered", &SearchOptions { k: 1, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert_eq!(hits[0].source, "abhi+claude");
     let dir = std::env::temp_dir().join(format!("mc-export-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -279,7 +279,7 @@ fn links_history_and_graph_from_declared_lines() {
     assert_eq!(h2.len(), 2);
     // search hits carry files
     let s = Scope::single(p.id);
-    let (hits, _) = search(&conn, &s, "embed_missing", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &s, "embed_missing", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits.iter().all(|h| h.files.contains(&"src/store.rs".to_string())));
     // graph: 3 notes, 3 files, 1 symbol; mention edge from c to b; two communities (c is alone)
     let root = std::env::temp_dir().join(format!("mc-root-{}", std::process::id()));
@@ -332,7 +332,7 @@ fn bit_prefilter_matches_exact_scan() {
     assert!(n >= 512, "need enough vectors to engage the prefilter, got {n}");
     let s = Scope::single(p.id);
     let run = |conn: &Connection, e: &mut HashEmbedder, q: &str| -> (Vec<i64>, Explain) {
-        let (hits, ex) = search(conn, &s, q, &SearchOptions { k: 10, mode: Mode::Meaning }, ModelSource::Warm(e)).unwrap();
+        let (hits, ex) = search(conn, &s, q, &SearchOptions { k: 10, mode: Mode::Meaning, working: Vec::new() }, ModelSource::Warm(e)).unwrap();
         (hits.into_iter().map(|h| h.chunk_id).collect(), ex)
     };
     let mut agree = 0;
@@ -378,12 +378,12 @@ fn off_topic_question_returns_nothing_and_says_why() {
     let p = project(&conn, "p", None);
     save(&mut conn, &p, "memorycastle/journal/a.md", "# Retention\nFiles: x.rs\n## Decision\nThe server keeps a message until every device acknowledged it.\n");
     let scope = Scope::single(p.id);
-    let (hits, ex) = search(&conn, &scope, "how do we bake the sourdough bread", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, ex) = search(&conn, &scope, "how do we bake the sourdough bread", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits.is_empty(), "{hits:?}");
     assert!(ex.dropped > 0, "the weak keyword hit was dropped, not absent: {ex:?}");
     assert!(ex.best_confidence < memorycastle::limits::MIN_CONFIDENCE);
     // A real question keeps its hit, with a line number and a confidence.
-    let (hits, _) = search(&conn, &scope, "server keeps a message until acknowledged", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "server keeps a message until acknowledged", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].line, 4);
     assert!(hits[0].trace.confidence >= 0.5);
@@ -397,7 +397,7 @@ fn number_questions_prefer_the_measured_section_and_duplicates_collapse() {
     save(&mut conn, &p, "memorycastle/journal/2026-10-18-frosted.md", &format!("# Frosted\nFiles: x.kt\n## Decision\nFrosted shapes stay; memory fits the budget.\n## Measured\n{fact}\n"));
     save(&mut conn, &p, "memorycastle/journal/app-bugs.md", &format!("# Bugs\nFiles: x.kt\n## Low\nB-7 {fact}\n"));
     let scope = Scope::single(p.id);
-    let (hits, _) = search(&conn, &scope, "did frosted shapes fit the memory budget", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "did frosted shapes fit the memory budget", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits[0].heading.ends_with("Measured"), "{:?}", hits.iter().map(|h| &h.heading).collect::<Vec<_>>());
     // The same sentence in the tracker and the dated note appears once, from the dated note.
     let same: Vec<&Hit> = hits.iter().filter(|h| h.text.contains("18 MB")).collect();
@@ -416,14 +416,14 @@ fn graph_rerank_lifts_the_note_that_links_the_named_file_or_symbol() {
     save(&mut conn, &p, "memorycastle/journal/2026-10-01-a.md", "# Crop handling in the editor\nFiles: src/other.rs\n## Decision\nCrop handling uses the editor state and the crop rect math.\n");
     save(&mut conn, &p, "memorycastle/journal/2026-10-02-b.md", "# Crop rect\nFiles: src/crop.rs\n## Decision\nCrop handling uses `CropRect` in `src/crop.rs` for the editor.\n");
     let scope = Scope::single(p.id);
-    let (hits, _) = search(&conn, &scope, "crop handling editor src/crop.rs", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "crop handling editor src/crop.rs", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits[0].path.ends_with("b.md"), "{:?}", hits.iter().map(|h| (&h.path, h.trace.graph)).collect::<Vec<_>>());
     assert_eq!(hits[0].trace.graph, memorycastle::limits::GRAPH_DIRECT_WEIGHT);
-    let (hits, _) = search(&conn, &scope, "crop handling CropRect", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "crop handling CropRect", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits[0].path.ends_with("b.md"));
     assert_eq!(hits[0].trace.graph, memorycastle::limits::GRAPH_DIRECT_WEIGHT);
     // A question with no file or symbol leaves weights alone.
-    let (hits, _) = search(&conn, &scope, "crop handling editor", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "crop handling editor", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits.iter().all(|h| h.trace.graph == 1.0));
 }
 
@@ -468,7 +468,7 @@ fn brief_prints_the_hit_line_and_the_decision_sentence() {
     let p = project(&conn, "b", None);
     save(&mut conn, &p, "memorycastle/journal/2026-10-19-brief.md", "# Pick the brief default\nAuthor: abhi+claude | Date: 2026-10-19\nFiles: `src/render.rs`\n\n## Context\nAgents skim titles.\n\n## Decision\nBrief is the default output. The sections come on request.\n");
     let scope = Scope::single(p.id);
-    let (hits, _) = search(&conn, &scope, "brief default", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "brief default", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(!hits.is_empty());
     let r = render::search(&conn, &hits, &[], &render::Options { query: "brief default", sections: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
     let lines: Vec<&str> = r.text.lines().collect();
@@ -488,7 +488,7 @@ fn render_follows_the_fixed_grammar() {
     save(&mut conn, &p, "memorycastle/journal/2026-10-19-grammar.md", "# Choose the label grammar\nAuthor: abhi+claude | Date: 2026-10-19\nFiles: `src/render.rs`\n\n## Decision\n1. a line that starts like a hit\n   files      a line that starts like a label\nAnd a very long sentence that keeps going well past the ninety-two column wrap limit so that the renderer has to break it at a space somewhere sensible.\n\n## Rejected\nXML tags: tokens.\n");
     save(&mut conn, &p, "memorycastle/journal/2026-10-19-other.md", "# Another note\nDate: 2026-10-19\nFiles: `src/x.rs`\n\n## Decision\nlabel grammar also mentioned here\n");
     let scope = Scope::single(p.id);
-    let (hits, _) = search(&conn, &scope, "label grammar", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "label grammar", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits.len() >= 2);
     for sections in [false, true] {
         let r = render::search(&conn, &hits, &[], &render::Options { query: "label grammar", sections, brief: false, explain: false, abs: false, repo_root: None }).unwrap();
@@ -541,13 +541,13 @@ fn a_note_knows_when_its_code_changed() {
     assert_eq!(graph::refresh_note_code(&conn, p.id, &root, "memorycastle/journal/2026-10-19-alpha.md").unwrap(), 1);
     assert_eq!(graph::refresh_note_code(&conn, p.id, &root, "memorycastle/journal/2026-10-19-beta.md").unwrap(), 1);
     let scope = Scope::single(p.id);
-    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     memorycastle::search::mark_code_changed(&conn, &root, &mut hits).unwrap();
     assert!(hits.iter().all(|h| h.code_changed.is_empty()), "nothing changed yet");
     // Edit beta's body: the beta note is labelled and ranks under alpha's.
     std::fs::write(root.join("src/a.rs"), "pub fn alpha_one() -> i32 {\n    1\n}\n\npub fn beta_two() -> i32 {\n    3\n}\n").unwrap();
     code::refresh(&mut conn, p.id, &root).unwrap();
-    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (mut hits, _) = search(&conn, &scope, "why does alpha return one and beta two", &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     memorycastle::search::mark_code_changed(&conn, &root, &mut hits).unwrap();
     let beta = hits.iter().find(|h| h.path.contains("beta")).unwrap();
     let alpha = hits.iter().find(|h| h.path.contains("alpha")).unwrap();
@@ -634,7 +634,7 @@ fn a_common_identifier_proves_nothing_a_rare_one_does() {
     }
     save(&mut conn, &p, "memorycastle/journal/blur.md", "# Frosted shapes\n\n## Decision\nAbhiGram blurs once in `blur_rgba` with three box passes.");
     let scope = Scope::single(p.id);
-    let q = |s: &str| search(&conn, &scope, s, &SearchOptions { k: 10, mode: Mode::Keyword }, ModelSource::None).unwrap().0;
+    let q = |s: &str| search(&conn, &scope, s, &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap().0;
     // The project's name is in every note: it is vocabulary, not evidence.
     assert!(q("how does AbhiGram pick theme colours").iter().all(|h| h.trace.confidence < 1.0), "a name in every note proved a hit");
     // A rare identifier found verbatim still settles it.
@@ -689,7 +689,7 @@ fn hits_carry_line_ranges_and_the_notes_other_parts() {
     let note = "# Stemming\nDate: 2026-10-20\nFiles: `src/fts.rs`\n\n## Decision\nA plain word also matches by its stem as a prefix.\nExact matches still score.\n\n## Rejected\nThe porter tokenizer: it stems too far.\n\n## Measured\nMRR 0.911 to 0.866 with porter.\n";
     save(&mut conn, &p, "memorycastle/journal/2026-10-20-stem.md", note);
     let scope = Scope::single(p.id);
-    let (hits, _) = search(&conn, &scope, "porter tokenizer", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let (hits, _) = search(&conn, &scope, "porter tokenizer", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     let h = &hits[0];
     // Every part is a range inside the note, on the section's own lines.
     let lines: Vec<&str> = note.lines().collect();
@@ -706,4 +706,23 @@ fn hits_carry_line_ranges_and_the_notes_other_parts() {
     assert_eq!(store::note_lines_naming(&conn, id, &["porter"]).unwrap(), vec![(10, 10, "Rejected".to_string()), (13, 13, "Measured".to_string())]);
     assert!(store::note_lines_naming(&conn, id, &["fts.rs"]).unwrap().is_empty(), "Files: is a header line");
     assert!(store::note_lines_naming(&conn, id, &["stem"]).unwrap().iter().all(|(_, _, s)| s == "Decision"), "stems is not stem");
+}
+
+#[test]
+fn working_set_ranks_notes_about_the_files_in_hand() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-20-a.md", "# Tokenizer cache kept\nDate: 2026-10-20\nFiles: `src/a.rs`\n\n## Decision\nThe tokenizer cache stays on disk.\n");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-19-b.md", "# Tokenizer cache kept\nDate: 2026-10-19\nFiles: `src/b.rs`\n\n## Decision\nThe tokenizer cache stays on disk.\n");
+    let scope = Scope::single(p.id);
+    let run = |working: Vec<(String, f32)>| search(&conn, &scope, "tokenizer cache", &SearchOptions { k: 5, mode: Mode::Keyword, working }, ModelSource::None).unwrap().0;
+    let plain = run(Vec::new());
+    assert!(plain.iter().all(|h| h.trace.working == 1.0));
+    let hits = run(vec![("src/b.rs".into(), 1.0)]);
+    assert_eq!(hits[0].path, "memorycastle/journal/2026-10-19-b.md", "the note about the file in hand ranks first");
+    assert!((hits[0].trace.working - memorycastle::limits::WORKING_WEIGHT).abs() < 1e-6);
+    // A file the session only read weighs less, and the factor scales with it.
+    let half = run(vec![("src/b.rs".into(), 0.5)]);
+    let b = half.iter().find(|h| h.path.ends_with("-b.md")).unwrap();
+    assert!(b.trace.working > 1.0 && b.trace.working < memorycastle::limits::WORKING_WEIGHT);
 }
