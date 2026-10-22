@@ -14,13 +14,17 @@ WHEN TO USE WHICH
     Prints `at: <fn> (<kind>) path:a-b holds line N` (the function; when it
     is longer than 150 lines, `too wide: read path:c-d <block header>` names
     the match arm or block to read instead), then the notes about that
-    function. Read the printed span, not the file.
+    function. Read the printed span, not the file. When no note names the
+    function, the file's notes follow, those naming a function it calls or
+    is called by first (`as <that function>`).
 
   You want to know where a function is, who calls it and what it calls:
       memcastle links <symbol>
-    Prints `defined: path:a-b (fn)`, `called by: N  caller path:line, ...`,
-    `calls: N  a, b, c, ...`, then the notes that name it. Four names per
-    line and `+N more`. Works before the first note exists.
+    Prints `defined: path:a-b (fn)`, `called by: N  caller path:line 0.9,
+    ...` (most confident first), `calls: N  a, b, c, ...`, then the notes
+    that name it. A name defined in several places gets each definition
+    with its own callers. Four names per line and `+N more`. Works before
+    the first note exists.
 
   You want the exact lines to read before changing a function's contract:
       memcastle links <symbol> --context
@@ -30,7 +34,8 @@ WHEN TO USE WHICH
 
   You are new to a file and want its shape without opening it:
       memcastle links <file>
-    With notes: the five newest, then `+N more`. Without: `defines: N in
+    With notes: the five newest, the first two with their Decision
+    sentence, then `+N more`. Without: `defines: N in
     path  fn a:1-20, type B:22-40, ...`, `imported by: N files`, `used
     from: N files  x, y, ...` (most mentions first).
 
@@ -39,13 +44,20 @@ WHEN TO USE WHICH
 
 HOW TO READ THE ANSWER
   `defined:` is where the code is now, re-found if the file changed since
-  the index. A note line is `path  title  date  (author)`; `(superseded by
+  the index. A note line is `path  title  date  (author)`, and under it
+  `decision  <first Decision sentence>` for the first two; `(superseded by
   X)` means the decision was reversed, read X instead; `as foo::bar` is the
-  spelling the note used. `called by name:` appears when the symbol has
-  several definitions: callers are matched by name, so some may belong to
-  another definition. All call edges are by name: `x.run()` with two `run`s
-  lists both, a call through a trait or a macro is missed. Use a language
-  server when the exact one matters. `no notes link to <target>` followed
+  spelling the note used, or the neighbouring function it was ranked by.
+  The number after a caller is how likely the call reaches this definition,
+  measured on history (the share of call sites updated when the function's
+  signature changed, over the best class): 1.0 `self.f(` or a bare call in
+  the same file, 0.9 a bare call to a name defined once, 0.7 `module::f(`
+  naming this file or `x.f(` to a name defined once, 0.5 `Type.f(` naming a
+  type defined here, 0.2 anything else. `(+N by name only, under 0.3: ...)`
+  counts calls that likely reach another definition or go through a value
+  whose type the line does not say; they are not listed. A call through a
+  trait or a macro is missed. Use a language server when the exact one
+  matters. `no notes link to <target>` followed
   by nothing means the index has no such file or symbol: check the spelling
   or run `memcastle graph --code`.
 ";

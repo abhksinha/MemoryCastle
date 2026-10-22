@@ -68,14 +68,14 @@ Cite a note as `memorycastle/journal/<note>.md:<line>` when you use it in an exp
 | decide something in an area that may have history | `memcastle search "<question>"` | one line per hit with confidence and the Decision sentence; pick a note, then `--sections` for its Decision, Rejected, Measured in full |
 | know whether an approach was already tried | `memcastle search "<approach>" --sections` | a `Rejected` section is the answer; `no relevant note` means it was not recorded, go ahead and write the note after |
 | edit a function | `memcastle links <file> --at <line>` | `at: <fn> path:a-b holds line N` (or `too wide: read path:c-d <block>` for a long function) and the notes about that function; read the span, not the file |
-| know where a function is, who calls it, what it calls | `memcastle links <symbol>` | `defined: path:a-b`, `called by: N ...`, `calls: N ...`, then its notes; edges are by name, so a trait or macro call is missed |
+| know where a function is, who calls it, what it calls | `memcastle links <symbol>` | `defined: path:a-b`, `called by: N  caller path:line 0.9, ...` (each caller scored, see below), `calls: N ...`, then its notes; a name defined in several places gets each definition with its own callers |
 | read the exact lines that depend on a function | `memcastle links <symbol> --context` | `read: path:a-b  caller  calls <symbol>` per using file, plus the constants its body uses; each `read:` span is sized to read whole |
-| get the shape of a file you have not opened | `memcastle links <file>` | its five newest notes, or with none: `defines:`, `imported by:`, `used from:` |
+| get the shape of a file you have not opened | `memcastle links <file>` | its five newest notes (the first two with their Decision sentence), or with none: `defines:`, `imported by:`, `used from:` |
 | see how a decision changed | `memcastle history memorycastle/journal/<note>.md` | the supersede chain, oldest first |
 | know what this session saved and what is owed | `memcastle status` | counts, savings this session and all time, notes about files that no longer exist, definitions too wide to read |
 | record what you decided, rejected or measured | write `memorycastle/journal/YYYY-MM-DD-<topic>.md`, then `memcastle save <file>` | `save` fills Author and Date, warns when `Files:` misses files you edited, and prints the note's quality flags |
 
-Labels you will meet: `confidence` 1.00 is a verbatim identifier hit, under 0.30 is dropped; `code changed since: <symbols>` means read the code before trusting the note; `superseded by <note>` means act on the newer note; `called by name:` means the symbol has several definitions and callers are matched by name. The same text is in `memcastle search --help` and `memcastle links --help`.
+Labels you will meet: `confidence` 1.00 is a verbatim identifier hit, under 0.30 is dropped; `code changed since: <symbols>` means read the code before trusting the note; `superseded by <note>` means act on the newer note; a caller's number is how likely the call reaches this definition (1.0 `self.f(` or same file, 0.9 bare call to a name defined once, 0.7 `module::f(` naming this file, 0.5 `Type.f(`, 0.2 anything else; measured as the share of call sites updated when the signature changed), and `+N by name only, under 0.3` counts calls left out because they likely reach another definition; `as <name>` on a note is the spelling it used or the neighbouring function it was ranked by. The same text is in `memcastle search --help` and `memcastle links --help`.
 
 ## 5. Before you edit code
 
@@ -92,13 +92,14 @@ memcastle history memorycastle/journal/<note>.md   # how a decision changed over
 A symbol answer looks like this, about 70 tokens:
 
 ```
-defined: src/code.rs:413-464  (fn)
-   called by: 4  definitions src/code.rs:368, current_span src/code.rs:554 +2 more
-   calls: 1  strip_strings_and_comments
-memorycastle/journal/2026-10-18-code-spans.md  Code spans ...  2026-10-18  (abhi+claude)
+defined: src/draft.rs:30-56  (fn)
+   called by: 4  write src/draft.rs:79 0.9, run src/main.rs:844 0.7 +2 more
+   calls: 2  current_session, session_started
+memorycastle/journal/2026-10-22-shell-edits-at-mtime.md  A shell edit is recorded at the file's mtime ...  2026-10-22  (abhi+claude)
+   decision   `changed` passes each file's mtime to `edited --mtime` ...
 ```
 
-Call edges are by name: `x.run()` with two `run`s in the tree lists both, and a call through a trait or a macro is missed. Use a language server when you need the exact one. Read only the printed line range, not the file. In Claude Code a hook runs `links` for you before every edit and prints the spans; when the edit's `old_string` places the line, it looks up the definition that holds it (`links <file> --at <line>`, printed as `about: <symbol>`), so you see the notes about that function, not every note about the file. Reading a whole file that has a printed span is blocked once with the range to read instead.
+A name with several definitions (`run` in three files) gets each one with its own callers: a bare `run(` in `gate.rs` is `gate.rs`'s `run` at 1.0, and calls that cannot be placed are counted as `+N by name only` instead of listed under every definition. A call through a trait or a macro is missed. Use a language server when you need the exact one. Read only the printed line range, not the file. In Claude Code a hook runs `links` for you before every edit and prints the spans; when the edit's `old_string` places the line, it looks up the definition that holds it (`links <file> --at <line>`, printed as `about: <symbol>`), so you see the notes about that function, not every note about the file. Reading a whole file that has a printed span is blocked once with the range to read instead.
 
 Run `memcastle graph --code` once per checkout so symbols resolve to definitions; after that it is incremental and the hooks keep it fresh.
 
