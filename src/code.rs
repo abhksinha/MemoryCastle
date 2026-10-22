@@ -1057,6 +1057,25 @@ pub fn callees_of(conn: &Connection, project_id: i64, name: &str, path: &str) ->
     Ok(rows.collect::<rusqlite::Result<_>>()?)
 }
 
+/// What `d` calls and what calls it, without utilities called from more
+/// than `NEIGHBOUR_MAX_CALLERS` places: the names a note about the code
+/// around `d` would use.
+pub fn neighbours(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<String>> {
+    let mut names = callees_of(conn, project_id, &d.name, &d.path)?;
+    for (caller, _, _) in callers_of(conn, project_id, &d.name)? {
+        if !names.contains(&caller) {
+            names.push(caller);
+        }
+    }
+    let mut out = Vec::with_capacity(names.len());
+    for n in names {
+        if callers_of(conn, project_id, &n)?.len() <= crate::limits::NEIGHBOUR_MAX_CALLERS {
+            out.push(n);
+        }
+    }
+    Ok(out)
+}
+
 /// The two call lines `links <symbol>` prints under `defined:`, bounded by
 /// `limits::CONTEXT_ITEMS` names each: who calls it, with file and line,
 /// and what it calls. Empty for a name with no call edges (a constant, a

@@ -1411,19 +1411,8 @@ fn run(cli: Cli) -> Result<()> {
             // the file: its title stays, its Decision line would be noise.
             let mut decisions = memorycastle::limits::LINKS_DECISIONS;
             if let (Some(d), graph::Kind::File) = (&at_def, kind) {
-                let mut names = memorycastle::code::callees_of(&ctx.conn, pid, &d.name, &d.path)?;
-                for (caller, _, _) in memorycastle::code::callers_of(&ctx.conn, pid, &d.name)? {
-                    if !names.contains(&caller) {
-                        names.push(caller);
-                    }
-                }
-                let mut specific = Vec::with_capacity(names.len());
-                for n in names {
-                    if memorycastle::code::callers_of(&ctx.conn, pid, &n)?.len() <= memorycastle::limits::NEIGHBOUR_MAX_CALLERS {
-                        specific.push(n);
-                    }
-                }
-                decisions = decisions.min(graph::rank_by_neighbours(&ctx.conn, pid, &mut notes, &specific)?);
+                let names = memorycastle::code::neighbours(&ctx.conn, pid, d)?;
+                decisions = decisions.min(graph::rank_by_neighbours(&ctx.conn, pid, &mut notes, &names)?);
             }
             let defs = match &at_def {
                 Some(d) if kind == graph::Kind::Symbol => vec![d.clone()],
