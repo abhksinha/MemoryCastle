@@ -270,7 +270,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 if let Some(r) = &root {
                     stood += std::fs::metadata(r.join(&d.path)).map(|m| m.len() as usize).unwrap_or(0).min(crate::limits::USAGE_FILE_CAP);
                 }
-                for l in crate::code::call_lines(&ctx.conn, pid, d, defs.len() == 1)? {
+                for l in crate::code::call_lines(&ctx.conn, pid, d, true)? {
                     text.push_str(&format!("   {l}\n"));
                 }
             }

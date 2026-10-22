@@ -27,6 +27,10 @@ if h.get("session_id"):
     os.environ["MEMORYCASTLE_SESSION"] = h["session_id"]
 cmd = (h.get("tool_input") or {}).get("command", "") or ""
 cwd = h.get("cwd") or os.getcwd()
+# `cd /elsewhere && cat > f`: relative paths are under that directory.
+lead = re.match(r"\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*(?:&&|;)", cmd)
+if lead:
+    cwd = os.path.join(cwd, os.path.expanduser(lead.group(1).strip("'\"")))
 
 
 def absolute(p):

@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "12";
+pub const CODE_VERSION: &str = "13";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -193,10 +193,10 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
             let rows = stmt.query_map(params![project_id, PROMISCUOUS_DEFS as i64], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as usize)))?;
             rows.collect::<rusqlite::Result<_>>()?
         };
-        let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_calls(project_id, src, caller, callee, line) VALUES (?1, ?2, ?3, ?4, ?5)")?;
+        let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_calls(project_id, src, caller, callee, line, qual) VALUES (?1, ?2, ?3, ?4, ?5, ?6)")?;
         for (path, text) in &changed {
-            for (caller, callee, line) in calls_in(path, text, &fn_names) {
-                ins.execute(params![project_id, path, caller, callee, line])?;
+            for (caller, callee, line, qual) in calls_in(path, text, &fn_names) {
+                ins.execute(params![project_id, path, caller, callee, line, qual])?;
                 st.calls += 1;
             }
         }
@@ -995,15 +995,16 @@ mod narrow_tests {
 /// the index defines (`names`), at least `MIN_CALL_LEN` long, in call shape
 /// on a line inside a definition's span; the innermost definition holding
 /// the line is the caller. Self-calls are skipped; `MAX_CALLS_PER_DEF`
-/// callees per caller, first seen first.
-pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(String, String, u32)> {
+/// callees per caller, first seen first. The fourth field is how the call
+/// is written (`qualifier`), which `call_confidence` turns into a score.
+pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(String, String, u32, String)> {
     let defs = definitions(path, text);
     if defs.is_empty() {
         return Vec::new();
     }
-    let mut out: Vec<(String, String, u32)> = Vec::new();
+    let mut out: Vec<(String, String, u32, String)> = Vec::new();
     let mut per: HashMap<String, usize> = HashMap::new();
-    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut seen: HashSet<(String, String, String)> = HashSet::new();
     for (i, raw) in text.lines().enumerate() {
         let ln = i as u32 + 1;
         if !raw.contains('(') {
@@ -1015,17 +1016,20 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
         }
         let code = strip_strings_and_comments(raw);
         for tok in identifiers(&code) {
-            if tok.len() < MIN_CALL_LEN || tok == caller.name || !names.contains_key(tok) {
+            if tok.len() < MIN_CALL_LEN || !names.contains_key(tok) {
                 continue;
             }
-            if !crate::spans::is_call(&code, tok) {
+            let Some(q) = qualifier(&code, tok) else { continue };
+            // A call to its own name is recursion unless it names another
+            // module or type (`eval::run` inside `main.rs`'s `run`).
+            if tok == caller.name && (q.is_empty() || q == "self" || q == ".") {
                 continue;
             }
             // `x.len()` is the standard library, not the project's `len`.
             if METHOD_STOPLIST.contains(&tok) && code.find(&format!(".{tok}(")).is_some() && !code.contains(&format!(" {tok}(")) && !code.contains(&format!("::{tok}(")) {
                 continue;
             }
-            let key = (caller.name.clone(), tok.to_string());
+            let key = (caller.name.clone(), tok.to_string(), q);
             if seen.contains(&key) {
                 continue;
             }
@@ -1035,10 +1039,141 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
             }
             *n += 1;
             seen.insert(key.clone());
-            out.push((key.0, key.1, ln));
+            out.push((key.0, key.1, ln, key.2));
         }
     }
     out
+}
+
+/// How the first call of `name` in `code` is written: `self` (`self.f(`,
+/// `this.f(`, `Self::f(`, `super::`, `crate::`), `X::` or `X.` (a module or
+/// type, or a capitalised receiver), `.` (a method on a value whose type the
+/// line does not say), or empty (a bare call).
+pub fn qualifier(code: &str, name: &str) -> Option<String> {
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(i) = code[from..].find(name) {
+        let start = from + i;
+        let end = start + name.len();
+        from = end;
+        if start > 0 && (bytes[start - 1].is_ascii_alphanumeric() || bytes[start - 1] == b'_') {
+            continue;
+        }
+        // `name::<T>(` is a call; `name::x` is a module path.
+        let rest = &code[end..];
+        if !(rest.starts_with('(') || rest.starts_with("!(") || rest.starts_with("::<")) {
+            continue;
+        }
+        let before = code[..start].trim_end();
+        let (sep, head) = if let Some(h) = before.strip_suffix("::") {
+            ("::", h)
+        } else if let Some(h) = before.strip_suffix('.') {
+            (".", h)
+        } else {
+            return Some(String::new());
+        };
+        let head = head.trim_end();
+        let word: String = head.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').collect::<Vec<_>>().into_iter().rev().collect();
+        if matches!(word.as_str(), "self" | "this" | "Self" | "super" | "crate") {
+            return Some("self".to_string());
+        }
+        if sep == "::" && !word.is_empty() {
+            return Some(format!("{word}::"));
+        }
+        if word.chars().next().is_some_and(char::is_uppercase) {
+            return Some(format!("{word}."));
+        }
+        return Some(".".to_string());
+    }
+    None
+}
+
+/// What an edge's way of being written says about whether it reaches `d`,
+/// as a measured share (see `limits::CALL_CONF_*`): a `self` call or a name
+/// with one definition is near certain; a qualifier naming `d`'s file or a
+/// type defined there points at `d`, one naming anything else points away;
+/// a method call on an unknown value to a name defined in several files is
+/// mostly another function.
+/// `same_file`: the call is in `d`'s own file, where a bare name resolves
+/// to the local definition first.
+pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<String>) -> f32 {
+    use crate::limits::*;
+    match qual {
+        "self" => CALL_CONF_SELF,
+        "" if unique => CALL_CONF_BARE_UNIQUE,
+        "" if same_file => CALL_CONF_SAME_FILE,
+        "" => CALL_CONF_OTHER,
+        "." if unique => CALL_CONF_METHOD_UNIQUE,
+        "." => CALL_CONF_OTHER,
+        q => {
+            let (word, path) = q.strip_suffix("::").map(|w| (w, true)).unwrap_or_else(|| (q.trim_end_matches('.'), false));
+            if own.contains(word) {
+                if path { CALL_CONF_QUALIFIED } else { CALL_CONF_TYPE }
+            } else {
+                CALL_CONF_OTHER
+            }
+        }
+    }
+}
+
+/// The names that point at `d`'s file: its stem (with and without `_`) and
+/// every non-function definition in it (types, traits, objects).
+fn own_names(conn: &Connection, project_id: i64, path: &str) -> Result<HashSet<String>> {
+    let stem = std::path::Path::new(path).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let mut own: HashSet<String> = [stem.to_string(), stem.replace('_', "")].into_iter().collect();
+    let mut stmt = conn.prepare_cached("SELECT name FROM code_defs WHERE project_id = ?1 AND path = ?2 AND kind != 'fn'")?;
+    for n in stmt.query_map(params![project_id, path], |r| r.get::<_, String>(0))? {
+        own.insert(n?);
+    }
+    Ok(own)
+}
+
+fn defined_once(conn: &Connection, project_id: i64, name: &str) -> Result<bool> {
+    let n: i64 = conn.query_row("SELECT count(DISTINCT path) FROM code_defs WHERE project_id = ?1 AND name = ?2 AND kind = 'fn'", params![project_id, name], |r| r.get(0))?;
+    Ok(n <= 1)
+}
+
+/// Who calls the definition `d`: (caller, file, line, confidence), most
+/// confident first, then by file and line.
+pub fn callers_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(String, String, u32, f32)>> {
+    let unique = defined_once(conn, project_id, &d.name)?;
+    let own = own_names(conn, project_id, &d.path)?;
+    let mut stmt = conn.prepare_cached("SELECT caller, src, line, qual FROM code_calls WHERE project_id = ?1 AND callee = ?2 ORDER BY src, line")?;
+    let rows: Vec<(String, String, u32, String)> = stmt
+        .query_map(params![project_id, d.name], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32, r.get(3)?)))?
+        .collect::<rusqlite::Result<_>>()?;
+    // One line per calling function: its most confident way of calling.
+    let mut out: Vec<(String, String, u32, f32)> = Vec::with_capacity(rows.len());
+    for (c, f, l, q) in rows {
+        let conf = call_confidence(&q, unique, f == d.path, &own);
+        match out.iter_mut().find(|o| o.0 == c && o.1 == f) {
+            Some(o) if o.3 < conf => *o = (c, f, l, conf),
+            Some(_) => {}
+            None => out.push((c, f, l, conf)),
+        }
+    }
+    out.sort_by(|a, b| b.3.total_cmp(&a.3));
+    Ok(out)
+}
+
+/// What `d` calls: (callee, confidence) in order of first call, the
+/// confidence being the best over the callee's definitions.
+pub fn callees_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(String, f32)>> {
+    let mut stmt = conn.prepare_cached("SELECT callee, qual FROM code_calls WHERE project_id = ?1 AND caller = ?2 AND src = ?3 ORDER BY line")?;
+    let rows: Vec<(String, String)> = stmt.query_map(params![project_id, d.name, d.path], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut out: Vec<(String, f32)> = Vec::with_capacity(rows.len());
+    for (callee, qual) in rows {
+        let unique = defined_once(conn, project_id, &callee)?;
+        let mut best = 0f32;
+        for t in defs_named(conn, project_id, &callee)? {
+            best = best.max(call_confidence(&qual, unique, t.path == d.path, &own_names(conn, project_id, &t.path)?));
+        }
+        match out.iter_mut().find(|o| o.0 == callee) {
+            Some(o) => o.1 = o.1.max(best),
+            None => out.push((callee, best)),
+        }
+    }
+    Ok(out)
 }
 
 /// Who calls `name`: (caller, file, line), by file then line.
@@ -1061,8 +1196,9 @@ pub fn callees_of(conn: &Connection, project_id: i64, name: &str, path: &str) ->
 /// than `NEIGHBOUR_MAX_CALLERS` places: the names a note about the code
 /// around `d` would use.
 pub fn neighbours(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<String>> {
-    let mut names = callees_of(conn, project_id, &d.name, &d.path)?;
-    for (caller, _, _) in callers_of(conn, project_id, &d.name)? {
+    let min = crate::limits::CALL_MIN_CONF;
+    let mut names: Vec<String> = callees_for(conn, project_id, d)?.into_iter().filter(|c| c.1 >= min).map(|c| c.0).collect();
+    for (caller, _, _, _) in callers_for(conn, project_id, d)?.into_iter().filter(|c| c.3 >= min) {
         if !names.contains(&caller) {
             names.push(caller);
         }
@@ -1083,13 +1219,19 @@ pub fn neighbours(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<Str
 pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: bool) -> Result<Vec<String>> {
     let cap = crate::limits::CONTEXT_ITEMS;
     let mut out = Vec::new();
-    let callers = if with_callers { callers_of(conn, project_id, &d.name)? } else { Vec::new() };
+    let min = crate::limits::CALL_MIN_CONF;
+    let all = if with_callers { callers_for(conn, project_id, d)? } else { Vec::new() };
+    let unlikely = all.iter().filter(|c| c.3 < min).count();
+    let callers: Vec<_> = all.into_iter().filter(|c| c.3 >= min).collect();
+    let tail = if unlikely > 0 { format!(" (+{unlikely} by name only, under {min:.1}: another `{}` or a call on a value of unknown type)", d.name) } else { String::new() };
     if !callers.is_empty() {
-        let shown: Vec<String> = callers.iter().take(cap).map(|(c, f, l)| format!("{c} {f}:{l}")).collect();
+        let shown: Vec<String> = callers.iter().take(cap).map(|(c, f, l, p)| format!("{c} {f}:{l} {p:.1}")).collect();
         let more = if callers.len() > cap { format!(" +{} more", callers.len() - cap) } else { String::new() };
-        out.push(format!("called by: {}  {}{more}", callers.len(), shown.join(", ")));
+        out.push(format!("called by: {}  {}{more}{tail}", callers.len(), shown.join(", ")));
+    } else if unlikely > 0 {
+        out.push(format!("called by: 0{tail}"));
     }
-    let callees = callees_of(conn, project_id, &d.name, &d.path)?;
+    let callees: Vec<String> = callees_for(conn, project_id, d)?.into_iter().filter(|c| c.1 >= min).map(|c| c.0).collect();
     if !callees.is_empty() {
         let more = if callees.len() > cap { format!(" +{} more", callees.len() - cap) } else { String::new() };
         out.push(format!("calls: {}  {}{more}", callees.len(), callees.iter().take(cap).cloned().collect::<Vec<_>>().join(", ")));
@@ -1104,12 +1246,34 @@ mod call_edge_tests {
     fn calls_are_name_in_call_shape_inside_a_function() {
         let src = "fn outer() {\n    let x = helper(1);\n    // helper(2) in a comment\n    let s = \"helper(3)\";\n    other::thing();\n    outer();\n}\nfn helper(n: i32) -> i32 { n }\nfn thing() {}\nconst K: i32 = helper(0);\n";
         let names: HashMap<String, usize> = ["outer", "helper", "thing", "find"].iter().map(|s| (s.to_string(), 1)).collect();
-        let c = calls_in("a.rs", &format!("{src}fn f2() {{\n    let i = s.find('x');\n    find(1);\n}}\nfn find(n: i32) {{}}\n"), &names);
+        let strip = |v: Vec<(String, String, u32, String)>| v.into_iter().map(|(a, b, l, _)| (a, b, l)).collect::<Vec<_>>();
+        let c = strip(calls_in("a.rs", &format!("{src}fn f2() {{\n    let i = s.find('x');\n    find(1);\n}}\nfn find(n: i32) {{}}\n"), &names));
         assert!(c.contains(&("f2".to_string(), "find".to_string(), 13)), "a free call to the project's find counts: {c:?}");
         assert!(!c.contains(&("f2".to_string(), "find".to_string(), 12)), "the method call line is not the edge: {c:?}");
         let c2 = calls_in("b.rs", "fn g() {\n    let i = s.find('x');\n}\nfn find(n: i32) {}\n", &names);
         assert!(c2.is_empty(), "a method call to a standard name is not an edge: {c2:?}");
-        let c = calls_in("a.rs", src, &names);
+        let full = calls_in("a.rs", src, &names);
+        assert_eq!(full[1].3, "other::", "the qualifier is kept: {full:?}");
+        let m = calls_in("m.rs", "fn outer() {\n    crate::helper::thing(1);\n}\n", &names);
+        assert!(m.iter().all(|c| c.1 != "helper"), "a module path is not a call: {m:?}");
+        let c = strip(full);
         assert_eq!(c, vec![("outer".to_string(), "helper".to_string(), 2), ("outer".to_string(), "thing".to_string(), 5)], "{c:?}");
+    }
+
+    #[test]
+    fn qualifier_says_how_a_call_is_written() {
+        assert_eq!(qualifier("let x = helper(1);", "helper").as_deref(), Some(""));
+        assert_eq!(qualifier("self.helper(1)", "helper").as_deref(), Some("self"));
+        assert_eq!(qualifier("Self::helper(1)", "helper").as_deref(), Some("self"));
+        assert_eq!(qualifier("store::helper(1)", "helper").as_deref(), Some("store::"));
+        assert_eq!(qualifier("Store.helper(1)", "helper").as_deref(), Some("Store."));
+        assert_eq!(qualifier("x.y.helper(1)", "helper").as_deref(), Some("."));
+        assert_eq!(qualifier("my_helper(1); helper(2)", "helper").as_deref(), Some(""));
+        assert_eq!(qualifier("search::stem(x)", "search"), None, "a module path");
+        assert_eq!(qualifier("parse::<u32>(x)", "parse").as_deref(), Some(""));
+        let own: HashSet<String> = ["store".to_string(), "Store".to_string()].into_iter().collect();
+        assert!(call_confidence("store::", false, false, &own) > call_confidence("other::", false, false, &own));
+        assert!(call_confidence("", false, true, &own) > call_confidence("", false, false, &own));
+        assert!(call_confidence(".", false, false, &own) < crate::limits::CALL_MIN_CONF);
     }
 }

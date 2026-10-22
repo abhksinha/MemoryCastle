@@ -129,6 +129,26 @@ pub const LINKS_DECISIONS: usize = 2;
 /// `current_session`) says nothing about the function being edited and does
 /// not rank a note: on this repo 95% of functions have at most 8 callers.
 pub const NEIGHBOUR_MAX_CALLERS: usize = 8;
+/// Confidence of a call edge by how it is written, measured 2026-10-22 on
+/// 532 signature changes in the history of three repos (AbhiGram,
+/// memorycastle, rushtex; 3,544 edges): the share of recorded call sites
+/// updated in the same commit, divided by the best class's 64% (not every
+/// signature change touches its callers). `self.f(` 64%, bare `f(` with one
+/// definition 59%, `x.f(` with one definition 47%, `module::f(` naming the
+/// definition's file or type 45%, `Type.f(` naming it 33%, bare `f(` with
+/// several definitions 31%, a qualifier naming something else 13%, `x.f(`
+/// with several definitions 13%. A bare `f(` with several definitions splits
+/// by where it is: in the definition's own file 70% (scoping resolves it
+/// there), from a file with its own `f` 19%, from any other file 0 of 59.
+pub const CALL_CONF_SELF: f32 = 1.0;
+pub const CALL_CONF_SAME_FILE: f32 = 1.0;
+pub const CALL_CONF_BARE_UNIQUE: f32 = 0.9;
+pub const CALL_CONF_METHOD_UNIQUE: f32 = 0.7;
+pub const CALL_CONF_QUALIFIED: f32 = 0.7;
+pub const CALL_CONF_TYPE: f32 = 0.5;
+pub const CALL_CONF_OTHER: f32 = 0.2;
+/// Edges under this are counted, not listed, and do not make neighbours.
+pub const CALL_MIN_CONF: f32 = 0.3;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.

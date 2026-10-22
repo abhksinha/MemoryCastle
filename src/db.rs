@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 21;
+pub const SCHEMA_VERSION: i64 = 22;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -332,6 +332,27 @@ fn migrate(conn: &Connection) -> Result<()> {
                  callee     TEXT NOT NULL,
                  line       INTEGER NOT NULL,
                  PRIMARY KEY (project_id, src, caller, callee),
+                 FOREIGN KEY (project_id, src) REFERENCES code_files(project_id, path) ON DELETE CASCADE
+             ) WITHOUT ROWID;
+             CREATE INDEX IF NOT EXISTS code_calls_callee ON code_calls(project_id, callee);",
+        )?;
+    }
+    if version < 22 {
+        // v22: how each call is written (`code::qualifier`), so an edge gets
+        // a confidence for the definition it is printed under. Filled by the
+        // reindex `CODE_VERSION` 13 triggers.
+        // One row per (file, caller, callee, qualifier): `gate::check` and
+        // `tripwire::check` from one function are two edges.
+        conn.execute_batch(
+            "DROP TABLE IF EXISTS code_calls;
+             CREATE TABLE code_calls (
+                 project_id INTEGER NOT NULL,
+                 src        TEXT NOT NULL,
+                 caller     TEXT NOT NULL,
+                 callee     TEXT NOT NULL,
+                 line       INTEGER NOT NULL,
+                 qual       TEXT NOT NULL DEFAULT '',
+                 PRIMARY KEY (project_id, src, caller, callee, qual),
                  FOREIGN KEY (project_id, src) REFERENCES code_files(project_id, path) ON DELETE CASCADE
              ) WITHOUT ROWID;
              CREATE INDEX IF NOT EXISTS code_calls_callee ON code_calls(project_id, callee);",

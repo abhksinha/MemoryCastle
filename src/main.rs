@@ -1474,9 +1474,10 @@ fn run(cli: Cli) -> Result<()> {
                         store::record_span(&ctx.conn, pid, &d.path, a, b, 0)?;
                     }
                     if !context {
-                        // Callers are by name, so with several definitions
-                        // they are printed once, after the definitions.
-                        let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, defs.len() == 1)?;
+                        // Callers per definition: a qualified call resolves
+                        // to its own definition, a bare one is listed under
+                        // each with its lower confidence.
+                        let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true)?;
                         if calls.is_empty() {
                             if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
                                 out.push_str(&format!("   {l}\n"));
@@ -1492,15 +1493,6 @@ fn run(cli: Cli) -> Result<()> {
                 // names; a line in one no note names, or outside any, lists
                 // the first few like a plain file lookup: 21 notes otherwise.
                 let cap = if kind == graph::Kind::File { memorycastle::limits::LINKS_NOTES } else { notes.len() };
-                if defs.len() > 1 && !context {
-                    let callers = memorycastle::code::callers_of(&ctx.conn, pid, &target)?;
-                    if !callers.is_empty() {
-                        let capn = memorycastle::limits::CONTEXT_ITEMS;
-                        let shown: Vec<String> = callers.iter().take(capn).map(|(c, f, l)| format!("{c} {f}:{l}")).collect();
-                        let more = if callers.len() > capn { format!(" +{} more", callers.len() - capn) } else { String::new() };
-                        out.push_str(&format!("   called by name: {}  {}{more}\n", callers.len(), shown.join(", ")));
-                    }
-                }
                 for (i, n) in notes.iter().take(cap).enumerate() {
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                     let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
