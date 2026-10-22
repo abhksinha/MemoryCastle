@@ -345,12 +345,13 @@ memorycastle/journal/2026-10-20-fixed-cost-and-rare-identifiers.md  Every repo f
         <div class="k">Read it as</div><div>The function holding that line, then the notes, the first two with their Decision sentence and every one with <code>lines</code>: the sections that name it, so you read lines 9 to 11 and not the note. A function longer than 150 lines is narrowed to the block holding the line.</div></div>
       <div class="change"><div class="k">You want</div><div>The exact lines to read before changing a signature.</div>
         <div class="k">Run</div><div><code>memcastle links narrow_span --context</code></div>
-        <div class="k">You get</div><div><pre><code>defined: src/code.rs:884-954  (fn)
-   called by: 2  narrows_a_wide_function_to_the_arm_holding_the_line src/code.rs:985 0.9, run src/main.rs:1400 0.7
+        <div class="k">You get</div><div><pre><code>defined: src/code.rs:888-958  (fn)
+   called by: 2  narrows_a_wide_function_to_the_arm_holding_the_line src/code.rs:989 0.9, run src/main.rs:1360 0.7
    calls: 3  ext_of, span_end, strip_strings_and_comments
    read: src/limits.rs:125-125  SPAN_WIDE  uses constant
-   read: src/main.rs:1397-1403  use of narrow_span  calls narrow_span</code></pre></div>
-        <div class="k">Read it as</div><div>The definition span, its scored callers, the constants its body uses and the first call in each using file, as <code>path:a-b</code>. <code>sed -n '1397,1403p'</code> and you have seen every caller outside the tests.</div></div>
+   read: src/code.rs:986-995  narrows_a_wide_function_to_the_arm_holding_the_line  calls narrow_span 0.9
+   read: src/main.rs:1357-1363  run  calls narrow_span 0.7</code></pre></div>
+        <div class="k">Read it as</div><div>The definition span, its scored callers, the constants its body uses, and one <code>read:</code> span per call site with its confidence. Read those lines and you have seen every call. A method name defined on several types is split by the receiver: <code>self.e.nodes.store(</code> goes to <code>Nodes::store</code> because a field is declared <code>nodes: Nodes</code>. <code>--all</code> lists every caller and call site, uncapped; <code>--json</code> gives the same callers with their scores to a script.</div></div>
       <div class="change"><div class="k">You want</div><div>A file no note has mentioned.</div>
         <div class="k">Run</div><div><code>memcastle links src/draft.rs</code></div>
         <div class="k">You get</div><div>What it defines, who imports it, who uses it. Three lines, from the code index.</div>
