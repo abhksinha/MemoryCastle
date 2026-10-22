@@ -1405,6 +1405,26 @@ fn run(cli: Cli) -> Result<()> {
             if notes.is_empty() && kind == graph::Kind::File {
                 notes = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &target)?;
             }
+            // The line is in a definition no note names: the file's notes
+            // about its call neighbours come first, not merely the newest.
+            // A note that names no neighbour is about some other part of
+            // the file: its title stays, its Decision line would be noise.
+            let mut decisions = memorycastle::limits::LINKS_DECISIONS;
+            if let (Some(d), graph::Kind::File) = (&at_def, kind) {
+                let mut names = memorycastle::code::callees_of(&ctx.conn, pid, &d.name, &d.path)?;
+                for (caller, _, _) in memorycastle::code::callers_of(&ctx.conn, pid, &d.name)? {
+                    if !names.contains(&caller) {
+                        names.push(caller);
+                    }
+                }
+                let mut specific = Vec::with_capacity(names.len());
+                for n in names {
+                    if memorycastle::code::callers_of(&ctx.conn, pid, &n)?.len() <= memorycastle::limits::NEIGHBOUR_MAX_CALLERS {
+                        specific.push(n);
+                    }
+                }
+                decisions = decisions.min(graph::rank_by_neighbours(&ctx.conn, pid, &mut notes, &specific)?);
+            }
             let defs = match &at_def {
                 Some(d) if kind == graph::Kind::Symbol => vec![d.clone()],
                 _ if kind == graph::Kind::Symbol => memorycastle::code::defs_named(&ctx.conn, pid, &target)?,
@@ -1478,11 +1498,11 @@ fn run(cli: Cli) -> Result<()> {
                         }
                     }
                 }
-                // A hub file names dozens of notes: the newest few, then a count.
-                // Every note only when `--at` narrowed to a definition; a line
-                // outside any (a comment, a top-level constant block) lists
-                // the newest like a plain file lookup: 21 notes otherwise.
-                let cap = if kind == graph::Kind::File && at_def.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
+                // A hub file names dozens of notes: the first few, then a count.
+                // Every note only when `--at` narrowed to a definition a note
+                // names; a line in one no note names, or outside any, lists
+                // the first few like a plain file lookup: 21 notes otherwise.
+                let cap = if kind == graph::Kind::File { memorycastle::limits::LINKS_NOTES } else { notes.len() };
                 if defs.len() > 1 && !context {
                     let callers = memorycastle::code::callers_of(&ctx.conn, pid, &target)?;
                     if !callers.is_empty() {
@@ -1496,7 +1516,7 @@ fn run(cli: Cli) -> Result<()> {
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                     let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
-                    if i < memorycastle::limits::LINKS_DECISIONS && n.superseded_by.is_none() {
+                    if i < decisions && n.superseded_by.is_none() {
                         if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {
                             out.push_str(&format!("   decision   {d}\n"));
                         }

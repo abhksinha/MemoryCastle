@@ -376,6 +376,30 @@ pub fn notes_for(conn: &Connection, project_id: i64, kind: Kind, target: &str) -
     Ok(out)
 }
 
+/// Orders a file's notes for an edit inside `names[0]` when no note names
+/// that definition: notes naming one of its call neighbours (`names`, the
+/// functions it calls and the ones calling it) come first, most neighbours
+/// first, newest within a tie; `via` becomes the neighbour named, so the
+/// line says why. Superseded notes stay last. The rest keep their order.
+/// Returns how many notes named a neighbour.
+pub fn rank_by_neighbours(conn: &Connection, project_id: i64, notes: &mut [NoteRef], names: &[String]) -> Result<usize> {
+    if names.is_empty() {
+        return Ok(0);
+    }
+    let mut stmt = conn.prepare_cached("SELECT target FROM links WHERE project_id = ?1 AND note_id = ?2 AND kind = ?3")?;
+    let mut score: HashMap<i64, usize> = HashMap::new();
+    for n in notes.iter_mut() {
+        let targets: Vec<String> = stmt.query_map(params![project_id, n.id, Kind::Symbol as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        let hit: Vec<&String> = names.iter().filter(|name| targets.iter().any(|t| same_symbol(t, name))).collect();
+        if let Some(first) = hit.first() {
+            n.via = (*first).clone();
+        }
+        score.insert(n.id, hit.len());
+    }
+    notes.sort_by_key(|n| (n.superseded_by.is_some(), std::cmp::Reverse(score.get(&n.id).copied().unwrap_or(0))));
+    Ok(score.values().filter(|&&c| c > 0).count())
+}
+
 /// The supersede chain through `path`: oldest first. Follows `supersedes`
 /// backwards and `superseded_by` forwards, bounded.
 pub fn history(conn: &Connection, project_id: i64, path: &str) -> Result<Vec<NoteRef>> {

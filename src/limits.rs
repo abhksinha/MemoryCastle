@@ -125,6 +125,10 @@ pub const LINKS_NOTES: usize = 5;
 /// the title: a list of titles gets skimmed (2026-10-19), a decision gets read,
 /// and the newest are the ones most likely to hold for the code today.
 pub const LINKS_DECISIONS: usize = 2;
+/// A call neighbour with more callers than this (a utility like
+/// `current_session`) says nothing about the function being edited and does
+/// not rank a note: on this repo 95% of functions have at most 8 callers.
+pub const NEIGHBOUR_MAX_CALLERS: usize = 8;
 /// Constants and callers listed per definition by `links --context`.
 pub const CONTEXT_ITEMS: usize = 4;
 /// Lines of context either side of a `uses` line in `read:` output.

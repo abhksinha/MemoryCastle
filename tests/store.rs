@@ -245,6 +245,21 @@ fn author_becomes_source_and_export_restores_files() {
 }
 
 #[test]
+fn file_notes_naming_a_call_neighbour_rank_first() {
+    use memorycastle::graph::{self, Kind};
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-01-a.md", "# A\nFiles: src/store.rs\n## Decision\nKeep `chunk_key` short.");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-02-b.md", "# B\nFiles: src/store.rs\n## Decision\nNewest, about `status`.");
+    let mut notes = graph::notes_for(&conn, p.id, Kind::File, "src/store.rs").unwrap();
+    let hits = graph::rank_by_neighbours(&conn, p.id, &mut notes, &["chunk_key".to_string()]).unwrap();
+    assert_eq!(hits, 1);
+    assert_eq!(notes[0].path, "memorycastle/journal/2026-10-01-a.md");
+    assert_eq!(notes[0].via, "chunk_key", "the line says which neighbour");
+    assert_eq!(graph::rank_by_neighbours(&conn, p.id, &mut notes, &[]).unwrap(), 0);
+}
+
+#[test]
 fn links_history_and_graph_from_declared_lines() {
     use memorycastle::graph::{self, Kind};
     let mut conn = db::open_memory().unwrap();
