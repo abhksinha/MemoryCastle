@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 22;
+pub const SCHEMA_VERSION: i64 = 23;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -356,6 +356,22 @@ fn migrate(conn: &Connection) -> Result<()> {
                  FOREIGN KEY (project_id, src) REFERENCES code_files(project_id, path) ON DELETE CASCADE
              ) WITHOUT ROWID;
              CREATE INDEX IF NOT EXISTS code_calls_callee ON code_calls(project_id, callee);",
+        )?;
+    }
+    if version < 23 {
+        // v23: names declared with a type (`code::fields`), so a method
+        // call's receiver can say which definition it reaches. Filled by
+        // the reindex `CODE_VERSION` 14 triggers.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS code_fields (
+                 project_id INTEGER NOT NULL,
+                 src        TEXT NOT NULL,
+                 name       TEXT NOT NULL,
+                 type       TEXT NOT NULL,
+                 PRIMARY KEY (project_id, src, name, type),
+                 FOREIGN KEY (project_id, src) REFERENCES code_files(project_id, path) ON DELETE CASCADE
+             ) WITHOUT ROWID;
+             CREATE INDEX IF NOT EXISTS code_fields_name ON code_fields(project_id, name);",
         )?;
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

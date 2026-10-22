@@ -27,8 +27,11 @@ if h.get("session_id"):
     os.environ["MEMORYCASTLE_SESSION"] = h["session_id"]
 cmd = (h.get("tool_input") or {}).get("command", "") or ""
 cwd = h.get("cwd") or os.getcwd()
+start = cwd
 # `cd /elsewhere && cat > f`, or a `cd` after other commands: relative paths
-# are under the first directory the command changes to.
+# after the first `cd` are under its directory, those before it under the
+# session's (a later `cd` must not move an earlier write).
+before_cd, after_cd = cmd, ""
 lead = re.search(r"(?:^|&&|;|\|\||\n)\s*cd\s+(\"[^\"]+\"|'[^']+'|[^\s;&|]+)\s*(?:&&|;|\n)", cmd)
 if lead:
     target = lead.group(1).strip("'\"")
@@ -41,11 +44,12 @@ if lead:
     if "$" in target or "`" in target:
         sys.exit(0)
     cwd = os.path.join(cwd, target)
+    before_cd, after_cd = cmd[: lead.start()], cmd[lead.end() :]
 
 
-def absolute(p):
+def absolute(p, base=None):
     p = os.path.expanduser(p)
-    return p if os.path.isabs(p) else os.path.join(cwd, p)
+    return p if os.path.isabs(p) else os.path.join(base or cwd, p)
 
 
 def split_heredocs(text):
@@ -69,7 +73,7 @@ def split_heredocs(text):
     return "\n".join(shell), "\n".join(bodies)
 
 
-def written(text):
+def written(text, base):
     shell, bodies = split_heredocs(text)
     out = []
     # Redirects: `> f`, `>> f`, `>| f`; not `2>&1`, `&>`, `/dev/...`.
@@ -85,9 +89,9 @@ def written(text):
         prog = os.path.basename(words[0])
         args = words[1:]
         if prog == "sed" and any(re.match(r"-[A-Za-z]*i|--in-place", a) for a in args):
-            out += [a for a in args if not a.startswith("-") and os.path.isfile(absolute(a))]
+            out += [a for a in args if not a.startswith("-") and os.path.isfile(absolute(a, base))]
         elif prog == "perl" and any(a.startswith("-") and "i" in a for a in args):
-            out += [a for a in args if not a.startswith("-") and os.path.isfile(absolute(a))]
+            out += [a for a in args if not a.startswith("-") and os.path.isfile(absolute(a, base))]
         elif prog == "tee":
             out += [a for a in args if not a.startswith("-")]
     # Python, in a heredoc or `python3 -c`.
@@ -106,13 +110,13 @@ def written(text):
         if p.startswith("/dev/") or not PATHLIKE.match(p) or p in seen:
             continue
         seen.append(p)
-    return seen
+    return [absolute(p, base) for p in seen]
 
 
 def gate(paths):
     blocks, context = [], []
     for p in paths:
-        a = absolute(p)
+        a = p
         d = os.path.dirname(a)
         while d and not os.path.isdir(d):
             d = os.path.dirname(d)
@@ -131,9 +135,10 @@ def gate(paths):
         sys.exit(0)
 
 
-gate(written(cmd))
+gate(list(dict.fromkeys(written(before_cd, start) + written(after_cd, cwd))))
 
 path = None
+lines = []
 m = re.match(r"\s*cat\s+(?:-[a-zA-Z]+\s+)*([~./\w-]+\.[A-Za-z0-9]+)\s*$", cmd)
 if m:
     path = m.group(1)
@@ -141,12 +146,13 @@ else:
     r = re.search(r"sed\s+-n\s+['\"]?(\d+),(\d+)p['\"]?\s+([~./\w-]+\.[A-Za-z0-9]+)", cmd)
     if r and int(r.group(2)) - int(r.group(1)) >= SPAN_LIMIT:
         path = r.group(3)
+        lines = ["--lines", f"{r.group(1)}-{r.group(2)}"]
 if not path:
     sys.exit(0)
 path = absolute(path)
 if not os.path.isfile(path):
     sys.exit(0)
-p = subprocess.run(["memorycastle", "guard", path], cwd=os.path.dirname(path), capture_output=True, text=True)
+p = subprocess.run(["memorycastle", "guard", path] + lines, cwd=os.path.dirname(path), capture_output=True, text=True)
 if p.returncode == 2:
     sys.stderr.write(p.stderr)
     sys.exit(2)

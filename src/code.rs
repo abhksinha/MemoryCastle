@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "13";
+pub const CODE_VERSION: &str = "14";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -152,6 +152,10 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
         for d in definitions(path, text) {
             ins.execute(params![project_id, path, d.name, d.kind, d.line, d.end, d.anchor])?;
             st.defs += 1;
+        }
+        let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_fields(project_id, src, name, type) VALUES (?1, ?2, ?3, ?4)")?;
+        for (name, ty) in fields(text) {
+            ins.execute(params![project_id, path, name, ty])?;
         }
         let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_imports(project_id, src, dst) VALUES (?1, ?2, ?3)")?;
         for dst in imports(path, text, &by_name) {
@@ -991,6 +995,42 @@ mod narrow_tests {
     }
 }
 
+/// Names declared with a type in one file, as `name: Type` at the start of
+/// a line (a struct field, a parameter on its own line, a `let`, `val` or
+/// `var` binding, a TypeScript property): (name, Type) for a capitalised
+/// type, references and `mut` dropped. What a receiver `toks` in
+/// `self.toks.store(` is: `Tokens`.
+pub fn fields(text: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for raw in text.lines() {
+        let mut s = raw.trim_start();
+        if s.starts_with("pub(") {
+            s = s.split_once(')').map(|(_, r)| r.trim_start()).unwrap_or(s);
+        }
+        for kw in ["pub ", "private ", "protected ", "public ", "internal ", "readonly ", "override ", "let ", "const ", "val ", "var ", "mut "] {
+            s = s.strip_prefix(kw).map(str::trim_start).unwrap_or(s);
+        }
+        let name: String = s.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if name.is_empty() || !name.chars().next().is_some_and(|c| c.is_lowercase() || c == '_') {
+            continue;
+        }
+        let rest = s[name.len()..].trim_start().trim_start_matches('?');
+        let Some(rest) = rest.strip_prefix(':') else { continue };
+        if rest.starts_with(':') {
+            continue;
+        }
+        let mut ty = rest.trim_start();
+        for p in ["&'static ", "&mut ", "&", "mut ", "dyn ", "impl "] {
+            ty = ty.strip_prefix(p).map(str::trim_start).unwrap_or(ty);
+        }
+        let ty: String = ty.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        if ty.chars().next().is_some_and(char::is_uppercase) && !out.iter().any(|(n, t)| *n == name && *t == ty) {
+            out.push((name, ty));
+        }
+    }
+    out
+}
+
 /// Call edges in one file: (caller, callee, first line). A callee is a name
 /// the index defines (`names`), at least `MIN_CALL_LEN` long, in call shape
 /// on a line inside a definition's span; the innermost definition holding
@@ -1022,7 +1062,7 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
             let Some(q) = qualifier(&code, tok) else { continue };
             // A call to its own name is recursion unless it names another
             // module or type (`eval::run` inside `main.rs`'s `run`).
-            if tok == caller.name && (q.is_empty() || q == "self" || q == ".") {
+            if tok == caller.name && (q.is_empty() || q == "self" || q.starts_with('.')) {
                 continue;
             }
             // `x.len()` is the standard library, not the project's `len`.
@@ -1047,8 +1087,9 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
 
 /// How the first call of `name` in `code` is written: `self` (`self.f(`,
 /// `this.f(`, `Self::f(`, `super::`, `crate::`), `X::` or `X.` (a module or
-/// type, or a capitalised receiver), `.` (a method on a value whose type the
-/// line does not say), or empty (a bare call).
+/// type, or a capitalised receiver), `.x` (a method on the value named `x`,
+/// whose type `code_fields` may know), `.` (a method on an expression), or
+/// empty (a bare call).
 pub fn qualifier(code: &str, name: &str) -> Option<String> {
     let bytes = code.as_bytes();
     let mut from = 0;
@@ -1083,6 +1124,11 @@ pub fn qualifier(code: &str, name: &str) -> Option<String> {
         if word.chars().next().is_some_and(char::is_uppercase) {
             return Some(format!("{word}."));
         }
+        // `self.e.toks.store(`: the receiver's last name, which the field
+        // table (`code_fields`) can turn into a type.
+        if !word.is_empty() && !word.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            return Some(format!(".{word}"));
+        }
         return Some(".".to_string());
     }
     None
@@ -1096,15 +1142,40 @@ pub fn qualifier(code: &str, name: &str) -> Option<String> {
 /// mostly another function.
 /// `same_file`: the call is in `d`'s own file, where a bare name resolves
 /// to the local definition first.
-pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<String>) -> f32 {
+/// `local`: the call's file defines the name too, and `d` is elsewhere, so a
+/// `self.` or bare call there means the local one. `recv`: the types the
+/// receiver name of a `.x` call is declared with (`code_fields`).
+pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<String>, local: bool, recv: &HashSet<String>) -> f32 {
     use crate::limits::*;
     match qual {
-        "self" => CALL_CONF_SELF,
+        "self" if same_file || unique => CALL_CONF_SELF,
+        "self" if local => CALL_CONF_OTHER,
+        // Another file's method on the same type (Rust splits an `impl`
+        // across files) or an inherited one: possible, not likely.
+        "self" => CALL_CONF_TYPE,
+        "" if local => CALL_CONF_OTHER,
         "" if unique => CALL_CONF_BARE_UNIQUE,
         "" if same_file => CALL_CONF_SAME_FILE,
         "" => CALL_CONF_OTHER,
         "." if unique => CALL_CONF_METHOD_UNIQUE,
         "." => CALL_CONF_OTHER,
+        q if q.starts_with('.') => {
+            let word = &q[1..];
+            let lower = word.to_lowercase();
+            let by_name = own.iter().any(|o| o.to_lowercase() == lower || o.rsplit('_').next().is_some_and(|tail| tail == lower));
+            // A field name has several declared types across the tree (`toks:
+            // Table` in one file, `toks: Tokens` in another); when the name
+            // spells one the definition does not own, that one wins.
+            let spelled = |t: &String| abbreviates(&lower, &t.to_lowercase());
+            let by_type = recv.iter().any(|t| own.contains(t)) && !recv.iter().any(|t| !own.contains(t) && spelled(t) && !recv.iter().any(|o| own.contains(o) && spelled(o)));
+            if by_name || by_type {
+                CALL_CONF_RECEIVER
+            } else if unique {
+                CALL_CONF_METHOD_UNIQUE
+            } else {
+                CALL_CONF_OTHER
+            }
+        }
         q => {
             let (word, path) = q.strip_suffix("::").map(|w| (w, true)).unwrap_or_else(|| (q.trim_end_matches('.'), false));
             if own.contains(word) {
@@ -1114,6 +1185,13 @@ pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<
             }
         }
     }
+}
+
+/// True when `word` is `name` with letters left out (`toks` for `tokens`),
+/// first letter kept.
+fn abbreviates(word: &str, name: &str) -> bool {
+    let mut it = name.chars();
+    word.chars().next() == name.chars().next() && word.chars().all(|c| it.any(|n| n == c))
 }
 
 /// The names that point at `d`'s file: its stem (with and without `_`) and
@@ -1128,6 +1206,19 @@ pub fn own_names(conn: &Connection, project_id: i64, path: &str) -> Result<HashS
     Ok(own)
 }
 
+/// The types a `.x` call's receiver `x` is declared with anywhere in the
+/// project (`code_fields`); empty for any other qualifier.
+fn receiver_types(conn: &Connection, project_id: i64, qual: &str, cache: &mut HashMap<String, HashSet<String>>) -> Result<HashSet<String>> {
+    let Some(word) = qual.strip_prefix('.').filter(|w| !w.is_empty()) else { return Ok(HashSet::new()) };
+    if let Some(t) = cache.get(word) {
+        return Ok(t.clone());
+    }
+    let mut stmt = conn.prepare_cached("SELECT DISTINCT type FROM code_fields WHERE project_id = ?1 AND name = ?2")?;
+    let t: HashSet<String> = stmt.query_map(params![project_id, word], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    cache.insert(word.to_string(), t.clone());
+    Ok(t)
+}
+
 fn defined_once(conn: &Connection, project_id: i64, name: &str) -> Result<bool> {
     let n: i64 = conn.query_row("SELECT count(DISTINCT path) FROM code_defs WHERE project_id = ?1 AND name = ?2 AND kind = 'fn'", params![project_id, name], |r| r.get(0))?;
     Ok(n <= 1)
@@ -1138,6 +1229,8 @@ fn defined_once(conn: &Connection, project_id: i64, name: &str) -> Result<bool> 
 pub fn callers_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(String, String, u32, f32)>> {
     let unique = defined_once(conn, project_id, &d.name)?;
     let own = own_names(conn, project_id, &d.path)?;
+    let homes: HashSet<String> = defs_named(conn, project_id, &d.name)?.into_iter().filter(|x| x.kind == "fn").map(|x| x.path).collect();
+    let mut recv_cache: HashMap<String, HashSet<String>> = HashMap::new();
     let mut stmt = conn.prepare_cached("SELECT caller, src, line, qual FROM code_calls WHERE project_id = ?1 AND callee = ?2 ORDER BY src, line")?;
     let rows: Vec<(String, String, u32, String)> = stmt
         .query_map(params![project_id, d.name], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32, r.get(3)?)))?
@@ -1145,7 +1238,8 @@ pub fn callers_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(S
     // One line per calling function: its most confident way of calling.
     let mut out: Vec<(String, String, u32, f32)> = Vec::with_capacity(rows.len());
     for (c, f, l, q) in rows {
-        let conf = call_confidence(&q, unique, f == d.path, &own);
+        let recv = receiver_types(conn, project_id, &q, &mut recv_cache)?;
+        let conf = call_confidence(&q, unique, f == d.path, &own, f != d.path && homes.contains(&f), &recv);
         match out.iter_mut().find(|o| o.0 == c && o.1 == f) {
             Some(o) if o.3 < conf => *o = (c, f, l, conf),
             Some(_) => {}
@@ -1164,9 +1258,12 @@ pub fn callees_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(S
     let mut out: Vec<(String, f32)> = Vec::with_capacity(rows.len());
     for (callee, qual) in rows {
         let unique = defined_once(conn, project_id, &callee)?;
+        let targets: Vec<Def> = defs_named(conn, project_id, &callee)?.into_iter().filter(|t| t.kind == "fn").collect();
+        let local = targets.iter().any(|t| t.path == d.path);
+        let recv = receiver_types(conn, project_id, &qual, &mut HashMap::new())?;
         let mut best = 0f32;
-        for t in defs_named(conn, project_id, &callee)? {
-            best = best.max(call_confidence(&qual, unique, t.path == d.path, &own_names(conn, project_id, &t.path)?));
+        for t in &targets {
+            best = best.max(call_confidence(&qual, unique, t.path == d.path, &own_names(conn, project_id, &t.path)?, local && t.path != d.path, &recv));
         }
         match out.iter_mut().find(|o| o.0 == callee) {
             Some(o) => o.1 = o.1.max(best),
@@ -1212,24 +1309,33 @@ pub fn neighbours(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<Str
     Ok(out)
 }
 
+fn all_callers_under(callers: &[(String, String, u32, f32)], min: f32) -> Vec<String> {
+    callers.iter().filter(|c| c.3 < min).map(|(c, f, l, p)| format!("{c} {f}:{l} {p:.1}")).collect()
+}
+
 /// The two call lines `links <symbol>` prints under `defined:`, bounded by
 /// `limits::CONTEXT_ITEMS` names each: who calls it, with file and line,
 /// and what it calls. Empty for a name with no call edges (a constant, a
 /// type), where `users_line` applies instead.
-pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: bool) -> Result<Vec<String>> {
-    let cap = crate::limits::CONTEXT_ITEMS;
+/// `every`: every caller and callee, and the unlikely callers listed too.
+pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: bool, every: bool) -> Result<Vec<String>> {
+    let cap = if every { usize::MAX } else { crate::limits::CONTEXT_ITEMS };
     let mut out = Vec::new();
     let min = crate::limits::CALL_MIN_CONF;
     let all = if with_callers { callers_for(conn, project_id, d)? } else { Vec::new() };
     let unlikely = all.iter().filter(|c| c.3 < min).count();
     let callers: Vec<_> = all.into_iter().filter(|c| c.3 >= min).collect();
-    let tail = if unlikely > 0 { format!(" (+{unlikely} by name only, under {min:.1}: another `{}` or a call on a value of unknown type)", d.name) } else { String::new() };
+    let unlikely_list: Vec<String> = if every && with_callers { all_callers_under(&callers_for(conn, project_id, d)?, min) } else { Vec::new() };
+    let tail = if unlikely > 0 && !every { format!(" (+{unlikely} by name only, under {min:.1}: another `{}` or a call on a value of unknown type; --all lists them)", d.name) } else { String::new() };
     if !callers.is_empty() {
         let shown: Vec<String> = callers.iter().take(cap).map(|(c, f, l, p)| format!("{c} {f}:{l} {p:.1}")).collect();
         let more = if callers.len() > cap { format!(" +{} more", callers.len() - cap) } else { String::new() };
         out.push(format!("called by: {}  {}{more}{tail}", callers.len(), shown.join(", ")));
     } else if unlikely > 0 {
         out.push(format!("called by: 0{tail}"));
+    }
+    if !unlikely_list.is_empty() {
+        out.push(format!("by name only: {}  {}", unlikely_list.len(), unlikely_list.join(", ")));
     }
     let callees: Vec<String> = callees_for(conn, project_id, d)?.into_iter().filter(|c| c.1 >= min).map(|c| c.0).collect();
     if !callees.is_empty() {
@@ -1267,13 +1373,30 @@ mod call_edge_tests {
         assert_eq!(qualifier("Self::helper(1)", "helper").as_deref(), Some("self"));
         assert_eq!(qualifier("store::helper(1)", "helper").as_deref(), Some("store::"));
         assert_eq!(qualifier("Store.helper(1)", "helper").as_deref(), Some("Store."));
-        assert_eq!(qualifier("x.y.helper(1)", "helper").as_deref(), Some("."));
+        assert_eq!(qualifier("x.y.helper(1)", "helper").as_deref(), Some(".y"));
+        assert_eq!(qualifier("foo().helper(1)", "helper").as_deref(), Some("."));
         assert_eq!(qualifier("my_helper(1); helper(2)", "helper").as_deref(), Some(""));
         assert_eq!(qualifier("search::stem(x)", "search"), None, "a module path");
         assert_eq!(qualifier("parse::<u32>(x)", "parse").as_deref(), Some(""));
         let own: HashSet<String> = ["store".to_string(), "Store".to_string()].into_iter().collect();
-        assert!(call_confidence("store::", false, false, &own) > call_confidence("other::", false, false, &own));
-        assert!(call_confidence("", false, true, &own) > call_confidence("", false, false, &own));
-        assert!(call_confidence(".", false, false, &own) < crate::limits::CALL_MIN_CONF);
+        let none = HashSet::new();
+        assert!(call_confidence("store::", false, false, &own, false, &none) > call_confidence("other::", false, false, &own, false, &none));
+        assert!(call_confidence("", false, true, &own, false, &none) > call_confidence("", false, false, &own, false, &none));
+        assert!(call_confidence(".", false, false, &own, false, &none) < crate::limits::CALL_MIN_CONF);
+        // `self.f(` in a file with its own `f` is not a call to this one.
+        assert!(call_confidence("self", false, false, &own, true, &none) < crate::limits::CALL_MIN_CONF);
+        assert_eq!(call_confidence("self", false, true, &own, false, &none), crate::limits::CALL_CONF_SELF);
+        // A receiver declared with a type defined here points here.
+        let toks: HashSet<String> = ["Store".to_string()].into_iter().collect();
+        assert_eq!(call_confidence(".toks", false, false, &own, false, &toks), crate::limits::CALL_CONF_RECEIVER);
+        let other: HashSet<String> = ["Nodes".to_string()].into_iter().collect();
+        assert!(call_confidence(".nodes", false, false, &own, false, &other) < crate::limits::CALL_MIN_CONF);
+        // `toks` declared `Table` here and `Tokens` elsewhere: the name spells `Tokens`.
+        let node_own: HashSet<String> = ["Nodes".to_string(), "Table".to_string()].into_iter().collect();
+        let mixed: HashSet<String> = ["Table".to_string(), "Tokens".to_string(), "Vec".to_string()].into_iter().collect();
+        assert!(call_confidence(".toks", false, false, &node_own, false, &mixed) < crate::limits::CALL_MIN_CONF);
+        let tok_own: HashSet<String> = ["Tokens".to_string()].into_iter().collect();
+        assert_eq!(call_confidence(".toks", false, false, &tok_own, false, &mixed), crate::limits::CALL_CONF_RECEIVER);
+        assert_eq!(fields("    pub toks: Tokens,\n    nodes: &mut Nodes,\n    let x: u32 = 1;\n    path::Foo"), vec![("toks".into(), "Tokens".into()), ("nodes".into(), "Nodes".into())]);
     }
 }

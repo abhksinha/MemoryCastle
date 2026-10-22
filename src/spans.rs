@@ -261,10 +261,53 @@ pub fn is_call(line: &str, name: &str) -> bool {
     false
 }
 
+/// A call site span: (path, first line, last line, calling function, confidence).
+pub type CallSite = (String, u32, u32, String, f32);
+
+/// Every line that calls `d` in the files its callers are in: (path, a, b,
+/// calling function, confidence), a span of ±3 lines clipped to the calling
+/// function, sites closer than that merged, most confident first then by
+/// file and line. Callers under `CALL_MIN_CONF` only with `all`.
+pub fn call_sites(conn: &Connection, project_id: i64, root: &Path, d: &Def, all: bool) -> Result<Vec<CallSite>> {
+    let min = crate::limits::CALL_MIN_CONF;
+    let callers: Vec<(String, String, u32, f32)> = code::callers_for(conn, project_id, d)?.into_iter().filter(|c| all || c.3 >= min).collect();
+    let mut files: Vec<&String> = callers.iter().map(|c| &c.1).collect();
+    files.sort();
+    files.dedup();
+    let mut out: Vec<CallSite> = Vec::new();
+    for f in files {
+        let Ok(text) = std::fs::read_to_string(root.join(f)) else { continue };
+        let fdefs = code::definitions(f, &text);
+        for (i, raw) in text.lines().enumerate() {
+            let ln = i as u32 + 1;
+            if !raw.contains(&d.name) || (f == &d.path && ln >= d.line && ln <= d.end) {
+                continue;
+            }
+            let line = code::strip_strings_and_comments(raw);
+            if code::qualifier(&line, &d.name).is_none() {
+                continue;
+            }
+            let Some(enc) = fdefs.iter().filter(|x| x.kind == "fn" && x.line <= ln && ln <= x.end).max_by_key(|x| x.line) else { continue };
+            // The site counts when its function is a caller this definition kept.
+            let Some(c) = callers.iter().find(|c| c.0 == enc.name && &c.1 == f) else { continue };
+            let (a, b) = (ln.saturating_sub(3).max(enc.line), (ln + 3).min(enc.end));
+            match out.last_mut() {
+                Some(last) if last.0 == *f && last.3 == enc.name && a <= last.2 + 1 => last.2 = last.2.max(b),
+                _ => out.push((f.clone(), a, b, enc.name.clone(), c.3)),
+            }
+        }
+    }
+    out.sort_by(|x, y| y.4.total_cmp(&x.4).then(x.0.cmp(&y.0)).then(x.1.cmp(&y.1)));
+    Ok(out)
+}
+
 /// For `links --context`: the constants a definition's body names (printed as
 /// `read:` lines to their definitions) and the lines that call it in other
 /// files. Reads the defining file once and the using files once each.
-pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def]) -> Result<Vec<String>> {
+/// For a function, one `read:` span per call site (±3 lines, inside the
+/// calling function, overlapping sites merged), likely callers only unless
+/// `all`, at most `CONTEXT_SITES` unless `all`.
+pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def], all: bool) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut seen: HashSet<(String, u32)> = HashSet::new();
     for d in defs {
@@ -300,6 +343,19 @@ pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def]) ->
         // constant is used as a value, so the match is the identifier, and
         // the defining file counts too (a limit is used where it is set).
         let is_const = d.kind == "const" || d.kind == "static";
+        if d.kind == "fn" {
+            let sites = call_sites(conn, project_id, root, d, all)?;
+            let cap = if all { usize::MAX } else { crate::limits::CONTEXT_SITES };
+            for (path, a, b, caller, conf) in sites.iter().take(cap) {
+                if seen.insert((path.clone(), *a)) {
+                    out.push(format!("read: {path}:{a}-{b}  {caller}  calls {} {conf:.1}", d.name));
+                }
+            }
+            if sites.len() > cap {
+                out.push(format!("+{} more call sites; links {} --context --all prints every one", sites.len() - cap, d.name));
+            }
+            continue;
+        }
         let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND (src != ?3 OR ?5) ORDER BY n DESC LIMIT ?4")?;
         let users: Vec<String> = stmt.query_map(params![project_id, d.name, d.path, crate::limits::CONTEXT_ITEMS as i64, is_const], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
         for u in users {

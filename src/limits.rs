@@ -151,6 +151,12 @@ pub const CALL_CONF_BARE_UNIQUE: f32 = 0.9;
 pub const CALL_CONF_METHOD_UNIQUE: f32 = 0.7;
 pub const CALL_CONF_QUALIFIED: f32 = 0.7;
 pub const CALL_CONF_TYPE: f32 = 0.5;
+/// `x.f(` where `x` is declared (`code_fields`) with a type defined in the
+/// definition's file, or is that type's name in lower case. Set at the
+/// method-unique class pending a co-change measurement of its own.
+pub const CALL_CONF_RECEIVER: f32 = 0.7;
+/// Call sites `links --context` prints before "+N more" (`--all` lifts it).
+pub const CONTEXT_SITES: usize = 12;
 pub const CALL_CONF_OTHER: f32 = 0.2;
 /// Edges under this are counted, not listed, and do not make neighbours.
 pub const CALL_MIN_CONF: f32 = 0.3;

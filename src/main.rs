@@ -11,20 +11,29 @@ const LINKS_HELP: &str = "\
 links: section | use case | command
 before edit | function holding a line, its notes | memcastle links <file> --at <line>
 find code | where defined, callers, callees, notes | memcastle links <symbol>
-change signature | call sites and constants to read | memcastle links <symbol> --context
+change signature | one span per call site, and constants | memcastle links <symbol> --context
+every caller | also under 0.3; every call site with --context | memcastle links <symbol> --all
+json | notes, definitions, scored callers, call sites | memcastle --json links <symbol> --context
 new file | its notes, or what it defines and who uses it | memcastle links <file>
 history | how a decision changed | memcastle history <note.md>
 read as: path:a-b = read those lines, not the file
 read as: caller path:line 0.9 = chance this call reaches this definition: 1.0 same file, 0.2 lowest
 read as: caller under 0.7 = check the call site; it may reach another definition
-read as: +N by name only, under 0.3 = calls too unlikely to list, counted only
+read as: +N by name only, under 0.3 = calls too unlikely to list, counted only; --all lists them
+read as: read: path:a-b caller calls name 0.7 = one call site, the lines around it, its confidence
 read as: too wide: read path:a-b = function over 150 lines, read the block shown
 read as: lines 9-11 Decision = note sections naming it; read those lines, not the note
 read as: decision <sentence> = the note's first Decision sentence (first two notes)
+read as: nodes.store( = a field's declared type (nodes: Nodes) points at Nodes::store
 read as: as foo::bar = spelling the note used, or the neighbour it was ranked by
 read as: superseded by X = decision reversed, act on X
 read as: no notes link to X, nothing after = not indexed; check spelling or run graph --code
 limits: edges are by name; a call through a trait or a macro is missed
+combine: printed range | sed -n 'a,bp' path, or Read with offset and limit
+combine: trait, macro or callback call | grep -rn \"name(\" or a language server
+combine: no notes link to X, still after graph --code | grep -rn X, then read the code
+combine: changing a signature | links <symbol> --context, then build; the compiler lists all
+combine: config key, string, flag | grep -rn; the index holds definitions and calls only
 ";
 
 const SEARCH_HELP: &str = "\
@@ -45,6 +54,9 @@ read as: superseded by X = decision reversed, act on X
 read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
 read as: no relevant note = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>
+combine: printed range | sed -n 'a,bp' path, or Read with offset and limit
+combine: no relevant note | grep -rn the names you know, then read the code
+combine: hit at 0.30 to 0.69 | read its lines, then check the code it names
 ";
 
 #[derive(Parser)]
@@ -222,6 +234,10 @@ enum Cmd {
     #[command(hide = true)]
     Guard {
         path: String,
+        /// The range a ranged read covers (`a-b`): it passes when it holds
+        /// a served span, since that is the read the span asked for.
+        #[arg(long)]
+        lines: Option<String>,
     },
     /// Before an edit (called by the edit and shell hooks): the first edit
     /// of a file this session exits 2 with what `links` knows about it, so
@@ -349,6 +365,9 @@ enum Cmd {
         /// Print nothing when this target was already looked up in this session (for hooks).
         #[arg(long)]
         once: bool,
+        /// Every caller and callee, callers under 0.3 listed too, and with --context every call site.
+        #[arg(long)]
+        all: bool,
     },
     /// The supersede chain through a note, oldest first.
     History {
@@ -905,7 +924,7 @@ fn run(cli: Cli) -> Result<()> {
                 eprintln!("memorycastle: {n} reads imported from {file}");
             }
         }
-        Cmd::Guard { path } => {
+        Cmd::Guard { path, lines } => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
             let rel = match std::path::Path::new(&path).strip_prefix(&repo.root) {
                 Ok(r) => r.to_string_lossy().into_owned(),
@@ -913,7 +932,8 @@ fn run(cli: Cli) -> Result<()> {
                 Err(_) => path.clone(),
             };
             let spans = store::unread_spans(&ctx.conn, p.id, &rel)?;
-            if spans.is_empty() {
+            let range = lines.as_deref().and_then(|l| l.split_once('-')).and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)));
+            if spans.is_empty() || range.is_some_and(|(a, b)| spans.iter().any(|&(s, e)| a <= s && e <= b)) {
                 return Ok(());
             }
             let ranges: Vec<String> = spans.iter().map(|(a, b)| format!("{a}-{b}")).collect();
@@ -1319,7 +1339,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("gates passed");
             }
         }
-        Cmd::Links { target, at, context, once } => {
+        Cmd::Links { target, at, context, once, all } => {
             let pid = ctx.require_project()?.id;
             // A line inside a file: the enclosing definition is the unit the
             // agent is editing, so notes about it come first and the file's
@@ -1418,7 +1438,24 @@ fn run(cli: Cli) -> Result<()> {
                 Vec::new()
             };
             if cli.json {
-                println!("{}", serde_json::json!({"notes": notes, "definitions": defs, "code": facts}));
+                // Callers and callees per definition, every one with its score.
+                let mut calls = Vec::with_capacity(defs.len());
+                for d in &defs {
+                    let callers: Vec<_> = memorycastle::code::callers_for(&ctx.conn, pid, d)?
+                        .into_iter()
+                        .map(|(c, f, l, p)| serde_json::json!({"caller": c, "path": f, "line": l, "confidence": (p * 10.0).round() / 10.0}))
+                        .collect();
+                    let callees: Vec<_> = memorycastle::code::callees_for(&ctx.conn, pid, d)?
+                        .into_iter()
+                        .map(|(c, p)| serde_json::json!({"callee": c, "confidence": (p * 10.0).round() / 10.0}))
+                        .collect();
+                    calls.push(serde_json::json!({"path": d.path, "line": d.line, "name": d.name, "callers": callers, "callees": callees}));
+                }
+                let sites = match (ctx.repo.as_ref().map(|r| r.root.clone()), context) {
+                    (Some(r), true) => memorycastle::spans::context(&ctx.conn, pid, &r, &defs, true)?,
+                    _ => Vec::new(),
+                };
+                println!("{}", serde_json::json!({"notes": notes, "definitions": defs, "calls": calls, "context": sites, "code": facts}));
             } else if notes.is_empty() && defs.is_empty() {
                 println!("no notes link to {target}");
                 for f in &facts {
@@ -1454,7 +1491,7 @@ fn run(cli: Cli) -> Result<()> {
                     // Callers per definition, with `--context` too: its
                     // `read:` lines add the call sites, they do not replace
                     // the scored list.
-                    let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true)?;
+                    let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true, all)?;
                     if calls.is_empty() {
                         if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
                             out.push_str(&format!("   {l}\n"));
@@ -1493,7 +1530,7 @@ fn run(cli: Cli) -> Result<()> {
                 store::record_served_notes(&ctx.conn, pid, &shown, "links")?;
                 if context {
                     if let Some(r) = &root {
-                        for line in memorycastle::spans::context(&ctx.conn, pid, r, &defs)? {
+                        for line in memorycastle::spans::context(&ctx.conn, pid, r, &defs, all)? {
                             // `read: path:a-b ...` lines are served spans too.
                             if let Some(rest) = line.strip_prefix("read: ") {
                                 let loc = rest.split("  ").next().unwrap_or("");
