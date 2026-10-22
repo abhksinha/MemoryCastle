@@ -296,6 +296,9 @@ enum Cmd {
     #[command(hide = true)]
     Edited {
         path: String,
+        /// When the edit happened (Unix seconds), when not now: the file's mtime, from `changed`.
+        #[arg(long)]
+        mtime: Option<i64>,
     },
     /// After a shell command: the files the checkout changed since the last
     /// call this session, each looked up once (`links --once`) and recorded
@@ -1049,7 +1052,12 @@ fn run(cli: Cli) -> Result<()> {
                     memorycastle::gate::mark(&ctx.conn, p.id, &trips.iter().map(|t| format!("trip:{}:{}", t.note, t.name)).collect::<Vec<_>>())?;
                     println!("{}\nIf the note's reason no longer holds, say why and supersede the note; otherwise take the rejected approach back out.", memorycastle::tripwire::render(&trips));
                 }
-                let _ = std::process::Command::new(&exe).args(["edited", rel]).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
+                let mtime = now.iter().find(|(r, _)| r == *rel).map(|(_, m)| m.to_string()).unwrap_or_default();
+                let mut args = vec!["edited", rel.as_str()];
+                if !mtime.is_empty() && mtime != "0" {
+                    args.extend(["--mtime", mtime.as_str()]);
+                }
+                let _ = std::process::Command::new(&exe).args(&args).current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
                 // The hook's lookup, not the agent's: logged as `changed-links`.
                 let o = std::process::Command::new(&exe).args(["links", rel, "--once"]).env("MEMORYCASTLE_VIA", "changed").current_dir(&repo.root).stdin(std::process::Stdio::null()).output();
                 if let Ok(o) = o {
@@ -1061,7 +1069,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
         }
-        Cmd::Edited { path } => {
+        Cmd::Edited { path, mtime } => {
             let (Some(p), Some(repo)) = (&ctx.project, &ctx.repo) else { return Ok(()) };
             let rel = match std::path::Path::new(&path).strip_prefix(&repo.root) {
                 Ok(r) => r.to_string_lossy().into_owned(),
@@ -1069,7 +1077,7 @@ fn run(cli: Cli) -> Result<()> {
                 Err(_) => path.clone(),
             };
             if !rel.starts_with("memorycastle/") {
-                store::record_edit(&ctx.conn, p.id, &repo.root, &rel)?;
+                store::record_edit_at(&ctx.conn, p.id, &repo.root, &rel, mtime.unwrap_or_else(memorycastle::sys::now))?;
                 // A file the code index has not seen (a Write that created
                 // it): index it now, so `links` finds its definitions.
                 if memorycastle::code::paths_ending_with(&ctx.conn, p.id, &rel)?.iter().all(|f| f != &rel) {

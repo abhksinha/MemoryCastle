@@ -41,8 +41,12 @@ pub fn owed(conn: &Connection, project_id: i64) -> Result<Option<Owed>> {
         )
         .ok();
     let since = last_note.as_ref().map(|n| n.1).unwrap_or(started);
+    // After a note, strictly after: a shell edit is recorded at the file's
+    // mtime, and one written in the same second as the note belongs to it.
+    // From the session start, the same second counts.
+    let from = if last_note.is_some() { since + 1 } else { since };
     let mut stmt = conn.prepare_cached("SELECT path, MIN(at) FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 GROUP BY path ORDER BY path")?;
-    let rows: Vec<(String, i64)> = stmt.query_map(params![project_id, session, since], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+    let rows: Vec<(String, i64)> = stmt.query_map(params![project_id, session, from], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
     let rows: Vec<(String, i64)> = rows.into_iter().filter(|(p, _)| !p.starts_with("memorycastle/")).collect();
     if rows.is_empty() {
         return Ok(None);

@@ -432,6 +432,12 @@ fn owed_follows_edits_after_the_last_note() {
     std::thread::sleep(std::time::Duration::from_millis(1100));
     save(&mut conn, &p, "memorycastle/journal/2026-10-19-a.md", "# Chose a\nDate: 2026-10-19\nFiles: `src/a.rs`\n\n## Decision\nbecause");
     assert!(draft::owed(&conn, p.id).unwrap().is_none(), "settled by the note: {:?}", draft::owed(&conn, p.id).unwrap());
+    // A shell edit the after-command hook reports once the command is done,
+    // stamped with the file's mtime from before the save: not owed.
+    let saved_at = memorycastle::sys::now();
+    store::record_edit_at(&conn, p.id, &root, "src/a.rs", saved_at - 1).unwrap();
+    store::record_edit_at(&conn, p.id, &root, "src/a.rs", saved_at).unwrap();
+    assert!(draft::owed(&conn, p.id).unwrap().is_none(), "an edit written before the save is the note's");
     // A later edit is owed again, and names the note it follows.
     std::thread::sleep(std::time::Duration::from_millis(1100));
     store::record_edit(&conn, p.id, &root, "src/a.rs").unwrap();

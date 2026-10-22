@@ -1056,6 +1056,13 @@ pub fn record_read_at(conn: &Connection, project_id: i64, root: &Path, path: &st
 /// Records an edit reported by the agent hook. Sizes are taken now, before
 /// the edit lands, so they describe what a read would have cost.
 pub fn record_edit(conn: &Connection, project_id: i64, root: &Path, path: &str) -> Result<()> {
+    record_edit_at(conn, project_id, root, path, crate::sys::now())
+}
+
+/// As `record_edit`, at a given time: the after-command hook passes the
+/// file's mtime, since the hook runs after the whole command and a note
+/// saved in that same command was otherwise followed by an "edit" and owed.
+pub fn record_edit_at(conn: &Connection, project_id: i64, root: &Path, path: &str, at: i64) -> Result<()> {
     if crate::db::is_readonly(conn) {
         return Ok(());
     }
@@ -1066,7 +1073,7 @@ pub fn record_edit(conn: &Connection, project_id: i64, root: &Path, path: &str) 
     let session = current_session(conn, project_id)?;
     conn.execute(
         "INSERT INTO edits(at, project_id, path, whole, range_bytes, session) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![crate::sys::now(), project_id, path, whole, range, session],
+        params![at, project_id, path, whole, range, session],
     )?;
     Ok(())
 }
