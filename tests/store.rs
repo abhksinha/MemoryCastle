@@ -680,3 +680,30 @@ fn a_resume_keeps_the_note_saved_before_it() {
     assert_eq!(missing, vec!["src/c.rs".to_string()], "src/a.rs belongs to the earlier note");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn hits_carry_line_ranges_and_the_notes_other_parts() {
+    use memorycastle::render;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    let note = "# Stemming\nDate: 2026-10-20\nFiles: `src/fts.rs`\n\n## Decision\nA plain word also matches by its stem as a prefix.\nExact matches still score.\n\n## Rejected\nThe porter tokenizer: it stems too far.\n\n## Measured\nMRR 0.911 to 0.866 with porter.\n";
+    save(&mut conn, &p, "memorycastle/journal/2026-10-20-stem.md", note);
+    let scope = Scope::single(p.id);
+    let (hits, _) = search(&conn, &scope, "porter tokenizer", &SearchOptions { k: 5, mode: Mode::Keyword }, ModelSource::None).unwrap();
+    let h = &hits[0];
+    // Every part is a range inside the note, on the section's own lines.
+    let lines: Vec<&str> = note.lines().collect();
+    assert!(h.parts.len() >= 2, "{:?}", h.parts);
+    for part in &h.parts {
+        assert!(part.line <= part.end && (part.end as usize) <= lines.len(), "{part:?}");
+        assert!(!lines[part.line as usize - 1].trim().is_empty(), "{part:?}");
+    }
+    assert!(h.parts.iter().any(|x| x.section == "Rejected" && x.line == 10 && x.end == 10), "{:?}", h.parts);
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter tokenizer", sections: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    assert!(r.text.lines().any(|l| l.starts_with("   lines      ")), "{}", r.text);
+    // links: the sections that name the target, header lines left out.
+    let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/2026-10-20-stem.md'", [], |r| r.get(0)).unwrap();
+    assert_eq!(store::note_lines_naming(&conn, id, &["porter"]).unwrap(), vec![(10, 10, "Rejected".to_string()), (13, 13, "Measured".to_string())]);
+    assert!(store::note_lines_naming(&conn, id, &["fts.rs"]).unwrap().is_empty(), "Files: is a header line");
+    assert!(store::note_lines_naming(&conn, id, &["stem"]).unwrap().iter().all(|(_, _, s)| s == "Decision"), "stems is not stem");
+}

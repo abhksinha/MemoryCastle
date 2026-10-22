@@ -45,7 +45,9 @@ WHEN TO USE WHICH
 HOW TO READ THE ANSWER
   `defined:` is where the code is now, re-found if the file changed since
   the index. A note line is `path  title  date  (author)`, and under it
-  `decision  <first Decision sentence>` for the first two; `(superseded by
+  `decision  <first Decision sentence>` for the first two and `lines
+  12-14 Decision, 18 Rejected` for the sections that name the target (the
+  lines to read instead of the note); `(superseded by
   X)` means the decision was reversed, read X instead; `as foo::bar` is the
   spelling the note used, or the neighbouring function it was ranked by.
   The number after a caller is how likely the call reaches this definition,
@@ -98,7 +100,12 @@ HOW TO READ THE ANSWER
   The `read first` table (`a. path:a-b  name  score  why`) lists the code
   spans the question needs, ranked; read them with `sed -n 'a,bp' path`
   before opening anything else. `read first: none` means no code span
-  applies. Cite a note as `memorycastle/journal/<note>.md:<line>`.
+  applies. A hit line names the lines of the note that matched
+  (`note.md:13-14`); `lines  13-14 0.64 Rejected, 9-10 0.41 Decision` lists
+  the note's other matching parts with their own confidence, best first,
+  even under 0.30 once the note qualified: read those lines (`sed -n
+  '13,14p' note.md`), not the whole note. Cite a note as
+  `memorycastle/journal/<note>.md:<line>`.
 ";
 
 #[derive(Parser)]
@@ -1189,6 +1196,9 @@ fn run(cli: Cli) -> Result<()> {
                 if let Some(id) = id {
                     store::record_served_notes(&ctx.conn, p.id, &[id], "read")?;
                 }
+                // Any read of the note, a range or whole, settles its spans:
+                // the guard never stops a read after the agent followed one.
+                ctx.conn.execute("UPDATE served_spans SET guarded = 1 WHERE project_id = ?1 AND path = ?2 AND guarded = 0", rusqlite::params![p.id, rel])?;
                 return Ok(());
             }
             let range = lines.as_deref().and_then(|l| {
@@ -1527,6 +1537,10 @@ fn run(cli: Cli) -> Result<()> {
                         if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {
                             out.push_str(&format!("   decision   {d}\n"));
                         }
+                    }
+                    if let Some((l, ranges)) = store::lines_field(&ctx.conn, n.id, &target, &n.via)? {
+                        out.push_str(&l);
+                        store::record_note_spans(&ctx.conn, pid, n.id, &n.path, &ranges)?;
                     }
                     stood += store::note_bytes(&ctx.conn, n.id)?;
                 }

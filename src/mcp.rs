@@ -283,6 +283,9 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                         text.push_str(&format!("   decision   {d}\n"));
                     }
                 }
+                if let Some((l, _)) = crate::store::lines_field(&ctx.conn, n.id, target, &n.via)? {
+                    text.push_str(&l);
+                }
                 stood += crate::store::note_bytes(&ctx.conn, n.id)?;
             }
             if notes.len() > cap {

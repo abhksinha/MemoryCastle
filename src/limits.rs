@@ -29,6 +29,11 @@ pub const SEARCH_CHUNK_BYTES: usize = 1200;
 pub const SEARCH_OUTPUT_BYTES: usize = 6000;
 /// Chunks of one note shown in a search block (best ranked first).
 pub const SEARCH_CHUNKS_PER_NOTE: usize = 3;
+/// A note at least this long gets its printed line ranges recorded as served
+/// spans, so a whole read of it is stopped once with the ranges. Shorter
+/// notes are read whole: the median note is 2 KB, and a stopped read costs a
+/// turn that a few hundred bytes do not pay for.
+pub const NOTE_GUARD_MIN_BYTES: usize = 3000;
 /// Relevance. Confidence is the best of a rescaled cosine and term coverage;
 /// a hit under `MIN_CONFIDENCE` is not shown and "no relevant note" is said.
 /// Cosine rescale, measured on the gold set (BENCHMARKS.md): off-topic

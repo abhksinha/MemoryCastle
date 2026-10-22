@@ -77,11 +77,30 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         // First line: what an agent needs to trust and cite the hit. The
         // date is in a dated note's file name; a tracker shows its save date.
         let when = if h.dated.is_some() { String::new() } else { format!("  {date}") };
-        block.push_str(&format!("{n}. {}:{}   {:.2}   {section}{when}{proj}{sup}\n", h.path, h.line + off, h.trace.confidence));
+        let start = h.line + off;
+        let end = h.end_line().max(start);
+        let range = if end > start { format!("{start}-{end}") } else { start.to_string() };
+        block.push_str(&format!("{n}. {}:{range}   {:.2}   {section}{when}{proj}{sup}\n", h.path, h.trace.confidence));
+        // The note's other scored parts, so the agent reads those lines and
+        // not the whole note.
+        if crate::store::note_bytes(conn, h.note_id)? >= crate::limits::NOTE_GUARD_MIN_BYTES {
+            let ranges: Vec<(u32, u32)> = if h.parts.is_empty() { vec![(h.line, end)] } else { h.parts.iter().map(|p| (p.line, p.end)).collect() };
+            served.extend(ranges.into_iter().map(|(a, b)| (h.path.clone(), a, b, 0)));
+        }
+        let lines_field = if h.parts.len() > 1 {
+            let parts: Vec<String> = h.parts.iter().map(|p| {
+                let r = if p.end > p.line { format!("{}-{}", p.line, p.end) } else { p.line.to_string() };
+                format!("{r} {:.2} {}", p.confidence, if p.section.is_empty() { "-" } else { &p.section })
+            }).collect();
+            field("lines", &parts.join(", "))
+        } else {
+            String::new()
+        };
         if o.brief {
             if let Some(d) = crate::store::decision_sentence(conn, h.note_id)? {
                 block.push_str(&field("decision", &d));
             }
+            block.push_str(&lines_field);
             notes.push(h.note_id);
             out.push_str(&block);
             continue;
@@ -93,6 +112,7 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
             let more = if files.len() > shown.len() { format!(" +{} more", files.len() - shown.len()) } else { String::new() };
             block.push_str(&field("files", &format!("{}{more}", shown.join(", "))));
         }
+        block.push_str(&lines_field);
         if o.explain {
             block.push_str(&field("trace", &format!(
                 "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  cosine {}  coverage {:.2}",

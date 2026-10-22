@@ -73,6 +73,29 @@ pub struct Hit {
     /// (filled by `mark_code_changed` when a checkout is at hand).
     #[serde(default)]
     pub code_changed: Vec<String>,
+    /// The note's scored chunks as line ranges, best first, at most
+    /// `SEARCH_CHUNKS_PER_NOTE`: which lines of the note to read, with their
+    /// own confidence. A note that qualified lists its other matching parts
+    /// even under `MIN_CONFIDENCE` (a Rejected section missing one of the
+    /// question's words still holds the answer).
+    #[serde(default)]
+    pub parts: Vec<Part>,
+}
+
+/// One chunk of a hit's note: lines `line..=end`, its section, its confidence.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Part {
+    pub line: u32,
+    pub end: u32,
+    pub confidence: f32,
+    pub section: String,
+}
+
+impl Hit {
+    /// The last line of the chunk in its note.
+    pub fn end_line(&self) -> u32 {
+        self.line + (self.text.trim_end().lines().count() as u32).saturating_sub(1)
+    }
 }
 
 /// What the pipeline decided, for `--explain`.
@@ -328,6 +351,12 @@ pub fn search(
             .then(a.chunk_id.cmp(&b.chunk_id))
     });
     ex.best_confidence = hits.iter().map(|h| h.trace.confidence).fold(0.0, f32::max);
+    // Every scored chunk per note, before the floor, for `parts`.
+    let mut by_note: HashMap<i64, Vec<Part>> = HashMap::new();
+    for h in &hits {
+        let section = h.heading.rsplit(" > ").next().unwrap_or("").to_string();
+        by_note.entry(h.note_id).or_default().push(Part { line: h.line, end: h.end_line(), confidence: h.trace.confidence, section });
+    }
     let before = hits.len();
     hits.retain(|h| h.trace.confidence >= MIN_CONFIDENCE);
     ex.dropped = before - hits.len();
@@ -348,6 +377,14 @@ pub fn search(
     }
     hits = keep;
     hits.truncate(opts.k);
+    for h in &mut hits {
+        if let Some(mut parts) = by_note.get(&h.note_id).cloned() {
+            parts.sort_by(|a, b| b.confidence.total_cmp(&a.confidence).then(a.line.cmp(&b.line)));
+            parts.dedup_by_key(|p| p.line);
+            parts.truncate(crate::limits::SEARCH_CHUNKS_PER_NOTE);
+            h.parts = parts;
+        }
+    }
     // Decorate with file links (already fetched for the fused set).
     for h in &mut hits {
         if let Some(l) = links.get(&h.note_id) {
@@ -796,6 +833,7 @@ fn fetch_hits(conn: &Connection, ids: &[i64]) -> Result<Vec<Hit>> {
             saved_at: r.get(6)?,
             dated: r.get(11)?,
             code_changed: Vec::new(),
+            parts: Vec::new(),
             source: r.get(7)?,
             text: r.get(8)?,
             superseded_by: r.get(9)?,
@@ -874,6 +912,7 @@ impl Memory for GrepMemory<'_> {
                         line: 1,
                         trace: Trace { score: n as f32, weight: 1.0, ..Default::default() },
                         code_changed: Vec::new(),
+                        parts: Vec::new(),
                     },
                 ));
             }

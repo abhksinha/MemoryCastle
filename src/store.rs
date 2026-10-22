@@ -1118,6 +1118,83 @@ pub fn unread_spans(conn: &Connection, project_id: i64, path: &str) -> Result<Ve
     Ok(out)
 }
 
+/// The sections of a note that name any of `names` (a whole word, so `run`
+/// is not `running`), as `(first line, last line, section)`: the lines to
+/// read instead of the whole note. The header lines are left out: `Files:`
+/// names every file the note is about.
+pub fn note_lines_naming(conn: &Connection, note_id: i64, names: &[&str]) -> Result<Vec<(u32, u32, String)>> {
+    let content: Option<String> = conn.query_row("SELECT content FROM notes WHERE id = ?1", [note_id], |r| r.get(0)).optional()?;
+    let Some(content) = content else { return Ok(Vec::new()) };
+    let lines: Vec<&str> = content.lines().collect();
+    let names: Vec<&str> = names.iter().copied().filter(|n| !n.is_empty()).collect();
+    let mut out = Vec::new();
+    for (name, at, _) in crate::chunk::sections(&content) {
+        // Body: from after the heading to the line before the next heading.
+        let first = at as usize; // 0-based index of the line after the heading
+        let mut last = first;
+        while last < lines.len() && !(last > first && lines[last].starts_with("## ")) {
+            last += 1;
+        }
+        let body = &lines[first.min(lines.len())..last];
+        if !body.iter().any(|l| names.iter().any(|n| names_word(l, n))) {
+            continue;
+        }
+        let mut end = last;
+        while end > first && lines[end - 1].trim().is_empty() {
+            end -= 1;
+        }
+        let mut start = first;
+        while start < end && lines[start].trim().is_empty() {
+            start += 1;
+        }
+        if start < end {
+            out.push((start as u32 + 1, end as u32, name));
+        }
+    }
+    Ok(out)
+}
+
+/// The printed `lines` field and the ranges it names.
+pub type LinesField = (String, Vec<(u32, u32)>);
+
+/// The `links` line under a note: `   lines      12-14 Decision, 18 Rejected`,
+/// the sections that name `target` (or the spelling `via` the note used),
+/// matched by the last segment (`store::save` by `save`, `src/a.rs` by `a.rs`).
+pub fn lines_field(conn: &Connection, note_id: i64, target: &str, via: &str) -> Result<Option<LinesField>> {
+    fn bare(s: &str) -> &str {
+        s.rsplit(['/', ':']).next().unwrap_or(s)
+    }
+    let names = [bare(target), bare(via)];
+    let found = note_lines_naming(conn, note_id, &names)?;
+    if found.is_empty() {
+        return Ok(None);
+    }
+    let parts: Vec<String> = found.iter().map(|(a, b, s)| if b > a { format!("{a}-{b} {s}") } else { format!("{a} {s}") }).collect();
+    Ok(Some((format!("   lines      {}\n", parts.join(", ")), found.iter().map(|(a, b, _)| (*a, *b)).collect())))
+}
+
+/// True when `line` holds `name` with no identifier character on either side.
+fn names_word(line: &str, name: &str) -> bool {
+    let is_id = |c: char| c.is_alphanumeric() || c == '_';
+    line.match_indices(name).any(|(i, _)| {
+        let before = line[..i].chars().next_back();
+        let after = line[i + name.len()..].chars().next();
+        !before.is_some_and(is_id) && !after.is_some_and(is_id)
+    })
+}
+
+/// Records the printed line ranges of a long note as served spans (rank 0),
+/// so the read guard can point a whole read of it at them.
+pub fn record_note_spans(conn: &Connection, project_id: i64, note_id: i64, path: &str, ranges: &[(u32, u32)]) -> Result<()> {
+    if ranges.is_empty() || note_bytes(conn, note_id)? < crate::limits::NOTE_GUARD_MIN_BYTES {
+        return Ok(());
+    }
+    for (a, b) in ranges {
+        record_span(conn, project_id, path, *a, *b, 0)?;
+    }
+    Ok(())
+}
+
 /// Byte size of a note's stored text.
 pub fn note_bytes(conn: &Connection, note_id: i64) -> Result<usize> {
     Ok(conn.query_row("SELECT length(content) FROM notes WHERE id = ?1", [note_id], |r| r.get::<_, i64>(0))? as usize)

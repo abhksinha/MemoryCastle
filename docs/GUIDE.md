@@ -65,10 +65,10 @@ Cite a note as `memorycastle/journal/<note>.md:<line>` when you use it in an exp
 
 | You want to | Run | The answer, and how to read it |
 | --- | --- | --- |
-| decide something in an area that may have history | `memcastle search "<question>"` | one line per hit with confidence and the Decision sentence; pick a note, then `--sections` for its Decision, Rejected, Measured in full |
+| decide something in an area that may have history | `memcastle search "<question>"` | one line per hit with confidence, the note's lines that matched (`note.md:13-14`) and the Decision sentence; `lines` lists the note's other matching parts with their confidence: read those lines, not the whole note, or `--sections` for Decision, Rejected, Measured in full |
 | know whether an approach was already tried | `memcastle search "<approach>" --sections` | a `Rejected` section is the answer; `no relevant note` means it was not recorded, go ahead and write the note after |
 | edit a function | `memcastle links <file> --at <line>` | `at: <fn> path:a-b holds line N` (or `too wide: read path:c-d <block>` for a long function) and the notes about that function; read the span, not the file |
-| know where a function is, who calls it, what it calls | `memcastle links <symbol>` | `defined: path:a-b`, `called by: N  caller path:line 0.9, ...` (each caller scored, see below), `calls: N ...`, then its notes; a name defined in several places gets each definition with its own callers |
+| know where a function is, who calls it, what it calls | `memcastle links <symbol>` | `defined: path:a-b`, `called by: N  caller path:line 0.9, ...` (each caller scored, see below), `calls: N ...`, then its notes, each with `lines  12-14 Decision` (the sections that name it); a name defined in several places gets each definition with its own callers |
 | read the exact lines that depend on a function | `memcastle links <symbol> --context` | `read: path:a-b  caller  calls <symbol>` per using file, plus the constants its body uses; each `read:` span is sized to read whole |
 | get the shape of a file you have not opened | `memcastle links <file>` | its five newest notes (the first two with their Decision sentence), or with none: `defines:`, `imported by:`, `used from:` |
 | see how a decision changed | `memcastle history memorycastle/journal/<note>.md` | the supersede chain, oldest first |
