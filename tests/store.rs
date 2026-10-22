@@ -599,6 +599,12 @@ fn recall_prints_the_decision_sentence() {
     save(&mut conn, &p, "memorycastle/journal/b.md", "# No decision\nFiles: x.rs\n## Measured\n1 ms.\n");
     let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/b.md'", [], |r| r.get(0)).unwrap();
     assert_eq!(store::decision_sentence(&conn, id).unwrap(), None);
+    // A long sentence is cut at a word, never inside one.
+    let long = format!("## Decision\n{} tailword end.\n", "alpha ".repeat(40));
+    save(&mut conn, &p, "memorycastle/journal/c.md", &format!("# Long\nFiles: x.rs\n{long}"));
+    let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/c.md'", [], |r| r.get(0)).unwrap();
+    let s = store::decision_sentence(&conn, id).unwrap().unwrap();
+    assert!(s.ends_with("alpha ...") && s.len() <= memorycastle::limits::RECALL_DECISION_CHARS + 4, "{s}");
 }
 
 #[test]

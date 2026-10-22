@@ -752,9 +752,9 @@ fn observed(conn: &Connection, project_id: i64, session: Option<&str>) -> Result
     })
 }
 
-/// The agent session the session-start hook declared for this project.
 /// The first sentence of a note's `Decision` section, at most
-/// `limits::RECALL_DECISION_CHARS`; `None` when the note has no such section.
+/// `limits::RECALL_DECISION_CHARS`, cut at a word and ended with `...` when
+/// longer; `None` when the note has no such section.
 pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<String>> {
     let content: Option<String> = conn.query_row("SELECT content FROM notes WHERE id = ?1", params![note_id], |r| r.get(0)).optional()?;
     let Some(content) = content else { return Ok(None) };
@@ -764,10 +764,17 @@ pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<Strin
         }
         let body: String = text.lines().map(|l| l.trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
         let mut end = body.find(". ").map(|i| i + 1).unwrap_or(body.len());
+        let mut cut = false;
         if end > crate::limits::RECALL_DECISION_CHARS {
             end = body.char_indices().map(|(i, _)| i).take_while(|&i| i < crate::limits::RECALL_DECISION_CHARS).last().unwrap_or(0);
+            // At the last space, so a word is never split ("that answ").
+            end = body[..end].rfind(' ').unwrap_or(end);
+            cut = true;
         }
-        let sentence = body[..end].trim().to_string();
+        let mut sentence = body[..end].trim().to_string();
+        if cut {
+            sentence.push_str(" ...");
+        }
         return Ok(if sentence.is_empty() { None } else { Some(sentence) });
     }
     Ok(None)
