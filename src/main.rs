@@ -948,10 +948,28 @@ fn run(cli: Cli) -> Result<()> {
             std::process::exit(2);
         }
         Cmd::Embed => {
+            // Detached, so nobody sees stderr: a failure is retried twice and
+            // the last error kept in meta `embedding_error` (the first run on
+            // the real store stopped 490 chunks in with the error discarded).
             memorycastle::db::meta_set(&ctx.conn, "embedding_at", &memorycastle::sys::now().to_string())?;
-            let n = ctx.embed_pending(None);
+            let mut total = 0;
+            let mut last = None;
+            for _ in 0..3 {
+                match ctx.embed_pending(None) {
+                    Ok(n) => {
+                        total += n;
+                        last = None;
+                        break;
+                    }
+                    Err(e) => last = Some(e.to_string()),
+                }
+            }
+            memorycastle::db::meta_set(&ctx.conn, "embedding_error", last.as_deref().unwrap_or(""))?;
             memorycastle::db::meta_set(&ctx.conn, "embedding_at", "0")?;
-            println!("embedded {}", n?);
+            match last {
+                Some(e) => return Err(memorycastle::err!("embed: {e}")),
+                None => println!("embedded {total}"),
+            }
         }
         Cmd::Sync => {
             let Some(root) = ctx.repo.as_ref().map(|r| r.root.clone()) else { return Ok(()) };
