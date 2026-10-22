@@ -8,104 +8,40 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const LINKS_HELP: &str = "\
-WHEN TO USE WHICH
-  You are about to edit a function and want what is known about it:
-      memcastle links <file> --at <line>
-    Prints `at: <fn> (<kind>) path:a-b holds line N` (the function; when it
-    is longer than 150 lines, `too wide: read path:c-d <block header>` names
-    the match arm or block to read instead), then the notes about that
-    function. Read the printed span, not the file. When no note names the
-    function, the file's notes follow, those naming a function it calls or
-    is called by first (`as <that function>`).
-
-  You want to know where a function is, who calls it and what it calls:
-      memcastle links <symbol>
-    Prints `defined: path:a-b (fn)`, `called by: N  caller path:line 0.9,
-    ...` (most confident first), `calls: N  a, b, c, ...`, then the notes
-    that name it. A name defined in several places gets each definition
-    with its own callers. Four names per line and `+N more`. Works before
-    the first note exists.
-
-  You want the exact lines to read before changing a function's contract:
-      memcastle links <symbol> --context
-    Adds `read: path:a-b  <name>  calls <symbol>` for the first call in each
-    file and `read: ... uses constant` for the constants its body uses.
-    Each `read:` line is a span sized to be read whole.
-
-  You are new to a file and want its shape without opening it:
-      memcastle links <file>
-    With notes: the five newest, the first two with their Decision
-    sentence, then `+N more`. Without: `defines: N in
-    path  fn a:1-20, type B:22-40, ...`, `imported by: N files`, `used
-    from: N files  x, y, ...` (most mentions first).
-
-  You want to know how a decision changed over time:
-      memcastle history memorycastle/journal/<note>.md
-
-HOW TO READ THE ANSWER
-  `defined:` is where the code is now, re-found if the file changed since
-  the index. A note line is `path  title  date  (author)`, and under it
-  `decision  <first Decision sentence>` for the first two and `lines
-  12-14 Decision, 18 Rejected` for the sections that name the target (the
-  lines to read instead of the note); `(superseded by
-  X)` means the decision was reversed, read X instead; `as foo::bar` is the
-  spelling the note used, or the neighbouring function it was ranked by.
-  The number after a caller is how likely the call reaches this definition,
-  measured on history (the share of call sites updated when the function's
-  signature changed, over the best class): 1.0 `self.f(` or a bare call in
-  the same file, 0.9 a bare call to a name defined once, 0.7 `module::f(`
-  naming this file or `x.f(` to a name defined once, 0.5 `Type.f(` naming a
-  type defined here, 0.2 anything else. `(+N by name only, under 0.3: ...)`
-  counts calls that likely reach another definition or go through a value
-  whose type the line does not say; they are not listed. A call through a
-  trait or a macro is missed. Use a language server when the exact one
-  matters. `no notes link to <target>` followed
-  by nothing means the index has no such file or symbol: check the spelling
-  or run `memcastle graph --code`.
+links: section | use case | command
+before edit | function holding a line, its notes | memcastle links <file> --at <line>
+find code | where defined, callers, callees, notes | memcastle links <symbol>
+change signature | call sites and constants to read | memcastle links <symbol> --context
+new file | its notes, or what it defines and who uses it | memcastle links <file>
+history | how a decision changed | memcastle history <note.md>
+read as: path:a-b = read those lines, not the file
+read as: caller path:line 0.9 = chance the call reaches it, 1.0 same file to 0.2; under 0.3 counted only
+read as: too wide: read path:a-b = function over 150 lines, read the block shown
+read as: lines 9-11 Decision = note sections naming it; read those lines, not the note
+read as: decision <sentence> = the note's first Decision sentence (first two notes)
+read as: as foo::bar = spelling the note used, or the neighbour it was ranked by
+read as: superseded by X = decision reversed, read X
+read as: no notes link to X, nothing after = not indexed; check spelling or run graph --code
+limits: edges are by name; a call through a trait or a macro is missed
 ";
 
 const SEARCH_HELP: &str = "\
-WHEN TO USE WHICH
-  You are about to make a design choice, or try a fix, in an area that may
-  have history (\"should we batch embeddings\", \"why is the floor 0.30\"):
-      memcastle search \"<question>\"
-    One line per hit, `n. note.md:line  confidence  section`, then the
-    note's first Decision sentence. Pick a note from this before paying for
-    more. Then:
-      memcastle search \"<question>\" --sections
-    Prints each hit's Decision, Rejected and Measured sections in full. Read
-    these instead of the note files.
-
-  The user refers to the past (\"like we did for X\") or you resume paused work:
-      memcastle search \"<topic>\" --sections
-
-  The question is about a sister repository in a declared group:
-      memcastle search \"<question>\" --related
-
-  You want to know why a hit ranked where it did (or the per-stage timing):
-      memcastle search \"<question>\" --explain
-
-  Do not search for routine edits, reading code, or running tests; `links`
-  is the tool before an edit.
-
-HOW TO READ THE ANSWER
-  Confidence is 0 to 1: an identifier from the question found verbatim is
-  1.00; above 0.70 the model is sure; under 0.30 the hit is dropped and the
-  answer is `no relevant note (best confidence X)`, which is a real answer:
-  the store has nothing, proceed on the code and say so. Labels: `code
-  changed since: <symbols>` means the function the note describes was
-  rewritten after the note, read the code before trusting the paragraph;
-  `superseded by <note>` means the decision was reversed, the newer note
-  is the one to act on; `[project]` appears only when hits span projects.
-  The `read first` table (`a. path:a-b  name  score  why`) lists the code
-  spans the question needs, ranked; read them with `sed -n 'a,bp' path`
-  before opening anything else. `read first: none` means no code span
-  applies. A hit line names the lines of the note that matched
-  (`note.md:13-14`); `lines  13-14 0.64 Rejected, 9-10 0.41 Decision` lists
-  the note's other matching parts with their own confidence, best first,
-  even under 0.30 once the note qualified: read those lines (`sed -n
-  '13,14p' note.md`), not the whole note. Cite a note as
-  `memorycastle/journal/<note>.md:<line>`.
+search: section | use case | command
+decide | a choice or a fix in an area with history | memcastle search \"<question>\"
+full sections | Decision, Rejected, Measured of the hits | memcastle search \"<question>\" --sections
+past work | user says \"like we did\", or resuming | memcastle search \"<topic>\" --sections
+sister repo | question about a repo in a declared group | memcastle search \"<question>\" --related
+ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
+skip | routine edits, reading code, running tests | use links before an edit
+read as: note.md:13-14 0.71 Rejected = lines that matched, confidence 0 to 1, section
+read as: confidence = 1.00 exact identifier; 0.70+ answer; 0.30-0.70 verify; under 0.30 dropped
+read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; read those lines
+read as: decision <sentence> = the note's first Decision sentence
+read as: code changed since: <symbols> = code moved after the note; check it first
+read as: superseded by X = decision reversed, act on X
+read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
+read as: no relevant note = store has nothing; work from the code and say so
+cite as: memorycastle/journal/<note>.md:<line>
 ";
 
 #[derive(Parser)]
