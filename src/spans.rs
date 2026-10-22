@@ -280,10 +280,19 @@ pub fn context(conn: &Connection, project_id: i64, root: &Path, defs: &[Def]) ->
         let mut names: Vec<&str> = code::identifiers(&body).filter(|w| w.chars().any(|c| c.is_ascii_uppercase()) && *w != d.name).collect();
         names.sort_unstable();
         names.dedup();
-        for name in names.iter().take(crate::limits::CONTEXT_ITEMS) {
-            for c in code::defs_named(conn, project_id, name)?.into_iter().filter(|c| c.kind == "const" || c.kind == "variant").take(1) {
+        // Filtered to constants before the cap: sorted names put `Option`,
+        // `Result` and `Some` first and `SPAN_WIDE` never got a slot. A
+        // variant counts only in the definition's own file, since `Option`
+        // in a tuple variant was indexed as one elsewhere.
+        let mut printed = 0;
+        for name in &names {
+            if printed == crate::limits::CONTEXT_ITEMS {
+                break;
+            }
+            for c in code::defs_named(conn, project_id, name)?.into_iter().filter(|c| c.kind == "const" || (c.kind == "variant" && c.path == d.path)).take(1) {
                 if seen.insert((c.path.clone(), c.line)) {
                     out.push(format!("read: {}:{}-{}  {}  uses constant", c.path, c.line, c.end.max(c.line), c.name));
+                    printed += 1;
                 }
             }
         }

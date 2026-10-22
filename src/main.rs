@@ -1501,19 +1501,17 @@ fn run(cli: Cli) -> Result<()> {
                     if let Some((a, b)) = span {
                         store::record_span(&ctx.conn, pid, &d.path, a, b, 0)?;
                     }
-                    if !context {
-                        // Callers per definition: a qualified call resolves
-                        // to its own definition, a bare one is listed under
-                        // each with its lower confidence.
-                        let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true)?;
-                        if calls.is_empty() {
-                            if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
-                                out.push_str(&format!("   {l}\n"));
-                            }
-                        }
-                        for l in calls {
+                    // Callers per definition, with `--context` too: its
+                    // `read:` lines add the call sites, they do not replace
+                    // the scored list.
+                    let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true)?;
+                    if calls.is_empty() {
+                        if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
                             out.push_str(&format!("   {l}\n"));
                         }
+                    }
+                    for l in calls {
+                        out.push_str(&format!("   {l}\n"));
                     }
                 }
                 // A hub file names dozens of notes: the first few, then a count.
