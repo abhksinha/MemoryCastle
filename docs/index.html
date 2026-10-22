@@ -248,7 +248,7 @@ memcastle install</code></pre>
     <div class="steps reveal">
       <div class="card"><h3>The agent writes a note</h3><p>At the end of a task that changed a decision: Context, Decision, Rejected, Measured, in <code>memorycastle/journal/</code>, committed with the code. Written in the session that did the work, with the numbers still in hand.</p></div>
       <div class="card"><h3>The store indexes it</h3><p>Split by heading, indexed for keywords with SQLite FTS5, embedded with a local EmbeddingGemma 2 model, int8, on the CPU. No API key, no network after the first download.</p></div>
-      <div class="card"><h3>A question gets a paragraph and a line range</h3><p>Keyword and meaning results are fused, judged for confidence, reranked by what the note declares it is about. The answer ends with <code>path:start-end</code>: the lines to read, not the file.</p></div>
+      <div class="card"><h3>A question gets a paragraph and a line range</h3><p>Keyword and meaning results are fused, judged for confidence, reranked by what the note declares it is about. Each hit names the lines of the note that matched, each part with its own confidence, and the answer ends with <code>path:start-end</code> spans of code: the lines to read, not the files.</p></div>
       <div class="card"><h3>Hooks keep it honest</h3><p>Recall on every prompt, the right notes before every edit, a read guard, a silent read ledger, and the note asked for at the moments it is due. In Claude Code, Codex, Gemini CLI and Cursor.</p></div>
     </div>
 
@@ -256,18 +256,18 @@ memcastle install</code></pre>
       <div>
         <span class="eyebrow teal">The answer</span>
         <h3 style="font-size:26px">A fixed grammar, for eyes and parsers alike</h3>
-        <p>A hit line with confidence and section, a title and author, <code>label value</code> fields, a blank line, then a lettered table of code spans to read first. By default a hit is one line and the note's Decision sentence, about 50 tokens; <code>--sections</code> opens the one you picked; every field typed with <code>--json</code>.</p>
+        <p>A hit line with the note's matching lines, confidence and section, then <code>label value</code> fields, a blank line, then a lettered table of code spans to read first. By default a hit is one line, the note's Decision sentence and <code>lines</code>: the note's other matching parts, each with its own confidence, so the agent reads those lines and not the whole note. On 83 title questions the Decision section was among them 76 times; the hit line alone pointed at it 20 times. <code>--sections</code> opens the one you picked.</p>
       </div>
-      <pre><code>1. memorycastle/journal/2026-10-18-model-precision.md:12   0.91   Decision
-   Choose int8 over q4 for EmbeddingGemma 2   abhi+claude
-   files      src/embed/download.rs, src/embed/mod.rs
-   decision   int8 is the only setting that finds every gold
-              answer in the top 3; q4 is twice as fast and
-              120 MB lighter but drops one question.
-   code       load_model  src/embed/ort_rt.rs:41-88
+      <pre><code>$ memcastle search "should search stem words with the porter tokenizer"
+1. memorycastle/journal/2026-10-20-ranking-stem-prefix-not-porter.md:13-14   0.71   Rejected
+   decision   The three benchmark notes were forgotten (not
+              purged) from the real AbhiGram store.
+   lines      13-14 0.71 Rejected, 9-10 0.53 Decision,
+              17 0.50 Measured
 
-read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
-   a. src/embed/ort_rt.rs:41-88  load_model  1.00  named by the note</code></pre>
+read first (5 spans, 5.5 KB; sed -n 'a,bp' path):
+   a. src/fts.rs:113-119    a_plain_word_also_matches_b…  0.95
+   b. src/search.rs:506-517 stem                          0.95</code></pre>
     </div>
 
     <div class="feature flip reveal">
@@ -332,21 +332,25 @@ read first (1 spans, 1.4 KB; sed -n 'a,bp' path):
     <div class="changes reveal">
       <div class="change"><div class="k">You want</div><div>To edit a function.</div>
         <div class="k">Run</div><div><code>memcastle links upsert_snippet</code></div>
-        <div class="k">You get</div><div><pre><code>defined: src/install.rs:114-118  (fn)
-   called by: 6  install_section src/install.rs:246, snippet_added_refreshed_and_left_alone src/install.rs:714 +4 more
+        <div class="k">You get</div><div><pre><code>defined: src/install.rs:116-120  (fn)
+   called by: 6  install_section src/install.rs:248 0.9, snippet_added_refreshed_and_left_alone src/install.rs:714 0.9 +4 more
    calls: 1  upsert_section</code></pre></div>
-        <div class="k">Read it as</div><div>Read those five lines, not the 760-line file. The callers are what you will break; the tests are named so you know which ones to run.</div></div>
+        <div class="k">Read it as</div><div>Read those five lines, not the 760-line file. The callers are what you will break; the tests are named so you know which ones to run. The number after a caller is how likely that call reaches this definition, measured on history: when a signature changed, the share of call sites the same commit updated. 1.0 for <code>self.f(</code> or a bare call in the same file, 0.9 for a name defined once, down to 0.2; under 0.3 a call is counted, not listed.</div></div>
       <div class="change"><div class="k">You want</div><div>To know what was decided about the code at a line.</div>
         <div class="k">Run</div><div><code>memcastle links src/install.rs --at 236</code></div>
-        <div class="k">You get</div><div><pre><code>about: install_section (src/install.rs:222-241 holds line 236)
-memorycastle/journal/2026-10-20-lead-line-at-the-top.md  A one-line lead at the top of the instruction file
-memorycastle/journal/2026-10-20-short-repo-section-and-plugin-update.md  The repo section is short beside a user-level file</code></pre></div>
-        <div class="k">Read it as</div><div>The function holding that line and the two notes about it, out of twenty-four about the file. A function longer than 150 lines is narrowed to the block holding the line.</div></div>
+        <div class="k">You get</div><div><pre><code>at: install_section (fn) src/install.rs:246-266 holds line 254
+memorycastle/journal/2026-10-20-fixed-cost-and-rare-identifiers.md  Every repo file gets the short section ...
+   decision   `install_repo` writes the short section into `AGENTS.md` too, not only `CLAUDE.md` and `GEMINI.md`.
+   lines      9-11 Decision</code></pre></div>
+        <div class="k">Read it as</div><div>The function holding that line, then the notes, the first two with their Decision sentence and every one with <code>lines</code>: the sections that name it, so you read lines 9 to 11 and not the note. A function longer than 150 lines is narrowed to the block holding the line.</div></div>
       <div class="change"><div class="k">You want</div><div>The exact lines to read before changing a signature.</div>
         <div class="k">Run</div><div><code>memcastle links narrow_span --context</code></div>
         <div class="k">You get</div><div><pre><code>defined: src/code.rs:884-954  (fn)
-   read: src/main.rs:1189-1195  use of narrow_span  calls narrow_span</code></pre></div>
-        <div class="k">Read it as</div><div>The definition span and the first call in each using file, as <code>path:a-b</code>. <code>sed -n '1189,1195p'</code> and you have seen every caller.</div></div>
+   called by: 2  narrows_a_wide_function_to_the_arm_holding_the_line src/code.rs:985 0.9, run src/main.rs:1400 0.7
+   calls: 3  ext_of, span_end, strip_strings_and_comments
+   read: src/limits.rs:125-125  SPAN_WIDE  uses constant
+   read: src/main.rs:1397-1403  use of narrow_span  calls narrow_span</code></pre></div>
+        <div class="k">Read it as</div><div>The definition span, its scored callers, the constants its body uses and the first call in each using file, as <code>path:a-b</code>. <code>sed -n '1397,1403p'</code> and you have seen every caller outside the tests.</div></div>
       <div class="change"><div class="k">You want</div><div>A file no note has mentioned.</div>
         <div class="k">Run</div><div><code>memcastle links src/draft.rs</code></div>
         <div class="k">You get</div><div>What it defines, who imports it, who uses it. Three lines, from the code index.</div>
