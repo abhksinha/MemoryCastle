@@ -289,6 +289,10 @@ enum Cmd {
     /// before the first prompt, with no step to remember.
     #[command(hide = true)]
     Sync,
+    /// Embed every pending chunk, all projects (started detached by a save
+    /// with more than `SAVE_EMBED_MAX` pending).
+    #[command(hide = true)]
+    Embed,
     /// Record a file read reported by an agent hook (no output; keyword path).
     #[command(hide = true)]
     Read {
@@ -942,6 +946,12 @@ fn run(cli: Cli) -> Result<()> {
                 ranges.join(", ")
             );
             std::process::exit(2);
+        }
+        Cmd::Embed => {
+            memorycastle::db::meta_set(&ctx.conn, "embedding_at", &memorycastle::sys::now().to_string())?;
+            let n = ctx.embed_pending(None);
+            memorycastle::db::meta_set(&ctx.conn, "embedding_at", "0")?;
+            println!("embedded {}", n?);
         }
         Cmd::Sync => {
             let Some(root) = ctx.repo.as_ref().map(|r| r.root.clone()) else { return Ok(()) };

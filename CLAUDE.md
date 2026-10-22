@@ -73,7 +73,7 @@ Environment: `MEMORYCASTLE_HOME` (data dir, default `~/.local/share/memorycastle
 - `forget` without `--purge` keeps the note text (for revival on re-save) but deletes its chunks, so the hot search path has no `deleted_at` join. `verify_clean` proves nothing derived remains.
 - The HF `tokenizers` crate cost 376 MB resident; `embed/tokenizer.rs` replaces it (14 MB, 3 ms load, parity-tested). Special tokens written inside notes are encoded as text on purpose: memory is data.
 - The ONNX export declares `image_features`, `video_features`, `audio_features`; text-only means feeding them as empty `[0, 512]` tensors.
-- Batch embedding buys no throughput on the CPU (measured), so `embed_missing` embeds one chunk per call, longest first. Chunk targets are 200 words (max 280) because a 300-word identifier-heavy chunk reached 600 tokens and attention memory grows with the square of that.
+- Batch embedding buys no throughput on the CPU (measured), so `embed_missing` embeds one chunk per call, longest first. Chunk targets are 60 words (max 90) since 0.11.30 (`CHUNK_VERSION` 4): on four gold sets, 182 answerable questions of which 60 were written blind by three other agents, 60 words found 162 in the top 3 against 153 at 200 (blind 39 to 44), 40, 80 and 100 words lower, absent answered unchanged; a small chunk embeds one point. The old 200 was an upper bound against token growth (a 300-word identifier-heavy chunk reached 600 tokens), which a smaller chunk only respects. A save with more than `SAVE_EMBED_MAX` 32 pending chunks (a rechunk after an upgrade) embeds in a detached `memorycastle embed` (meta `embedding_at`), so session start stays at 0.05 s; the whole store (1,798 chunks) re-embedded in 200 s.
 - Four intra-op threads: a query takes 95 ms at 4 threads and 135 ms at 2; reindex wall time is the same at 2 or 4 (CPU-bound per chunk, about 0.28 s each).
 - `vectors` is a rowid table (schema v4). As WITHOUT ROWID every 1 KB blob went to an overflow page: 16 MB on disk for 3.5 MB of vectors and a scan walking a page per row. Rowid layout: 4.7 MB and half the scan time. The scan converts f16 with the `half` crate's vectorised slice path.
 - GPU is not auto-selected. CoreML was measured (`MEMORYCASTLE_ORT_EP=coreml`, needs `MEMORYCASTLE_MEDIA_ROWS=1` because CoreML refuses zero-row inputs): slower on load, query and batch and 3.5x the memory, because the multimodal merge splits the graph into many partitions with CPU copies between them. Re-measure when a text-only export or a newer runtime appears; the knob is the hook point.
@@ -132,7 +132,7 @@ int8 is the default: it is the only setting that finds every answer in the top 3
 
 | Bound | Value | What it controls |
 | --- | --- | --- |
-| Chunk words target / max | 200 / 280 | tokens per model call, activation peak |
+| Chunk words target / max | 60 / 90 | one point per vector; tokens per model call |
 | Tokens per chunk | 1024 | truncation point |
 | Channel top | 100 | fusion working set, 3.2 KB |
 | Bit prefilter threshold / candidates | 512 rows / 300 | when the pack runs; rerank moves 300 KB |

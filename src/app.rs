@@ -29,7 +29,7 @@ impl Context {
         let mut conn = db::open_at(&db_path)?;
         store::ensure_sections(&conn)?;
         if store::ensure_chunk_version(&mut conn)? > 0 && !quiet {
-            eprintln!("memorycastle: notes rechunked for the new splitter; new chunks are embedded at the next save or serve");
+            eprintln!("memorycastle: notes rechunked for the new splitter; new chunks are embedded in the background at the next save or session start");
         }
         let repo = Repo::discover(cwd);
         let mut project_error = None;
@@ -162,7 +162,7 @@ impl Context {
                 }
             }
         }
-        let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
+        let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_or_defer(project.id)? };
         // What the store can say about the notes that changed, against the
         // rest; an unchanged note was flagged when it was saved.
         for rel in &changed_rel {
@@ -186,14 +186,40 @@ impl Context {
         if let Some(r) = self.repo.as_ref().map(|r| r.root.clone()) {
             crate::graph::refresh_note_code(&self.conn, project.id, &r, rel_path)?;
         }
-        let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_pending(Some(project.id))? };
+        let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_or_defer(project.id)? };
         Ok((outcome, embedded))
     }
 
     /// Embeds chunks without a vector. Opens the model only if there is work.
-    pub fn embed_pending(&mut self, project_id: Option<i64>) -> Result<usize> {
+    /// Embeds the project's pending chunks inline when there are at most
+    /// `SAVE_EMBED_MAX`; more (a rechunk after an upgrade: 333 to 743 per
+    /// project, 30 s to over a minute) go to a detached `memorycastle embed`,
+    /// so a save or the session-start hook never waits on them. Returns the
+    /// chunks embedded here.
+    pub fn embed_or_defer(&mut self, project_id: i64) -> Result<usize> {
         let space = embed::ensure_space(&self.conn, &embed::default_space_def())?;
-        let pending: i64 = match project_id {
+        let pending = self.pending(&space, Some(project_id))?;
+        if pending <= crate::limits::SAVE_EMBED_MAX as i64 {
+            return self.embed_pending(Some(project_id));
+        }
+        let since: i64 = db::meta_get(&self.conn, "embedding_at")?.and_then(|v| v.parse().ok()).unwrap_or(0);
+        if crate::sys::now() - since > crate::limits::EMBED_BACKGROUND_STALE_SECS {
+            let mut cmd = std::process::Command::new(std::env::current_exe()?);
+            cmd.arg("embed").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null());
+            #[cfg(unix)]
+            {
+                use std::os::unix::process::CommandExt;
+                cmd.process_group(0);
+            }
+            cmd.spawn().map_err(|e| err!("embed: {e}"))?;
+            db::meta_set(&self.conn, "embedding_at", &crate::sys::now().to_string())?;
+        }
+        eprintln!("memorycastle: embedding {pending} chunks in the background; meaning search covers them when it finishes");
+        Ok(0)
+    }
+
+    fn pending(&self, space: &embed::Space, project_id: Option<i64>) -> Result<i64> {
+        Ok(match project_id {
             Some(pid) => self.conn.query_row(
                 "SELECT count(*) FROM chunks c WHERE c.project_id = ?2 AND NOT EXISTS (SELECT 1 FROM vectors v WHERE v.chunk_id = c.id AND v.space_id = ?1)",
                 rusqlite::params![space.id, pid],
@@ -204,7 +230,12 @@ impl Context {
                 [space.id],
                 |r| r.get(0),
             )?,
-        };
+        })
+    }
+
+    pub fn embed_pending(&mut self, project_id: Option<i64>) -> Result<usize> {
+        let space = embed::ensure_space(&self.conn, &embed::default_space_def())?;
+        let pending = self.pending(&space, project_id)?;
         if pending == 0 {
             return Ok(0);
         }

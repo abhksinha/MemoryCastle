@@ -16,7 +16,7 @@ pub struct Chunk {
 
 /// Bump when `split` changes what a chunk is; stores chunked by an older
 /// splitter are rechunked once (vectors of unchanged text are kept).
-pub const CHUNK_VERSION: &str = "3";
+pub const CHUNK_VERSION: &str = "4";
 
 pub use crate::limits::CHUNK_TARGET_WORDS as TARGET_WORDS;
 pub use crate::limits::CHUNK_MAX_WORDS as MAX_WORDS;

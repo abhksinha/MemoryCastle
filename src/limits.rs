@@ -5,11 +5,14 @@
 
 // ---------------------------------------------------------------- notes --
 
-/// Words per chunk the splitter aims for. Sets tokens per model call and so
-/// the activation peak (attention grows with the square of the token count).
-pub const CHUNK_TARGET_WORDS: usize = 200;
+/// Words per chunk the splitter aims for. Small chunks embed one point each:
+/// on four gold sets (171 answerable questions, 60 of them written blind)
+/// 60 words found 162 in the top 3 against 153 at 200, with 40, 80 and 100
+/// lower and absent questions unchanged (2026-10-22). It also bounds tokens
+/// per model call, so the activation peak.
+pub const CHUNK_TARGET_WORDS: usize = 60;
 /// Hard cap on words per chunk; longer runs are split on lines, then words.
-pub const CHUNK_MAX_WORDS: usize = 280;
+pub const CHUNK_MAX_WORDS: usize = 90;
 /// Tokens the embedder will accept for one chunk; longer input is truncated.
 /// 280 identifier-heavy words measured at about 600 tokens, so 1024 leaves room.
 pub const EMBED_MAX_TOKENS: usize = 1024;
@@ -193,9 +196,17 @@ pub const WHOLE_READ_LINES: usize = 2000;
 pub const RANGE_READ_LINES: usize = 40;
 /// A `## Decision` shorter than this is a label, not a decision; `save` warns.
 pub const DECISION_MIN_WORDS: usize = 8;
+/// Pending chunks a save (or `sync` at session start) embeds inline, about
+/// 3 s; more go to a detached `memorycastle embed`.
+pub const SAVE_EMBED_MAX: usize = 32;
+/// A background embed that set `embedding_at` longer ago than this is taken
+/// as dead and another may start (duplicate work is harmless: vectors are
+/// written with INSERT OR REPLACE).
+pub const EMBED_BACKGROUND_STALE_SECS: i64 = 900;
 /// A `## Decision` longer than this, or with more bullets than
-/// `DECISION_MAX_BULLETS`, holds several decisions; one chunk embeds one
-/// idea cleanly, so `save` says to split.
+/// `DECISION_MAX_BULLETS`, holds several decisions, so `save` says to split.
+/// It spans two chunks at most; nothing needs it in one (the decision line
+/// printed is read from the note, `store::decision_sentence`).
 pub const DECISION_MAX_WORDS: usize = 120;
 pub const DECISION_MAX_BULLETS: usize = 3;
 /// Title words that name a task, not a decision. The title is embedded
@@ -224,7 +235,7 @@ pub const OPEN_MIN_SECS: i64 = 3;
 pub const SERVED_NEVER_FOLLOWED: i64 = 5;
 /// A note longer than this is a dump, not a memory; `save` says so.
 pub const NOTE_MAX_WORDS: usize = 1500;
-const _: () = { assert!(SEARCH_CHUNK_BYTES * 3 < SEARCH_OUTPUT_BYTES); assert!(NOTE_MAX_WORDS > CHUNK_MAX_WORDS * 3); assert!(DECISION_MIN_WORDS < DECISION_MAX_WORDS); assert!(DECISION_MAX_WORDS <= CHUNK_TARGET_WORDS, "a decision must fit one chunk"); };
+const _: () = { assert!(SEARCH_CHUNK_BYTES * 3 < SEARCH_OUTPUT_BYTES); assert!(NOTE_MAX_WORDS > CHUNK_MAX_WORDS * 3); assert!(DECISION_MIN_WORDS < DECISION_MAX_WORDS); assert!(DECISION_MAX_WORDS <= CHUNK_MAX_WORDS * 2, "a decision spans at most two chunks"); };
 
 // --------------------------------------------------------------- search --
 
