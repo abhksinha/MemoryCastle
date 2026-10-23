@@ -726,3 +726,24 @@ fn working_set_ranks_notes_about_the_files_in_hand() {
     let b = half.iter().find(|h| h.path.ends_with("-b.md")).unwrap();
     assert!(b.trace.working > 1.0 && b.trace.working < memorycastle::limits::WORKING_WEIGHT);
 }
+
+#[test]
+fn also_merges_wordings_one_hit_per_note() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "journal/2026-10-18-fallback.md", "# Fallback\n## Decision\nA document that loads a local style file runs whole on the engine.");
+    save(&mut conn, &p, "journal/2026-10-18-port.md", "# Port\n## Decision\nEach command becomes a native primitive, ported one by one.");
+    let s = Scope::single(p.id);
+    let opts = SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() };
+    let q = |text: &str| search(&conn, &s, text, &opts, ModelSource::None).unwrap().0;
+    // The question's words reach only the port note; the other wording reaches the fallback note.
+    let first = q("custom package ported natively");
+    assert!(first.iter().all(|h| h.path != "journal/2026-10-18-fallback.md"));
+    let merged = memorycastle::search::merge_queries(vec![first, q("local style file engine"), q("ported command")], 5);
+    let paths: Vec<&str> = merged.iter().map(|h| h.path.as_str()).collect();
+    assert!(paths.contains(&"journal/2026-10-18-fallback.md"));
+    assert_eq!(paths.iter().filter(|p| **p == "journal/2026-10-18-port.md").count(), 1, "one hit per note: {paths:?}");
+    // Found by two wordings, the port note ranks first; the fallback note came in through the first --also.
+    assert_eq!(paths[0], "journal/2026-10-18-port.md");
+    assert_eq!(merged.iter().find(|h| h.path.ends_with("fallback.md")).unwrap().trace.via, 1);
+}

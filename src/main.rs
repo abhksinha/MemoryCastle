@@ -39,6 +39,7 @@ combine: config key, string, flag | grep -rn; the index holds definitions and ca
 const SEARCH_HELP: &str = "\
 search: section | use case | command
 decide | a choice or a fix in an area with history | memcastle search \"<question>\"
+other words | a why or design question: one more wording, merged | memcastle search \"<question>\" --also \"<repo's words>\"
 full sections | Decision, Rejected, Measured of the hits | memcastle search \"<question>\" --sections
 past work | user says \"like we did X\", or resuming | memcastle search \"<X in its own words>\" --sections
 sister repo | question about a repo in a declared group | memcastle search \"<question>\" --related
@@ -139,6 +140,9 @@ enum Cmd {
         /// Print `read:` spans with absolute paths (default: repo-relative, absolute when run outside the repo root).
         #[arg(long)]
         abs: bool,
+        /// The same question in other words (the repo's own terms, the likely mechanism); hits are merged per note. Repeat for a second wording.
+        #[arg(long)]
+        also: Vec<String>,
     },
     /// Remove a note and everything derived from it.
     Forget {
@@ -491,15 +495,16 @@ fn run(cli: Cli) -> Result<()> {
                 println!("added {added}, updated {updated}, unchanged {unchanged}, embedded {embedded} chunks");
             }
         }
-        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, brief, full, abs } => {
+        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, brief, full, abs, also } => {
             let mode = if meaning { Mode::Meaning } else if keyword { Mode::Keyword } else { Mode::Auto };
             // Brief is the default; sections, the full block and explain (which needs the trace field) opt out.
             let brief = brief || !(sections || full || explain);
-            let (hits, ex) = ctx.search(&query, &scope.flags(), &SearchOptions { k, mode, working: Vec::new() })?;
+            let (hits, ex) = ctx.search_also(&query, &also, &scope.flags(), &SearchOptions { k, mode, working: Vec::new() })?;
+            let span_query = std::iter::once(query.as_str()).chain(also.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
             let read_spans = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {
                     memorycastle::code::refresh(&mut ctx.conn, p.id, &r)?;
-                    memorycastle::spans::ranked(&ctx.conn, p.id, Some(&r), &query, &hits)?
+                    memorycastle::spans::ranked(&ctx.conn, p.id, Some(&r), &span_query, &hits)?
                 }
                 _ => Vec::new(),
             };

@@ -54,6 +54,12 @@ pub const SECTION_CUE_WEIGHT: f32 = 1.6;
 /// question's content words: a near miss in the same area. 0.80 becomes
 /// 0.28, under `MIN_CONFIDENCE`; 0.90 stays.
 pub const NO_COVERAGE_FACTOR: f32 = 0.3;
+/// Other wordings of a question a search takes (`--also`). One was measured
+/// (2026-10-23): blind rewordings by another model, merged per note, gained
+/// 3 and 6 of 187 gold questions on two samples with no absent question
+/// answered; two gained more on blind questions but answered two absent ones
+/// and lost four on rushtex.
+pub const SEARCH_ALSO_MAX: usize = 2;
 /// A question word is distinctive when at most this share of the scope's
 /// chunks contain it. Such words must appear in a hit for the model's
 /// cosine to count in full.

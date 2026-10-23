@@ -18,6 +18,9 @@ pub struct GoldQuestion {
     /// Files the session is taken to be working on, weight 1 each.
     #[serde(default)]
     pub working: Vec<String>,
+    /// Other wordings searched with it (`search --also`), merged per note.
+    #[serde(default)]
+    pub also: Vec<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -78,7 +81,14 @@ pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mod
         let scope: Scope = project::resolve_scope(conn, Some(&p), &flags)?;
         let t0 = Instant::now();
         let opts = SearchOptions { working: q.working.iter().map(|f| (f.clone(), 1.0)).collect(), ..opts.clone() };
-        let hits = memory.search(&scope, &q.question, &opts)?;
+        let mut hits = memory.search(&scope, &q.question, &opts)?;
+        if !q.also.is_empty() {
+            let mut lists = vec![hits];
+            for a in q.also.iter().take(crate::limits::SEARCH_ALSO_MAX) {
+                lists.push(memory.search(&scope, a, &opts)?);
+            }
+            hits = crate::search::merge_queries(lists, opts.k);
+        }
         times.push(t0.elapsed().as_secs_f64() * 1000.0);
         if let Some(c) = hits.iter().filter(|h| h.path == q.answer).filter_map(|h| h.trace.cosine).reduce(f32::max) {
             right.push(c);

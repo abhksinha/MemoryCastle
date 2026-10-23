@@ -57,6 +57,8 @@ pub struct Trace {
     /// outranks the model, unlike a cosine at the ceiling.
     #[serde(skip)]
     pub identifier: bool,
+    /// Which wording found this note: 0 the question, 1 the first `--also`.
+    pub via: u8,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -472,6 +474,43 @@ pub fn search(
         }
     }
     Ok((hits, ex))
+}
+
+/// Merges the hits of the question and its other wordings (`--also`), one
+/// hit per note: the best-confidence hit stands for the note, the order is
+/// confidence quarter (as in `search`), then reciprocal rank summed over the
+/// wordings, so a note several wordings find rises and one wording's near
+/// miss cannot outrank the printed number.
+pub fn merge_queries(lists: Vec<Vec<Hit>>, k: usize) -> Vec<Hit> {
+    let mut notes: HashMap<i64, (Hit, f32)> = HashMap::new();
+    for (qi, hits) in lists.into_iter().enumerate() {
+        let mut rank = 0usize;
+        let mut seen = std::collections::HashSet::new();
+        for mut h in hits {
+            if !seen.insert(h.note_id) {
+                continue;
+            }
+            rank += 1;
+            h.trace.via = qi as u8;
+            let rrf = 1.0 / (RRF_K + rank as f32);
+            match notes.get_mut(&h.note_id) {
+                Some((best, sum)) => {
+                    *sum += rrf;
+                    if h.trace.confidence > best.trace.confidence {
+                        *best = h;
+                    }
+                }
+                None => {
+                    notes.insert(h.note_id, (h, rrf));
+                }
+            }
+        }
+    }
+    let bucket = |h: &Hit| if h.trace.cosine.is_none() { 0 } else if h.trace.identifier { 4 } else { ((h.trace.confidence * 4.0).floor() as i32).min(3) };
+    let mut out: Vec<(Hit, f32)> = notes.into_values().collect();
+    out.sort_by(|a, b| bucket(&b.0).cmp(&bucket(&a.0)).then(b.1.total_cmp(&a.1)).then(a.0.chunk_id.cmp(&b.0.chunk_id)));
+    out.truncate(k);
+    out.into_iter().map(|(h, _)| h).collect()
 }
 
 /// Top chunk ids by BM25, filtered by project inside the FTS query.

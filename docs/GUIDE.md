@@ -5,7 +5,7 @@ Command: `memcastle` (same program as `memorycastle`). Notes in `memorycastle/jo
 ## Rules
 
 1. Before editing: `memcastle links <file> --at <line>` (or `memcastle links <symbol>`); read only the printed range.
-2. Before a design choice or a fix in an area with history: `memcastle search "<question>"`, then the same search with `--sections` when a hit matters.
+2. Before a design choice or a fix in an area with history: `memcastle search "<question>" --also "<same question in the repo's own words>"`, then the same search with `--sections` when a hit matters.
 3. After a task that decided, rejected or measured something: write a note, then `memcastle save` it.
 
 ## Commands
@@ -13,6 +13,7 @@ Command: `memcastle` (same program as `memorycastle`). Notes in `memorycastle/jo
 section | use case | command
 --- | --- | ---
 decide | a choice or a fix in an area with history | `memcastle search "<question>"`
+other words | a why or design question: one more wording, merged | `memcastle search "<question>" --also "<repo's words>"`
 full sections | Decision, Rejected, Measured of the hits | `memcastle search "<question>" --sections`
 past work | user says "like we did X", or resuming | `memcastle search "<X in its own words>" --sections`
 sister repo | question about a repo in a declared group | `memcastle search "<question>" --related`
