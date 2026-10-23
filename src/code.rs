@@ -748,7 +748,24 @@ pub fn defs_named(conn: &Connection, project_id: i64, name: &str) -> Result<Vec<
             anchor: r.get(5)?,
         })
     })?;
-    Ok(rows.collect::<rusqlite::Result<_>>()?)
+    let defs: Vec<Def> = rows.collect::<rusqlite::Result<_>>()?;
+    // `Context::search`, `spans::context`, `self.nodes.store`: the qualifier
+    // names a file stem or a type defined in the file. Keep those when any
+    // match; else every definition, as before.
+    let qual = name[..name.len() - short.len()].trim_end_matches("()").trim_end_matches(['.', ':']);
+    let qual = qual.rsplit("::").next().unwrap_or(qual).rsplit('.').next().unwrap_or(qual);
+    if defs.len() < 2 || qual.is_empty() || qual == "self" || qual == "Self" || qual == "crate" {
+        return Ok(defs);
+    }
+    let mut owns = conn.prepare_cached("SELECT 1 FROM code_defs WHERE project_id = ?1 AND path = ?2 AND name = ?3 AND kind IN ('struct', 'enum', 'trait', 'type', 'class', 'impl') LIMIT 1")?;
+    let mut keep = Vec::new();
+    for d in &defs {
+        let stem = std::path::Path::new(&d.path).file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        if stem.eq_ignore_ascii_case(qual) || owns.exists(params![project_id, d.path, qual])? {
+            keep.push(d.clone());
+        }
+    }
+    Ok(if keep.is_empty() { defs } else { keep })
 }
 
 /// True when the project has a code index.

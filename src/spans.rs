@@ -35,6 +35,22 @@ pub struct ReadSpan {
     pub bytes: usize,
 }
 
+/// The definitions of a name a note writes that are about that note: those
+/// in the note's own `Files:`, else the name's only one or two definitions
+/// (not an enum variant). A note writing `default`, `new` or `Build` meant
+/// the word, and the 25 to 45 files defining it were noise (rushtex,
+/// 2026-10-23).
+fn note_defs(defs: Vec<Def>, note_files: &[&String]) -> Vec<Def> {
+    let (mine, other): (Vec<Def>, Vec<Def>) = defs.into_iter().partition(|d| note_files.iter().any(|f| graph::same_file(f, &d.path)));
+    if !mine.is_empty() {
+        return mine;
+    }
+    if other.len() <= 2 && other.iter().all(|d| d.kind != "variant") {
+        return other;
+    }
+    Vec::new()
+}
+
 /// Up to `limits::READ_SPANS` spans for `query` given the ranked `hits`.
 pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &str, hits: &[Hit]) -> Result<Vec<ReadSpan>> {
     if !code::has_index(conn, project_id)? {
@@ -79,14 +95,18 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
     for (i, id) in note_rank.iter().enumerate().take(crate::limits::READ_SPANS) {
         let w = 0.9 * (1.0 - i as f32 * 0.15).max(0.3);
         if let Some(l) = links.get(id) {
+            let note_files: Vec<&String> = l.iter().filter(|(k, _)| *k == graph::Kind::File).map(|(_, f)| f).collect();
             for (k, sym) in l {
                 if *k != graph::Kind::Symbol {
                     continue;
                 }
                 let lower = sym.rsplit("::").next().unwrap_or(sym).rsplit('.').next().unwrap_or(sym).to_ascii_lowercase();
+                if lower.trim_matches('_').len() < 3 {
+                    continue;
+                }
                 let shares = q_words.iter().any(|q| lower.contains(q.as_str()));
                 let (w, why) = if shares { (w + 0.05, format!("named by note #{}, name matches question", i + 1)) } else { (w, format!("named by note #{}", i + 1)) };
-                for d in code::defs_named(conn, project_id, sym)?.into_iter().take(2) {
+                for d in note_defs(code::defs_named(conn, project_id, sym)?, &note_files).into_iter().take(2) {
                     push(d, w, why.clone(), &mut cands);
                 }
             }

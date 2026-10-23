@@ -76,8 +76,10 @@ def split_heredocs(text):
 def written(text, base):
     shell, bodies = split_heredocs(text)
     out = []
-    # Redirects: `> f`, `>> f`, `>| f`; not `2>&1`, `&>`, `/dev/...`.
-    for m in re.finditer(r"(?<![<>&\d])>{1,2}\|?\s*([^\s;&|<>()]+)", shell):
+    # Redirects: `> f`, `>> f`, `>| f`; not `2>&1`, `&>`, `/dev/...`. A `>`
+    # inside a quoted string (`git commit -m "cat > note.md"`) is text.
+    bare = re.sub(r"\"(?:[^\"\\]|\\.)*\"|'[^']*'", lambda m: m.group(0) if re.search(r">\|?\s*$", shell[:m.start()]) else " " * len(m.group(0)), shell)
+    for m in re.finditer(r"(?<![<>&\d])>{1,2}\|?\s*([^\s;&|<>()]+)", bare):
         out.append(m.group(1).strip("'\""))
     for seg in re.split(r"&&|\|\||[;|\n]", shell):
         try:
