@@ -213,6 +213,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             let text = if hits.is_empty() { crate::render::empty_line(&explain) } else { r.text.clone() };
             if let Some(p) = &ctx.project {
                 crate::render::record(&ctx.conn, p.id, &r)?;
+                crate::learned::record_search(&ctx.conn, p.id, query, &also, &r.notes, &explain)?;
             }
             Ok(json!({"text": text, "notes": r.notes.len(), "read": read.iter().map(|s| json!({"path": s.abs.as_deref().unwrap_or(&s.path), "start": s.start, "end": s.end, "name": s.name, "score": s.score})).collect::<Vec<_>>(), "dropped": explain.dropped, "best_confidence": explain.best_confidence}))
         }

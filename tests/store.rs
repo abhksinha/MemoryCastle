@@ -750,3 +750,46 @@ fn also_merges_wordings_one_hit_per_note() {
     assert_eq!(paths[0], "journal/2026-10-18-port.md");
     assert_eq!(merged.iter().find(|h| h.path.ends_with("fallback.md")).unwrap().trace.via, 1);
 }
+
+#[test]
+fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question() {
+    let mut conn = db::open_memory().unwrap();
+    let a = project(&conn, "a", None);
+    let b = project(&conn, "b", None);
+    let def = HashEmbedder::space_def(64);
+    let space = embed::ensure_space(&conn, &def).unwrap();
+    let mut e = HashEmbedder { dims: def.dims };
+    save(&mut conn, &a, "journal/2026-10-18-fallback.md", "# Fallback\n## Decision\nA document with a local style file runs whole on the engine.");
+    save(&mut conn, &a, "journal/2026-10-18-fonts.md", "# Fonts\n## Decision\nFont metrics load once per run.");
+    save(&mut conn, &b, "journal/2026-10-18-other.md", "# Other\n## Decision\nA document with a local style file is rejected.");
+    for p in [a.id, b.id] {
+        store::embed_missing(&mut conn, &space, &mut e, Some(p)).unwrap();
+    }
+    let note = |p: &Project, path: &str| -> i64 { conn.query_row("SELECT id FROM notes WHERE project_id = ?1 AND path = ?2", rusqlite::params![p.id, path], |r| r.get(0)).unwrap() };
+    let (fallback, fonts) = (note(&a, "journal/2026-10-18-fallback.md"), note(&a, "journal/2026-10-18-fonts.md"));
+    let q = "port custom packages natively";
+    let opts = SearchOptions { k: 5, mode: Mode::Meaning, working: Vec::new() };
+    let (_, ex) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    assert_eq!(ex.qvec.len(), def.dims, "the question's vector is kept for the log");
+    let vec: Vec<u8> = ex.qvec.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let t = memorycastle::sys::now() - 2 * memorycastle::limits::LEARN_WINDOW_SECS;
+    // Printed fonts first; the agent then read the fallback note.
+    let log = |printed: &str, opened: i64| {
+        conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![t, a.id, q, printed, space.id, vec]).unwrap();
+        conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'read', 's1')", rusqlite::params![t + 30, a.id, opened]).unwrap();
+    };
+    log(&format!("{fonts},{fallback}"), fallback);
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 1);
+    // The note ranked first and opened teaches nothing.
+    log(&format!("{fallback},{fonts}"), fallback);
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
+    let learned = memorycastle::learned::list(&conn, a.id).unwrap();
+    assert_eq!((learned.len(), learned[0].note_id, learned[0].kind.as_str()), (1, fallback, "lift"));
+    // The same question again brings the note in by the learned match.
+    let (hits, _) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    let h = hits.iter().find(|h| h.note_id == fallback).expect("learned note is a hit");
+    assert!(h.trace.learned > 0.99 && h.trace.confidence >= 0.99, "{:?}", h.trace);
+    // Another project never sees it.
+    let (hits, _) = search(&conn, &Scope::single(b.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    assert!(hits.iter().all(|h| h.trace.learned == 0.0));
+}

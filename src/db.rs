@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 23;
+pub const SCHEMA_VERSION: i64 = 24;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -372,6 +372,38 @@ fn migrate(conn: &Connection) -> Result<()> {
                  FOREIGN KEY (project_id, src) REFERENCES code_files(project_id, path) ON DELETE CASCADE
              ) WITHOUT ROWID;
              CREATE INDEX IF NOT EXISTS code_fields_name ON code_fields(project_id, name);",
+        )?;
+    }
+    if version < 24 {
+        // v24: agent searches and the questions learned from them
+        // (`learned.rs`): a search followed by an open of a note it did not
+        // rank first teaches that note the question.
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS searches (
+                 id         INTEGER PRIMARY KEY,
+                 at         INTEGER NOT NULL,
+                 project_id INTEGER NOT NULL,
+                 session    TEXT,
+                 query      TEXT NOT NULL,
+                 also       TEXT NOT NULL DEFAULT '',
+                 printed    TEXT NOT NULL DEFAULT '',
+                 space_id   INTEGER,
+                 vec        BLOB,
+                 done       INTEGER NOT NULL DEFAULT 0
+             );
+             CREATE INDEX IF NOT EXISTS searches_pending ON searches(project_id, done, at);
+             CREATE TABLE IF NOT EXISTS learned (
+                 id         INTEGER PRIMARY KEY,
+                 project_id INTEGER NOT NULL,
+                 note_id    INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                 query      TEXT NOT NULL,
+                 vec        BLOB NOT NULL,
+                 space_id   INTEGER NOT NULL,
+                 at         INTEGER NOT NULL,
+                 kind       TEXT NOT NULL,
+                 UNIQUE (note_id, query)
+             );
+             CREATE INDEX IF NOT EXISTS learned_project ON learned(project_id, space_id);",
         )?;
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

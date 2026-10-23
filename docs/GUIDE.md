@@ -28,6 +28,7 @@ history | how a decision changed | `memcastle history <note.md>`
 save | index a note | `memcastle save <note.md>` or `memcastle save --changed`
 owed | is a note owed, and a skeleton for it | `memcastle owed`, `memcastle draft`
 status | this session's lookups, edits, savings | `memcastle status`
+learned | questions learned from searches, and teach or drop one | `memcastle learned`, `learned add <note.md> "<q>"`, `learned forget <id>`
 code index | once per checkout, incremental after | `memcastle graph --code`
 skip | routine edits, reading code, running tests | no search
 
@@ -40,6 +41,7 @@ skip | routine edits, reading code, running tests | no search
 - `decision <sentence>` = the note's first Decision sentence
 - `code changed since: <symbols>` = that code changed after the note; run `links <symbol>` first
 - `superseded by X` = decision reversed; act on X
+- `learned 0.88` (in `--explain`) = an earlier question this close was answered by this note
 - `read first a. path:a-b name score why` = code spans to read first: `sed -n 'a,bp' path`
 - `no relevant note` = the store has nothing; work from the code and say so
 - `path:a-b` = read those lines, not the file

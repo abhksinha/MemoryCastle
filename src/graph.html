@@ -113,13 +113,13 @@ function draw(){
   for (const e of E){
     if(!visible[e.src]||!visible[e.dst]) continue;
     if (e.kind==='mentions' && !showmentions.checked) continue;
-    ctx.strokeStyle = e.kind==='note' ? 'rgba(215,164,73,0.7)' : e.kind==='symbol' ? 'rgba(140,140,160,0.25)' : e.kind==='in' ? 'rgba(98,196,141,0.35)' : e.kind==='imports' ? 'rgba(120,130,150,0.22)' : e.kind==='mentions' ? 'rgba(120,130,150,0.10)' : 'rgba(120,140,180,0.45)';
+    ctx.strokeStyle = e.kind==='note' ? 'rgba(215,164,73,0.7)' : e.kind==='symbol' ? 'rgba(140,140,160,0.25)' : e.kind==='in' ? 'rgba(98,196,141,0.35)' : e.kind==='imports' ? 'rgba(120,130,150,0.22)' : e.kind==='mentions' ? 'rgba(120,130,150,0.10)' : e.kind==='asked' ? 'rgba(198,120,221,0.5)' : 'rgba(120,140,180,0.45)';
     ctx.beginPath(); ctx.moveTo(X[e.src],Y[e.src]); ctx.lineTo(X[e.dst],Y[e.dst]); ctx.stroke();
   }
   for (let i=0;i<n;i++){
     if(!visible[i]) continue;
     const nd = N[i]; const r = nd.kind==='note' ? 5 + Math.min(6, nd.degree*0.4) : nd.kind==='file' ? 4 + Math.min(5, nd.degree*0.5) : 2.5;
-    ctx.fillStyle = !nd.exists ? '#e06c75' : nd.kind==='note' ? PALETTE[nd.community % PALETTE.length] : nd.kind==='file' ? '#aab4c4' : '#5c6270';
+    ctx.fillStyle = !nd.exists ? '#e06c75' : nd.kind==='note' ? PALETTE[nd.community % PALETTE.length] : nd.kind==='file' ? '#aab4c4' : nd.kind==='question' ? '#c678dd' : '#5c6270';
     if (nd.superseded) ctx.globalAlpha = 0.45;
     ctx.beginPath();
     if (nd.kind==='file') ctx.rect(X[i]-r, Y[i]-r, 2*r, 2*r); else ctx.arc(X[i],Y[i],r,0,2*Math.PI);

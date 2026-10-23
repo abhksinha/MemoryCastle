@@ -59,6 +59,8 @@ pub struct Trace {
     pub identifier: bool,
     /// Which wording found this note: 0 the question, 1 the first `--also`.
     pub via: u8,
+    /// Cosine to a learned question of this note (`learned.rs`), 0 if none.
+    pub learned: f32,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -131,6 +133,13 @@ pub struct Explain {
     pub distinctive: Vec<String>,
     /// Hits dropped for confidence under the floor.
     pub dropped: usize,
+    /// Notes brought in or confirmed by a learned question.
+    pub learned: usize,
+    /// The question's vector and space when the model ran, for the search log.
+    #[serde(skip)]
+    pub qvec: Vec<f32>,
+    #[serde(skip)]
+    pub space_id: Option<i64>,
     /// The floor applied: `MIN_CONFIDENCE_MODEL` when the model ran, else `MIN_CONFIDENCE`.
     pub floor: f32,
 }
@@ -255,10 +264,11 @@ pub fn search(
 
     // 3. Meaning channel.
     let mut vec_hits: Vec<(f32, i64)> = Vec::new();
+    let mut qvec: Vec<f32> = Vec::new();
     if run_model {
         let space = space.as_ref().unwrap();
         let qtext = space.def.query_text(query);
-        let mut qvec: Vec<f32> = Vec::with_capacity(space.def.dims);
+        qvec.reserve(space.def.dims);
         let t = std::time::Instant::now();
         if embed::cached_query(conn, space.id, &qtext, &mut qvec)? {
             ex.query_cached = true;
@@ -304,6 +314,27 @@ pub fn search(
         t.vec_rank = Some(i as u16 + 1);
         t.score += 1.0 / (RRF_K + i as f32 + 1.0);
         t.cosine = Some(*cos);
+    }
+    // Learned questions: an earlier question in other words whose asker
+    // then opened a note. That note's closest chunk joins as a third
+    // channel, its confidence from the question match (`learned.rs`).
+    let mut learned_cos: HashMap<i64, f32> = HashMap::new();
+    if run_model {
+        let space = space.as_ref().unwrap();
+        ex.qvec = qvec.clone();
+        ex.space_id = Some(space.id);
+        if crate::learned::enabled() {
+            let pids: Vec<i64> = scope.ids().collect();
+            for (i, (note, qcos)) in crate::learned::matches(conn, &pids, space.id, &qvec)?.into_iter().enumerate() {
+                if let Some((chunk, ccos)) = best_chunk(conn, space, note, &qvec)? {
+                    let t = fused.entry(chunk).or_default();
+                    t.score += 1.0 / (RRF_K + i as f32 + 1.0);
+                    t.cosine.get_or_insert(ccos);
+                    learned_cos.insert(chunk, qcos);
+                }
+            }
+            ex.learned = learned_cos.len();
+        }
     }
     if fused.is_empty() {
         return Ok((Vec::new(), ex));
@@ -362,7 +393,13 @@ pub fn search(
         // rescaled cosine (a chunk the model put under the floor stays there).
         let raw_cos = t.cosine.map(|c| ((c - COSINE_FLOOR) / (COSINE_CEIL - COSINE_FLOOR)).clamp(0.0, 1.0)).unwrap_or(0.0);
         t.identifier = ident_hit;
+        if let Some(q) = learned_cos.get(&h.chunk_id) {
+            t.learned = *q;
+        }
         t.confidence = if ident_hit { 1.0 } else if run_model { cos.max(cov.min(raw_cos)) } else { cos.max(cov) };
+        if t.learned > 0.0 {
+            t.confidence = t.confidence.max(crate::learned::confidence(t.learned));
+        }
         h.trace = t;
     }
     // Graph rerank: what the note declares it is about, against what the
@@ -837,6 +874,26 @@ fn vector_channel(conn: &Connection, scope: &Scope, space: &Space, qvec: &[f32])
     top.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     top.truncate(CHANNEL_TOP);
     Ok((top, total))
+}
+
+/// The chunk of a note closest to the question, as (chunk id, cosine).
+fn best_chunk(conn: &Connection, space: &Space, note_id: i64, qvec: &[f32]) -> Result<Option<(i64, f32)>> {
+    let dims = space.def.dims;
+    let mut stmt = conn.prepare_cached("SELECT c.id, v.vec FROM chunks c JOIN vectors v ON v.chunk_id = c.id AND v.space_id = ?1 WHERE c.note_id = ?2")?;
+    let mut u16s: Vec<u16> = vec![0; dims];
+    let mut floats: Vec<f32> = vec![0.0; dims];
+    let mut best: Option<(i64, f32)> = None;
+    for row in stmt.query_map(params![space.id, note_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Vec<u8>>(1)?)))? {
+        let (id, blob) = row?;
+        if blob.len() != dims * 2 {
+            continue;
+        }
+        let c = dot_f16(&blob, qvec, &mut u16s, &mut floats);
+        if best.is_none_or(|(_, b)| c > b) {
+            best = Some((id, c));
+        }
+    }
+    Ok(best)
 }
 
 /// Packs the sign bits of every vector of `project_id` into one blob and

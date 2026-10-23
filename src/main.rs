@@ -97,6 +97,14 @@ impl ScopeArgs {
 }
 
 #[derive(Subcommand)]
+enum LearnedCmd {
+    /// Teach a note a question: `learned add <note.md> "<question>"`.
+    Add { note: String, question: String },
+    /// Drop a learned question by its id (the number `learned` prints).
+    Forget { id: i64 },
+}
+
+#[derive(Subcommand)]
 enum Cmd {
     /// Add or update curated notes in the current project.
     Save {
@@ -144,6 +152,11 @@ enum Cmd {
         /// The same question in other words (the repo's own terms, the likely mechanism); hits are merged per note. Repeat for a second wording.
         #[arg(long)]
         also: Vec<String>,
+    },
+    /// Questions the store learned from searches followed by an open of another note; `add` teaches one, `forget` drops one.
+    Learned {
+        #[command(subcommand)]
+        cmd: Option<LearnedCmd>,
     },
     /// Remove a note and everything derived from it.
     Forget {
@@ -540,6 +553,43 @@ fn run(cli: Cli) -> Result<()> {
             // diagnosing ranking, and `eval` never records.
             if let (Some(p), false) = (&ctx.project, explain) {
                 memorycastle::render::record(&ctx.conn, p.id, &r)?;
+                memorycastle::learned::record_search(&ctx.conn, p.id, &query, &also, &r.notes, &ex)?;
+            }
+        }
+        Cmd::Learned { cmd } => {
+            let pid = ctx.require_project()?.id;
+            match cmd {
+                None => {
+                    memorycastle::learned::derive(&ctx.conn, pid)?;
+                    let rows = memorycastle::learned::list(&ctx.conn, pid)?;
+                    if rows.is_empty() {
+                        println!("no learned questions yet: a search followed by an open of a note it did not rank first teaches one");
+                    }
+                    let mut last = String::new();
+                    for l in rows {
+                        if l.path != last {
+                            println!("{}", l.path);
+                            last = l.path.clone();
+                        }
+                        println!("   {}  {:10}  {}  {}", l.id, l.kind, memorycastle::render::fmt_date(l.at), l.query);
+                    }
+                }
+                Some(LearnedCmd::Add { note, question }) => {
+                    let id: i64 = ctx
+                        .conn
+                        .query_row("SELECT id FROM notes WHERE project_id = ?1 AND (path = ?2 OR path LIKE '%/' || ?2) AND deleted_at IS NULL", rusqlite::params![pid, note], |r| r.get(0))
+                        .map_err(|_| format!("no note '{note}' in this project"))?;
+                    let (_, ex) = ctx.search(&question, &ScopeFlags::default(), &SearchOptions { k: 1, mode: Mode::Meaning, working: Vec::new() })?;
+                    let Some(space) = ex.space_id else { return Err("learning a question needs the model".into()) };
+                    memorycastle::learned::add_vector(&ctx.conn, pid, id, &question, &ex.qvec, space)?;
+                    println!("learned: {question}");
+                }
+                Some(LearnedCmd::Forget { id }) => {
+                    if !memorycastle::learned::forget(&ctx.conn, pid, id)? {
+                        return Err(format!("no learned question {id} in this project").into());
+                    }
+                    println!("forgot learned question {id}");
+                }
             }
         }
         Cmd::Forget { target, purge, project_all, verify } => {
@@ -993,6 +1043,11 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
+                let n = memorycastle::learned::derive(&ctx.conn, pid)?;
+                memorycastle::learned::prune(&ctx.conn)?;
+                if n > 0 {
+                    parts.push(format!("learned {n} question{} from searches", if n == 1 { "" } else { "s" }));
+                }
                 // A repo that keeps a journal gets a code index even when
                 // nobody ran `graph --code`: `links` answers from it.
                 if memorycastle::code::has_index(&ctx.conn, pid)? || root.join("memorycastle/journal").is_dir() {

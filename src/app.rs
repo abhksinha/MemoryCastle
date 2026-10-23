@@ -88,6 +88,9 @@ impl Context {
     }
 
     pub fn search(&mut self, query: &str, flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {
+        if let Some(pid) = self.project.as_ref().map(|p| p.id) {
+            crate::learned::derive(&self.conn, pid)?;
+        }
         let mut opts = opts.clone();
         if opts.working.is_empty() {
             opts.working = self.working_set()?;

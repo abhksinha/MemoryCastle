@@ -26,6 +26,7 @@ pub mod graph;
 pub mod hook;
 pub mod importlog;
 pub mod install;
+pub mod learned;
 pub mod limits;
 pub mod mcp;
 pub mod draft;

@@ -115,7 +115,7 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         block.push_str(&lines_field);
         if o.explain {
             block.push_str(&field("trace", &format!(
-                "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  working {:.2}  cosine {}  coverage {:.2}{}",
+                "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  working {:.2}  cosine {}  coverage {:.2}{}{}",
                 h.trace.bm25_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.vec_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.score,
@@ -124,7 +124,8 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                 h.trace.working,
                 h.trace.cosine.map(|c| format!("{c:.3}")).unwrap_or_else(|| "-".into()),
                 h.trace.coverage,
-                if h.trace.via > 0 { format!("  via also {}", h.trace.via) } else { String::new() }
+                if h.trace.via > 0 { format!("  via also {}", h.trace.via) } else { String::new() },
+                if h.trace.learned > 0.0 { format!("  learned {:.2}", h.trace.learned) } else { String::new() }
             )));
         }
         if !o.sections {

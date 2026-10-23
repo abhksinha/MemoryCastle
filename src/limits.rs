@@ -66,6 +66,18 @@ pub const NO_COVERAGE_FACTOR: f32 = 0.3;
 /// answered; two gained more on blind questions but answered two absent ones
 /// and lost four on rushtex.
 pub const SEARCH_ALSO_MAX: usize = 2;
+/// A learned question (`learned.rs`) brings its note in when the new
+/// question is at least this close. Measured on the gold sets (2026-10-23):
+/// a question and a rewording of it, median 0.88; the best question about a
+/// different note, 90th percentile 0.79, none at 0.86; absent questions to
+/// any answerable one, at most 0.69. At 0.86, 60% of rewordings match.
+pub const LEARNED_MIN_COSINE: f32 = 0.86;
+/// Learned questions kept per note, newest first.
+pub const LEARNED_PER_NOTE: usize = 8;
+/// A note opened this long after a search, in the same session, answered it.
+pub const LEARN_WINDOW_SECS: i64 = 600;
+/// Logged searches are kept this long once derived; learned rows stay.
+pub const SEARCH_LOG_DAYS: i64 = 30;
 /// A question word is distinctive when at most this share of the scope's
 /// chunks contain it. Such words must appear in a hit for the model's
 /// cosine to count in full.

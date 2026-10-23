@@ -742,6 +742,15 @@ pub fn build(conn: &Connection, project_id: i64, root: Option<&Path>) -> Result<
         g.nodes[dst as usize].degree += 1;
         g.edges.push(Edge { src, dst, kind: kind.name() });
     }
+    // Learned questions (`learned.rs`): what agents asked before opening a
+    // note, each an `asked` edge into it.
+    for l in crate::learned::list(conn, project_id)? {
+        let Some(&dst) = note_ids.get(&l.note_id) else { continue };
+        let nid = g.nodes.len() as u32;
+        g.nodes.push(Node { id: nid, kind: "question", label: l.query.clone(), key: format!("learned:{}", l.id), date: l.at, superseded: false, author: String::new(), community: 0, degree: 1, summary: l.kind.clone(), sections: 0, exists: true, loc: String::new(), code: false });
+        g.nodes[dst as usize].degree += 1;
+        g.edges.push(Edge { src: nid, dst, kind: "asked" });
+    }
     // Against the checkout: does each file still exist; where is each symbol
     // defined. A symbol is looked for only in the files named by the notes
     // that mention it, so the scan is bounded by the notes, not the repo.
