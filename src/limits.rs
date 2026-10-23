@@ -76,6 +76,10 @@ pub const LEARNED_MIN_COSINE: f32 = 0.86;
 /// computed (512 dims). Every gold question pair at cosine 0.86 or more
 /// differed in at most 133; 0.5% of all pairs are within 140.
 pub const LEARNED_BITS_MAX: u32 = 140;
+/// A code file read or edited after a search credits a printed note only
+/// when it is at least this specific: `ln(notes / reach) / ln(notes)`, so
+/// with 100 notes a file at most 10 notes cover.
+pub const LEARN_FILE_MIN_SPECIFIC: f32 = 0.5;
 /// Learned questions kept per note, newest first.
 pub const LEARNED_PER_NOTE: usize = 8;
 /// A note opened this long after a search, in the same session, answered it.

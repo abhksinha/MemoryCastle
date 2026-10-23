@@ -57,6 +57,7 @@ read as: code changed since: <symbols> = that code changed after the note; run l
 read as: superseded by X = decision reversed, act on X
 read as: … lines 27-51 = bullets that did not match; sed -n '27,51p' note.md if needed
 read as: learned 0.88 (--explain) = an earlier question this close was answered by this note
+read as: read after a similar question = the code an earlier asker of this question read next
 read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
 read as: no relevant note = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>
@@ -525,7 +526,7 @@ fn run(cli: Cli) -> Result<()> {
             let read_spans = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {
                     memorycastle::code::refresh(&mut ctx.conn, p.id, &r)?;
-                    memorycastle::spans::ranked(&ctx.conn, p.id, Some(&r), &span_query, &hits)?
+                    memorycastle::spans::ranked(&ctx.conn, p.id, Some(&r), &span_query, &hits, &ex.learned_spans)?
                 }
                 _ => Vec::new(),
             };
@@ -1633,6 +1634,11 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 if notes.len() > cap {
                     out.push_str(&format!("   +{} more notes name {target}; `links {target} --at <line>` shows the ones about that definition\n", notes.len() - cap));
+                }
+                if kind == graph::Kind::File {
+                    if let Some(l) = memorycastle::learned::asked_line(&ctx.conn, pid, &target)? {
+                        out.push_str(&l);
+                    }
                 }
                 // A note `links` printed is served like a search hit, so a
                 // read of it afterwards counts as opened in the label log.

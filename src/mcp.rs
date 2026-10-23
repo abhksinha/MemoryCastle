@@ -204,7 +204,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             let read = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
                 (Some(p), Some(r)) => {
                     crate::code::refresh(&mut ctx.conn, p.id, &r)?;
-                    crate::spans::ranked(&ctx.conn, p.id, Some(&r), &span_query, &hits)?
+                    crate::spans::ranked(&ctx.conn, p.id, Some(&r), &span_query, &hits, &explain.learned_spans)?
                 }
                 _ => Vec::new(),
             };
@@ -300,6 +300,11 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             }
             if notes.len() > cap {
                 text.push_str(&format!("   +{} more notes name {target}\n", notes.len() - cap));
+            }
+            if kind == crate::graph::Kind::File {
+                if let Some(l) = crate::learned::asked_line(&ctx.conn, pid, target)? {
+                    text.push_str(&l);
+                }
             }
             let shown: Vec<i64> = notes.iter().take(cap).map(|n| n.id).collect();
             crate::store::record_served_notes(&ctx.conn, pid, &shown, "links")?;

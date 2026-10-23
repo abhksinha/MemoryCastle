@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 25;
+pub const SCHEMA_VERSION: i64 = 26;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -434,6 +434,19 @@ fn migrate(conn: &Connection) -> Result<()> {
                  INSERT INTO learned_fts(rowid, words) VALUES (new.id, new.words);
              END;
              INSERT INTO learned_fts(learned_fts) VALUES ('rebuild');",
+        )?;
+    }
+    if version < 26 {
+        // v26: a read keeps its line range, and a learned question the code
+        // range its asker read next, so the next similar question is shown
+        // where to read first (`learned.rs`, `spans::ranked`).
+        conn.execute_batch(
+            "ALTER TABLE reads ADD COLUMN start INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE reads ADD COLUMN end INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE learned ADD COLUMN path TEXT;
+             ALTER TABLE learned ADD COLUMN start INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE learned ADD COLUMN end INTEGER NOT NULL DEFAULT 0;
+             CREATE INDEX IF NOT EXISTS reads_session ON reads(project_id, session, at);",
         )?;
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

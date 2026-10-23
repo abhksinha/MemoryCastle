@@ -143,6 +143,9 @@ pub struct Explain {
     pub qvec: Vec<f32>,
     #[serde(skip)]
     pub space_id: Option<i64>,
+    /// Code ranges read after learned questions like this one, best first.
+    #[serde(skip)]
+    pub learned_spans: Vec<(String, u32, u32)>,
     /// The floor applied: `MIN_CONFIDENCE_MODEL` when the model ran, else `MIN_CONFIDENCE`.
     pub floor: f32,
 }
@@ -329,7 +332,9 @@ pub fn search(
         if crate::learned::enabled() {
             let t = std::time::Instant::now();
             let pids: Vec<i64> = scope.ids().collect();
-            for (i, (note, qcos)) in crate::learned::matches(conn, &pids, space.id, &qvec)?.into_iter().enumerate() {
+            let m = crate::learned::matches(conn, &pids, space.id, &qvec)?;
+            ex.learned_spans = m.spans;
+            for (i, (note, qcos)) in m.notes.into_iter().enumerate() {
                 if let Some((chunk, ccos)) = best_chunk(conn, space, note, &qvec)? {
                     let t = fused.entry(chunk).or_default();
                     t.score += 1.0 / (RRF_K + i as f32 + 1.0);

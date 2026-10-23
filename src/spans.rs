@@ -64,7 +64,9 @@ fn readable(d: &Def) -> bool {
 }
 
 /// Up to `limits::READ_SPANS` spans for `query` given the ranked `hits`.
-pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &str, hits: &[Hit]) -> Result<Vec<ReadSpan>> {
+/// `learned` are code ranges read after earlier questions like this one
+/// (`Explain::learned_spans`): what the last asker needed comes first.
+pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &str, hits: &[Hit], learned: &[(String, u32, u32)]) -> Result<Vec<ReadSpan>> {
     if !code::has_index(conn, project_id)? {
         return Ok(Vec::new());
     }
@@ -76,6 +78,16 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
             cands.push((d, score, why));
         }
     };
+
+    // 0. read after a similar question: the definition holding the range
+    //    when it is readable (re-anchored like any other), else the range.
+    for (path, a, b) in learned.iter().take(2) {
+        let d = match code::def_enclosing(conn, project_id, path, *a)? {
+            Some(d) if d.end >= *b && readable(&d) => d,
+            _ => Def { path: path.clone(), name: path.rsplit('/').next().unwrap_or(path).to_string(), kind: "range", line: *a, end: *b, anchor: String::new() },
+        };
+        push(d, 0.97, "read after a similar question".into(), &mut cands);
+    }
 
     // 1. named in the question
     let mut top_files: Vec<String> = Vec::new();
@@ -167,7 +179,7 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
     let mut file_cache: HashMap<String, Vec<usize>> = HashMap::new();
     for (d, score, why) in cands {
         let span = match root {
-            Some(r) if d.kind != "use" => code::current_span(conn, project_id, r, &d)?,
+            Some(r) if d.kind != "use" && d.kind != "range" => code::current_span(conn, project_id, r, &d)?,
             _ => Some((d.line, d.end)),
         };
         let Some((a, b)) = span else { continue };

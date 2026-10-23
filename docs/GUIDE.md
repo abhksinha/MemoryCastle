@@ -30,6 +30,7 @@ save | index a note | `memcastle save <note.md>` or `memcastle save --changed`
 owed | is a note owed, and a skeleton for it | `memcastle owed`, `memcastle draft`
 status | this session's lookups, edits, savings | `memcastle status`
 learned | questions learned from searches, and teach or drop one | `memcastle learned`, `learned add <note.md> "<q>"`, `learned forget <id>`
+read as | `read after a similar question` in read first; `asked here` in `links <file>` | code an earlier asker read next
 code index | once per checkout, incremental after | `memcastle graph --code`
 skip | routine edits, reading code, running tests | no search
 

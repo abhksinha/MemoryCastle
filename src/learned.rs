@@ -10,6 +10,7 @@
 use crate::search::Explain;
 use crate::Result;
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 
 /// The learned channel runs unless `MEMORYCASTLE_LEARNED=0` (for measuring it).
 pub fn enabled() -> bool {
@@ -88,7 +89,16 @@ pub fn record_search(conn: &Connection, project_id: i64, query: &str, also: &[St
 /// `lift` in the top 3, `correction` below; a read of the first hit ends it,
 /// even if another note is read later. A note saved after the search is one
 /// the agent wrote, not one it found. A failed wording followed by a second
-/// search and a read is learned too: its first read is that note. Returns how many were learned.
+/// search and a read is learned too: its first read is that note.
+///
+/// Without a note read, the first code file the session read or edited in
+/// the window credits the best-ranked printed note that covers it (names it
+/// in `Files:` or names a symbol defined in it), as `code`, when the file is
+/// specific (`learned_specificity`, at least `LEARN_FILE_MIN_SPECIFIC`): a
+/// file most notes name says nothing about which note answered. Either way
+/// the first range read in a file the credited note covers is kept with the
+/// question, so the next similar question is told where to read.
+/// Returns how many were learned.
 pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     use crate::limits::{LEARN_WINDOW_SECS, OPEN_MIN_SECS};
     if crate::db::is_readonly(conn) {
@@ -109,37 +119,153 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
         "SELECT 1 FROM served_notes WHERE project_id = ?1 AND session = ?2 AND note_id = ?3 AND mode NOT IN ('read', 'sections', 'brief', 'snippet') AND at >= ?4 AND at <= ?5 LIMIT 1",
     )?;
     let mut written = conn.prepare_cached("SELECT 1 FROM notes WHERE id = ?1 AND saved_at > ?2")?;
+    // Code the session touched after the search: reads (with their range)
+    // and edits, oldest first, notes and memorycastle's own files left out.
+    let mut touched = conn.prepare_cached(
+        "SELECT path, start, end FROM (
+             SELECT at, path, start, end FROM reads WHERE project_id = ?1 AND session = ?2 AND at >= ?3 AND at <= ?4
+             UNION ALL SELECT at, path, 0, 0 FROM edits WHERE project_id = ?1 AND session = ?2 AND at >= ?3 AND at <= ?4
+         ) WHERE path NOT LIKE 'memorycastle/%' ORDER BY at LIMIT 40",
+    )?;
+    let cover = Coverage::load(conn, project_id)?;
     let mut learned = 0;
     for (id, at, session, query, printed, space_id, vec) in rows {
         conn.execute("UPDATE searches SET done = 1 WHERE id = ?1", [id])?;
         let (Some(session), Some(space_id), Some(vec)) = (session, space_id, vec) else { continue };
-        let Some((note, when)) = opened.query_row(params![project_id, session, at + OPEN_MIN_SECS, at + LEARN_WINDOW_SECS], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).optional()? else { continue };
-        if nudged.exists(params![project_id, session, note, at, when])? || written.exists(params![note, at])? {
-            continue;
-        }
-        let rank = printed.split(',').position(|p| p == note.to_string());
-        let kind = match rank {
-            Some(0) => "confirm",
-            Some(r) if r < 3 => "lift",
-            _ => "correction",
+        let printed: Vec<i64> = printed.split(',').filter_map(|p| p.parse().ok()).collect();
+        let code: Vec<(String, u32, u32)> = touched
+            .query_map(params![project_id, session, at + OPEN_MIN_SECS, at + LEARN_WINDOW_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let read_note = opened.query_row(params![project_id, session, at + OPEN_MIN_SECS, at + LEARN_WINDOW_SECS], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).optional()?;
+        let (note, kind) = match read_note {
+            Some((note, when)) => {
+                if nudged.exists(params![project_id, session, note, at, when])? || written.exists(params![note, at])? {
+                    continue;
+                }
+                let kind = match printed.iter().position(|&p| p == note) {
+                    Some(0) => "confirm",
+                    Some(r) if r < 3 => "lift",
+                    _ => "correction",
+                };
+                (note, kind)
+            }
+            None => {
+                // The first file touched that a printed note covers, if it
+                // is specific; the best-ranked covering note gets it.
+                let Some(note) = code.iter().find_map(|(path, a, b)| {
+                    let (reach, by_def) = cover.covering(path, *a, *b);
+                    if cover.specificity(reach.len()) < crate::limits::LEARN_FILE_MIN_SPECIFIC {
+                        return None;
+                    }
+                    let mut shown = printed.iter().copied().filter(|n| reach.contains(n));
+                    let first = shown.next()?;
+                    // A definition read goes to the best-ranked note naming
+                    // it; a whole-file read only when one printed note covers
+                    // the file, since then nothing says which one answered.
+                    (by_def || shown.next().is_none()).then_some(first)
+                }) else {
+                    continue;
+                };
+                if written.exists(params![note, at])? {
+                    continue;
+                }
+                (note, "code")
+            }
         };
-        add(conn, project_id, note, &query, &vec, space_id, kind)?;
+        let span = code.iter().find(|(path, a, b)| *a > 0 && cover.covering(path, *a, *b).0.contains(&note)).cloned();
+        add_with_span(conn, project_id, note, &query, &vec, space_id, kind, span.as_ref())?;
         learned += 1;
     }
     Ok(learned)
 }
 
+/// Which notes cover what was read: for a range inside definitions some
+/// note names, the notes naming them (a read of one constant in a file 45
+/// notes name is about the notes naming that constant); otherwise the
+/// notes naming the file or a symbol defined in it. Loaded once per `derive`.
+struct Coverage {
+    files: Vec<(i64, String)>,
+    syms: HashMap<String, Vec<i64>>,
+    notes: usize,
+    defs: HashMap<String, Vec<(String, u32, u32)>>,
+}
+
+impl Coverage {
+    fn load(conn: &Connection, project_id: i64) -> Result<Coverage> {
+        let mut c = Coverage { files: Vec::new(), syms: HashMap::new(), notes: 0, defs: HashMap::new() };
+        c.notes = conn.query_row("SELECT COUNT(*) FROM notes WHERE project_id = ?1 AND deleted_at IS NULL", [project_id], |r| r.get::<_, i64>(0))? as usize;
+        let mut stmt = conn.prepare_cached(
+            "SELECT l.note_id, l.kind, l.target FROM links l JOIN notes n ON n.id = l.note_id AND n.deleted_at IS NULL WHERE l.project_id = ?1 AND l.kind IN (0, 2)",
+        )?;
+        for row in stmt.query_map([project_id], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?)))? {
+            let (note, kind, target) = row?;
+            if kind == 0 {
+                c.files.push((note, target));
+            } else {
+                let bare = target.rsplit("::").next().unwrap_or(&target).rsplit('.').next().unwrap_or(&target).trim_end_matches("()").to_string();
+                c.syms.entry(bare).or_default().push(note);
+            }
+        }
+        let mut defs = conn.prepare_cached("SELECT path, name, line, end_line FROM code_defs WHERE project_id = ?1")?;
+        for row in defs.query_map([project_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, u32>(3)?)))? {
+            let (path, name, a, b) = row?;
+            c.defs.entry(path).or_default().push((name, a, b));
+        }
+        Ok(c)
+    }
+
+    /// Notes covering lines `a..=b` of `path` (`a` 0: the whole file, an
+    /// edit), and whether a definition in the range decided it.
+    fn covering(&self, path: &str, a: u32, b: u32) -> (Vec<i64>, bool) {
+        let named = |pick: &dyn Fn(u32, u32) -> bool| -> Vec<i64> {
+            let mut out: Vec<i64> = Vec::new();
+            for (name, x, y) in self.defs.get(path).into_iter().flatten() {
+                if pick(*x, *y) {
+                    out.extend(self.syms.get(name).into_iter().flatten());
+                }
+            }
+            out
+        };
+        let mut out = if a > 0 { named(&|x, y| x <= b && y >= a) } else { Vec::new() };
+        let by_def = !out.is_empty();
+        if out.is_empty() {
+            out = self.files.iter().filter(|(_, f)| crate::graph::same_file(f, path)).map(|(n, _)| *n).collect();
+            out.extend(named(&|_, _| true));
+        }
+        out.sort_unstable();
+        out.dedup();
+        (out, by_def)
+    }
+
+    /// `ln(notes / reach) / ln(notes)`: 1 for what one note covers, 0 for
+    /// what every note covers (as the working set discounts hub files).
+    fn specificity(&self, reach: usize) -> f32 {
+        if reach == 0 || self.notes < 2 {
+            return 0.0;
+        }
+        ((self.notes as f32 / reach as f32).ln() / (self.notes as f32).ln()).clamp(0.0, 1.0)
+    }
+}
+
 /// Stores one learned question for a note (vector as little-endian f32),
-/// keeping `LEARNED_PER_NOTE` per note: corrections and lifts before
-/// confirmations, newest first.
+/// keeping `LEARNED_PER_NOTE` per note: corrections and lifts first, then
+/// code-read credits, then confirmations, newest first.
 pub fn add(conn: &Connection, project_id: i64, note_id: i64, query: &str, vec: &[u8], space_id: i64, kind: &str) -> Result<()> {
+    add_with_span(conn, project_id, note_id, query, vec, space_id, kind, None)
+}
+
+/// As `add`, with the code range the asker read next, when there was one.
+#[allow(clippy::too_many_arguments)]
+pub fn add_with_span(conn: &Connection, project_id: i64, note_id: i64, query: &str, vec: &[u8], space_id: i64, kind: &str, span: Option<&(String, u32, u32)>) -> Result<()> {
+    let (path, a, b) = span.map_or((None, 0, 0), |(p, a, b)| (Some(p.as_str()), *a, *b));
     conn.execute(
-        "INSERT INTO learned(project_id, note_id, query, vec, space_id, at, kind, words, bits) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-         ON CONFLICT(note_id, query) DO UPDATE SET at = excluded.at, vec = excluded.vec, space_id = excluded.space_id, bits = excluded.bits",
-        params![project_id, note_id, query, vec, space_id, crate::sys::now(), kind, words_of(query), bits_of_blob(vec)],
+        "INSERT INTO learned(project_id, note_id, query, vec, space_id, at, kind, words, bits, path, start, end) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+         ON CONFLICT(note_id, query) DO UPDATE SET at = excluded.at, vec = excluded.vec, space_id = excluded.space_id, bits = excluded.bits,
+             path = COALESCE(excluded.path, path), start = CASE WHEN excluded.path IS NULL THEN start ELSE excluded.start END, end = CASE WHEN excluded.path IS NULL THEN end ELSE excluded.end END",
+        params![project_id, note_id, query, vec, space_id, crate::sys::now(), kind, words_of(query), bits_of_blob(vec), path, a, b],
     )?;
     conn.execute(
-        "DELETE FROM learned WHERE note_id = ?1 AND id NOT IN (SELECT id FROM learned WHERE note_id = ?1 ORDER BY kind = 'confirm', at DESC, id DESC LIMIT ?2)",
+        "DELETE FROM learned WHERE note_id = ?1 AND id NOT IN (SELECT id FROM learned WHERE note_id = ?1 ORDER BY CASE kind WHEN 'confirm' THEN 2 WHEN 'code' THEN 1 ELSE 0 END, at DESC, id DESC LIMIT ?2)",
         params![note_id, crate::limits::LEARNED_PER_NOTE as i64],
     )?;
     Ok(())
@@ -150,18 +276,26 @@ pub fn add_vector(conn: &Connection, project_id: i64, note_id: i64, query: &str,
     add(conn, project_id, note_id, query, &to_bytes(qvec), space_id, "manual")
 }
 
-/// Notes whose learned questions are within `LEARNED_MIN_COSINE` of the
-/// question, best first, as (note id, cosine). A superseded note's
-/// questions point at the note that replaced it.
-pub fn matches(conn: &Connection, project_ids: &[i64], space_id: i64, qvec: &[f32]) -> Result<Vec<(i64, f32)>> {
+/// What learned questions within `LEARNED_MIN_COSINE` of the question
+/// point at: their notes, best first, as (note id, cosine), and the code
+/// ranges their askers read next, best first. A superseded note's questions
+/// point at the note that replaced it.
+#[derive(Default)]
+pub struct Matches {
+    pub notes: Vec<(i64, f32)>,
+    pub spans: Vec<(String, u32, u32)>,
+}
+
+pub fn matches(conn: &Connection, project_ids: &[i64], space_id: i64, qvec: &[f32]) -> Result<Matches> {
     let mut out: Vec<(i64, f32)> = Vec::new();
+    let mut spans: Vec<(f32, String, u32, u32)> = Vec::new();
     // Sign bits first (64 bytes a row), the exact cosine only for rows within
     // `LEARNED_BITS_MAX` differing bits: every pair at cosine 0.86 or more
     // on the gold questions was within 133, and 0.5% of all pairs pass 140.
     let qbits = sign_bits(qvec.iter().copied());
     let mut stmt = conn.prepare_cached("SELECT id, bits FROM learned WHERE project_id = ?1 AND space_id = ?2")?;
     let mut exact = conn.prepare_cached(
-        "SELECT l.note_id, l.vec, n.project_id, n.path, n.superseded_by FROM learned l JOIN notes n ON n.id = l.note_id AND n.deleted_at IS NULL WHERE l.id = ?1",
+        "SELECT l.note_id, l.vec, n.project_id, n.path, n.superseded_by, l.path, l.start, l.end FROM learned l JOIN notes n ON n.id = l.note_id AND n.deleted_at IS NULL WHERE l.id = ?1",
     )?;
     let mut by_path = conn.prepare_cached("SELECT id FROM notes WHERE project_id = ?1 AND path = ?2 AND deleted_at IS NULL")?;
     for pid in project_ids {
@@ -176,10 +310,10 @@ pub fn matches(conn: &Connection, project_ids: &[i64], space_id: i64, qvec: &[f3
                 near.push(r.get(0)?);
             }
         }
-        type Row = (i64, Vec<u8>, i64, String, Option<String>);
+        type Row = (i64, Vec<u8>, i64, String, Option<String>, Option<String>, u32, u32);
         for id in near {
-            let Some((note, blob, project, path, superseded_by)) =
-                exact.query_row([id], |r| Ok::<Row, _>((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).optional()?
+            let Some((note, blob, project, path, superseded_by, code, a, b)) =
+                exact.query_row([id], |r| Ok::<Row, _>((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?))).optional()?
             else {
                 continue;
             };
@@ -189,6 +323,9 @@ pub fn matches(conn: &Connection, project_ids: &[i64], space_id: i64, qvec: &[f3
             let cos = dot(&blob, qvec);
             if cos < crate::limits::LEARNED_MIN_COSINE {
                 continue;
+            }
+            if let Some(code) = code.filter(|_| a > 0) {
+                spans.push((cos, code, a, b));
             }
             let note = match superseded_by {
                 Some(newer) => {
@@ -204,7 +341,10 @@ pub fn matches(conn: &Connection, project_ids: &[i64], space_id: i64, qvec: &[f3
         }
     }
     out.sort_by(|a, b| b.1.total_cmp(&a.1));
-    Ok(out)
+    spans.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut seen = std::collections::HashSet::new();
+    let spans = spans.into_iter().filter(|(_, p, a, b)| seen.insert((p.clone(), *a, *b))).map(|(_, p, a, b)| (p, a, b)).collect();
+    Ok(Matches { notes: out, spans })
 }
 
 /// Notes whose learned question shares content words with the question:
@@ -246,6 +386,21 @@ pub fn word_matches(conn: &Connection, project_ids: &[i64], words: &[String]) ->
     }
     out.sort_by(|a, b| b.1.total_cmp(&a.1));
     Ok(out)
+}
+
+/// `links <file>`: what earlier questions led their askers to read in this
+/// file, as one line, newest question quoted; `None` when nothing did.
+pub fn asked_line(conn: &Connection, project_id: i64, target: &str) -> Result<Option<String>> {
+    let mut stmt = conn.prepare_cached("SELECT query, path, start, end FROM learned WHERE project_id = ?1 AND path IS NOT NULL ORDER BY at DESC")?;
+    let rows: Vec<(String, String, u32, u32)> = stmt
+        .query_map([project_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?, r.get::<_, u32>(3)?)))?
+        .collect::<rusqlite::Result<Vec<_>>>()?
+        .into_iter()
+        .filter(|(_, p, _, _)| crate::graph::same_file(target, p.as_str()))
+        .collect();
+    let Some((q, p, a, b)) = rows.first() else { return Ok(None) };
+    let more = if rows.len() > 1 { format!("{} questions led here; newest", rows.len()) } else { "1 question led here".to_string() };
+    Ok(Some(format!("   asked here  {more}: \"{q}\", read {p}:{a}-{b}\n")))
 }
 
 /// One learned question, for `memcastle learned` and the graph.

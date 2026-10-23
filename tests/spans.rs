@@ -24,7 +24,7 @@ fn question_symbol_then_note_symbols_then_uses() {
     let scope = Scope::single(id);
     let (hits, _) = search(&conn, &scope, "why does alpha_sum add one", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(!hits.is_empty());
-    let out = spans::ranked(&conn, id, Some(root), "why does alpha_sum add one", &hits).unwrap();
+    let out = spans::ranked(&conn, id, Some(root), "why does alpha_sum add one", &hits, &[]).unwrap();
     let names: Vec<&str> = out.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(out[0].name, "alpha_sum", "{names:?}");
     assert_eq!((out[0].path.as_str(), out[0].start, out[0].end), ("src/a.rs", 1, 3));

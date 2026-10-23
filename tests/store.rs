@@ -809,3 +809,39 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     let (hits, _) = search(&conn, &Scope::single(b.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
     assert!(hits.iter().all(|h| h.trace.learned == 0.0));
 }
+
+#[test]
+fn a_code_read_after_a_search_credits_the_printed_note_that_covers_it() {
+    let mut conn = db::open_memory().unwrap();
+    let a = project(&conn, "a", None);
+    let def = HashEmbedder::space_def(64);
+    let space = embed::ensure_space(&conn, &def).unwrap();
+    let mut e = HashEmbedder { dims: def.dims };
+    for (i, extra) in ["`src/fonts.rs`", "`src/style.rs`", "`src/other1.rs`", "`src/other2.rs`", "`src/other3.rs`"].iter().enumerate() {
+        save(&mut conn, &a, &format!("journal/2026-10-18-n{i}.md"), &format!("# Note {i}\nFiles: `src/common.rs`, {extra}\n## Decision\nDecision number {i} about its own file."));
+    }
+    store::embed_missing(&mut conn, &space, &mut e, Some(a.id)).unwrap();
+    let id = |n: usize| -> i64 { conn.query_row("SELECT id FROM notes WHERE path = ?1", [format!("journal/2026-10-18-n{n}.md")], |r| r.get(0)).unwrap() };
+    conn.execute("UPDATE notes SET saved_at = 1", []).unwrap();
+    let q = "where do local style files load";
+    let opts = SearchOptions { k: 5, mode: Mode::Meaning, working: Vec::new() };
+    let (_, ex) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    let vec: Vec<u8> = ex.qvec.iter().flat_map(|x| x.to_le_bytes()).collect();
+    let t = memorycastle::sys::now() - 2 * memorycastle::limits::LEARN_WINDOW_SECS;
+    let printed = format!("{},{},{}", id(0), id(1), id(2));
+    let log = |at: i64, path: &str| {
+        conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![at, a.id, q, printed, space.id, vec]).unwrap();
+        conn.execute("INSERT INTO reads(at, project_id, path, bytes, whole, after_span, session, start, end) VALUES (?1, ?2, ?3, 100, 0, 0, 's1', 10, 30)", rusqlite::params![at + 20, a.id, path]).unwrap();
+    };
+    // Every note names src/common.rs: reading it says nothing.
+    log(t - 3000, "src/common.rs");
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
+    // Only note 1 names src/style.rs, and it was printed second: it learns.
+    log(t, "src/style.rs");
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 1);
+    let rows = memorycastle::learned::list(&conn, a.id).unwrap();
+    assert_eq!((rows.len(), rows[0].note_id, rows[0].kind.as_str()), (1, id(1), "code"));
+    // The same question again is told where its asker read.
+    let (_, ex) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    assert_eq!(ex.learned_spans, vec![("src/style.rs".to_string(), 10, 30)]);
+}

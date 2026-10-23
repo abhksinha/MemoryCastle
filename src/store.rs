@@ -1059,8 +1059,8 @@ pub fn record_read_at(conn: &Connection, project_id: i64, root: &Path, path: &st
     };
     let guided = rank.is_some();
     conn.execute(
-        "INSERT INTO reads(at, project_id, path, bytes, whole, range_bytes, after_span, session, rank) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![at, project_id, path, bytes as i64, whole as i64, range as i64, guided as i64, session, rank.map(|r| r as i64)],
+        "INSERT INTO reads(at, project_id, path, bytes, whole, range_bytes, after_span, session, rank, start, end) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![at, project_id, path, bytes as i64, whole as i64, range as i64, guided as i64, session, rank.map(|r| r as i64), lines_read.map_or(0, |l| l.0), lines_read.map_or(0, |l| l.1)],
     )?;
     Ok(guided)
 }
