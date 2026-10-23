@@ -72,6 +72,10 @@ pub const SEARCH_ALSO_MAX: usize = 2;
 /// different note, 90th percentile 0.79, none at 0.86; absent questions to
 /// any answerable one, at most 0.69. At 0.86, 60% of rewordings match.
 pub const LEARNED_MIN_COSINE: f32 = 0.86;
+/// Sign bits that may differ before a learned question's exact cosine is
+/// computed (512 dims). Every gold question pair at cosine 0.86 or more
+/// differed in at most 133; 0.5% of all pairs are within 140.
+pub const LEARNED_BITS_MAX: u32 = 140;
 /// Learned questions kept per note, newest first.
 pub const LEARNED_PER_NOTE: usize = 8;
 /// A note opened this long after a search, in the same session, answered it.

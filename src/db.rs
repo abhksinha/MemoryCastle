@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 24;
+pub const SCHEMA_VERSION: i64 = 25;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -404,6 +404,36 @@ fn migrate(conn: &Connection) -> Result<()> {
                  UNIQUE (note_id, query)
              );
              CREATE INDEX IF NOT EXISTS learned_project ON learned(project_id, space_id);",
+        )?;
+    }
+    if version < 25 {
+        // v25: a learned question keeps its content words (indexed, so a
+        // search reads only rows sharing a word) and the sign bits of its
+        // vector (64 bytes, a prefilter before the exact cosine): at 8,000
+        // rows the scan of every vector and question cost 57 ms a search.
+        // Backfill before the index and its triggers exist, then rebuild it.
+        conn.execute_batch("ALTER TABLE learned ADD COLUMN words TEXT NOT NULL DEFAULT ''; ALTER TABLE learned ADD COLUMN bits BLOB;")?;
+        let rows: Vec<(i64, String, Vec<u8>)> =
+            conn.prepare("SELECT id, query, vec FROM learned")?.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+        for (id, query, vec) in rows {
+            conn.execute(
+                "UPDATE learned SET words = ?2, bits = ?3 WHERE id = ?1",
+                rusqlite::params![id, crate::learned::words_of(&query), crate::learned::bits_of_blob(&vec)],
+            )?;
+        }
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS learned_fts USING fts5(words, content='learned', content_rowid='id', tokenize=\"unicode61 tokenchars '_-'\");
+             CREATE TRIGGER IF NOT EXISTS learned_ai AFTER INSERT ON learned BEGIN
+                 INSERT INTO learned_fts(rowid, words) VALUES (new.id, new.words);
+             END;
+             CREATE TRIGGER IF NOT EXISTS learned_ad AFTER DELETE ON learned BEGIN
+                 INSERT INTO learned_fts(learned_fts, rowid, words) VALUES ('delete', old.id, old.words);
+             END;
+             CREATE TRIGGER IF NOT EXISTS learned_au AFTER UPDATE OF words ON learned BEGIN
+                 INSERT INTO learned_fts(learned_fts, rowid, words) VALUES ('delete', old.id, old.words);
+                 INSERT INTO learned_fts(rowid, words) VALUES (new.id, new.words);
+             END;
+             INSERT INTO learned_fts(learned_fts) VALUES ('rebuild');",
         )?;
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

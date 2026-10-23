@@ -781,9 +781,10 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     };
     log(&format!("{fonts},{fallback}"), fallback);
     assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 1);
-    // The note ranked first and opened teaches nothing.
+    // The note ranked first and opened confirms it (the same question here,
+    // so the row is refreshed, not added).
     log(&format!("{fallback},{fonts}"), fallback);
-    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 1);
     // A `--sections` search 30 s later prints notes nobody chose: no open.
     conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![t - 1000, a.id, q, format!("{fonts},{fallback}"), space.id, vec]).unwrap();
     conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'sections', 's1')", rusqlite::params![t - 970, a.id, fallback]).unwrap();
@@ -799,7 +800,12 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     let (hits, _) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
     let h = hits.iter().find(|h| h.note_id == fallback).expect("learned note is a hit");
     assert!(h.trace.learned > 0.99 && h.trace.confidence >= 0.99, "{:?}", h.trace);
-    // Another project never sees it.
+    // Without the model, a new question naming the same rare words finds
+    // the note through the learned text; the note itself shares none.
+    let kw = SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() };
+    let (hits, _) = search(&conn, &Scope::single(a.id), "natively port custom packages later", &kw, ModelSource::None).unwrap();
+    assert!(hits.iter().any(|h| h.note_id == fallback), "{:?}", hits.iter().map(|h| &h.path).collect::<Vec<_>>());
+        // Another project never sees it.
     let (hits, _) = search(&conn, &Scope::single(b.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
     assert!(hits.iter().all(|h| h.trace.learned == 0.0));
 }

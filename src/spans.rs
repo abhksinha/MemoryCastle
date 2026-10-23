@@ -57,6 +57,12 @@ pub fn note_defs(defs: Vec<Def>, note_files: &[&String]) -> Vec<Def> {
     Vec::new()
 }
 
+/// A definition short enough to read first; a wider one (a 311-line
+/// `search`) is what `links <name>` narrows, not a line to read.
+fn readable(d: &Def) -> bool {
+    d.end.saturating_sub(d.line) <= crate::limits::SPAN_WIDE
+}
+
 /// Up to `limits::READ_SPANS` spans for `query` given the ranked `hits`.
 pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &str, hits: &[Hit]) -> Result<Vec<ReadSpan>> {
     if !code::has_index(conn, project_id)? {
@@ -112,7 +118,7 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
                 }
                 let shares = q_words.iter().any(|q| lower.contains(q.as_str()));
                 let (w, why) = if shares { (w + 0.05, format!("named by note #{}, name matches question", i + 1)) } else { (w, format!("named by note #{}", i + 1)) };
-                for d in note_defs(code::defs_named(conn, project_id, sym)?, &note_files).into_iter().take(2) {
+                for d in note_defs(code::defs_named(conn, project_id, sym)?, &note_files).into_iter().filter(readable).take(2) {
                     push(d, w, why.clone(), &mut cands);
                 }
             }

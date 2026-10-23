@@ -125,6 +125,9 @@ pub struct Explain {
     pub bm25_ms: f32,
     pub embed_ms: f32,
     pub scan_ms: f32,
+    /// Learned questions: vector match and word match, milliseconds.
+    pub learned_vec_ms: f32,
+    pub learned_word_ms: f32,
     /// Vectors examined by the bit prefilter (0 when the exact scan ran).
     pub prefiltered: usize,
     /// Best confidence seen, including hits dropped as irrelevant.
@@ -324,6 +327,7 @@ pub fn search(
         ex.qvec = qvec.clone();
         ex.space_id = Some(space.id);
         if crate::learned::enabled() {
+            let t = std::time::Instant::now();
             let pids: Vec<i64> = scope.ids().collect();
             for (i, (note, qcos)) in crate::learned::matches(conn, &pids, space.id, &qvec)?.into_iter().enumerate() {
                 if let Some((chunk, ccos)) = best_chunk(conn, space, note, &qvec)? {
@@ -334,7 +338,38 @@ pub fn search(
                 }
             }
             ex.learned = learned_cos.len();
+            ex.learned_vec_ms = t.elapsed().as_secs_f32() * 1000.0;
         }
+    }
+    // Learned question words: a new question naming the rare things an
+    // answered one named. With the model, confidence stays the chunk's
+    // cosine, so shared words never lift an absent topic over the floor;
+    // without it, the learned question counts as the note's text: its share
+    // of words repeated is the coverage.
+    let mut learned_cov: HashMap<i64, f32> = HashMap::new();
+    if crate::learned::enabled() {
+        let started = std::time::Instant::now();
+        let pids: Vec<i64> = scope.ids().collect();
+        let words = content_words(query);
+        for (i, (note, share)) in crate::learned::word_matches(conn, &pids, &words)?.into_iter().take(LEARNED_WORD_NOTES).enumerate() {
+            let chunk = match (run_model, space.as_ref()) {
+                (true, Some(space)) => best_chunk(conn, space, note, &qvec)?.map(|(c, cos)| (c, Some(cos))),
+                _ => lead_chunk(conn, note)?.map(|c| (c, None)),
+            };
+            if let Some((chunk, cos)) = chunk {
+                let t = fused.entry(chunk).or_default();
+                t.score += 1.0 / (RRF_K + i as f32 + 1.0);
+                match cos {
+                    Some(c) => {
+                        t.cosine.get_or_insert(c);
+                    }
+                    None => {
+                        learned_cov.insert(chunk, share);
+                    }
+                }
+            }
+        }
+        ex.learned_word_ms = started.elapsed().as_secs_f32() * 1000.0;
     }
     if fused.is_empty() {
         return Ok((Vec::new(), ex));
@@ -399,6 +434,9 @@ pub fn search(
         t.confidence = if ident_hit { 1.0 } else if run_model { cos.max(cov.min(raw_cos)) } else { cos.max(cov) };
         if t.learned > 0.0 {
             t.confidence = t.confidence.max(crate::learned::confidence(t.learned));
+        }
+        if let Some(c) = learned_cov.get(&h.chunk_id) {
+            t.confidence = t.confidence.max(*c);
         }
         h.trace = t;
     }
@@ -874,6 +912,20 @@ fn vector_channel(conn: &Connection, scope: &Scope, space: &Space, qvec: &[f32])
     top.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
     top.truncate(CHANNEL_TOP);
     Ok((top, total))
+}
+
+/// Notes a learned question's words can bring in per search.
+const LEARNED_WORD_NOTES: usize = 5;
+
+/// A note's first chunk in its Decision section, else its first chunk.
+fn lead_chunk(conn: &Connection, note_id: i64) -> Result<Option<i64>> {
+    Ok(conn
+        .query_row(
+            "SELECT id FROM chunks WHERE note_id = ?1 ORDER BY heading_path NOT LIKE '%Decision%', line LIMIT 1",
+            [note_id],
+            |r| r.get(0),
+        )
+        .optional()?)
 }
 
 /// The chunk of a note closest to the question, as (chunk id, cosine).

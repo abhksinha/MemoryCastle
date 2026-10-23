@@ -540,7 +540,7 @@ fn run(cli: Cli) -> Result<()> {
             }
             if explain {
                 println!(
-                    "fts: {}  bm25 hits: {} ({:.1} ms)  model: {} ({}){}  embed {:.0} ms  vec hits: {} (scan {:.1} ms)  dropped {} under {:.2}  distinctive: {}",
+                    "fts: {}  bm25 hits: {} ({:.1} ms)  model: {} ({}){}  embed {:.0} ms  vec hits: {} (scan {:.1} ms)  learned {} (vec {:.1} ms, words {:.1} ms)  dropped {} under {:.2}  distinctive: {}",
                     ex.fts_query.as_deref().unwrap_or("-"),
                     ex.bm25_hits,
                     ex.bm25_ms,
@@ -550,6 +550,9 @@ fn run(cli: Cli) -> Result<()> {
                     ex.embed_ms,
                     ex.vec_hits,
                     ex.scan_ms,
+                    ex.learned,
+                    ex.learned_vec_ms,
+                    ex.learned_word_ms,
                     ex.dropped,
                     ex.floor,
                     if ex.distinctive.is_empty() { "none".to_string() } else { ex.distinctive.join(" ") }
