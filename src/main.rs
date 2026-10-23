@@ -41,7 +41,8 @@ const SEARCH_HELP: &str = "\
 search: section | use case | command
 decide | a choice or a fix in an area with history | memcastle search \"<question>\"
 other words | a why or design question: one more wording, merged | memcastle search \"<question>\" --also \"<repo's words>\"
-full sections | Decision, Rejected, Measured of the hits | memcastle search \"<question>\" --sections
+full sections | the matched bullets of Decision, Rejected, Measured | memcastle search \"<question>\" --sections
+whole sections | every line of each section | memcastle search \"<question>\" --whole
 past work | user says \"like we did X\", or resuming | memcastle search \"<X in its own words>\" --sections
 sister repo | question about a repo in a declared group | memcastle search \"<question>\" --related
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
@@ -54,6 +55,7 @@ read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; 
 read as: decision <sentence> = the note's first Decision sentence
 read as: code changed since: <symbols> = that code changed after the note; run links <symbol> first
 read as: superseded by X = decision reversed, act on X
+read as: … lines 27-51 = bullets that did not match; sed -n '27,51p' note.md if needed
 read as: learned 0.88 (--explain) = an earlier question this close was answered by this note
 read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
 read as: no relevant note = store has nothing; work from the code and say so
@@ -139,9 +141,12 @@ enum Cmd {
         /// Show which channel found each result and why the model did or did not run.
         #[arg(long)]
         explain: bool,
-        /// After each hit, print the note's Decision, Rejected and Measured sections (once per note, bounded).
+        /// After each hit, print the note's Decision, Rejected and Measured sections: the bullets and paragraphs that matched, the rest as line ranges.
         #[arg(long)]
         sections: bool,
+        /// With --sections: every line of each section (up to 30), not only the blocks that matched.
+        #[arg(long)]
+        whole: bool,
         /// The default: one line per hit (confidence, note:line, section) plus the note's Decision sentence, then the read table; about 50 tokens per hit.
         #[arg(long, hide = true, conflicts_with = "sections")]
         brief: bool,
@@ -511,10 +516,10 @@ fn run(cli: Cli) -> Result<()> {
                 println!("added {added}, updated {updated}, unchanged {unchanged}, embedded {embedded} chunks");
             }
         }
-        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, brief, full, abs, also } => {
+        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, whole, brief, full, abs, also } => {
             let mode = if meaning { Mode::Meaning } else if keyword { Mode::Keyword } else { Mode::Auto };
             // Brief is the default; sections, the full block and explain (which needs the trace field) opt out.
-            let brief = brief || !(sections || full || explain);
+            let brief = brief || !(sections || whole || full || explain);
             let (hits, ex) = ctx.search_also(&query, &also, &scope.flags(), &SearchOptions { k, mode, working: Vec::new() })?;
             let span_query = std::iter::once(query.as_str()).chain(also.iter().map(String::as_str)).collect::<Vec<_>>().join(" ");
             let read_spans = match (ctx.project.clone(), ctx.repo.as_ref().map(|r| r.root.clone())) {
@@ -554,7 +559,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("{}", memorycastle::render::empty_line(&ex));
             }
             let repo_root = ctx.repo.as_ref().map(|r| r.root.clone());
-            let r = memorycastle::render::search(&ctx.conn, &hits, &read_spans, &memorycastle::render::Options { query: &query, sections, brief, explain, abs, repo_root: repo_root.as_deref() })?;
+            let r = memorycastle::render::search(&ctx.conn, &hits, &read_spans, &memorycastle::render::Options { query: &query, sections: sections || whole, whole, brief, explain, abs, repo_root: repo_root.as_deref() })?;
             print!("{}", r.text);
             // The ledger counts agent lookups only: `--explain` is a person
             // diagnosing ranking, and `eval` never records.

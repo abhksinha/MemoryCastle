@@ -14,7 +14,8 @@ section | use case | command
 --- | --- | ---
 decide | a choice or a fix in an area with history | `memcastle search "<question>"`
 other words | a why or design question: one more wording, merged | `memcastle search "<question>" --also "<repo's words>"`
-full sections | Decision, Rejected, Measured of the hits | `memcastle search "<question>" --sections`
+full sections | the matched bullets of Decision, Rejected, Measured | `memcastle search "<question>" --sections`
+whole sections | every line of each section | `memcastle search "<question>" --whole`
 past work | user says "like we did X", or resuming | `memcastle search "<X in its own words>" --sections`
 sister repo | question about a repo in a declared group | `memcastle search "<question>" --related`
 ranking | why a hit ranked there, stage timings | `memcastle search "<question>" --explain`
@@ -41,6 +42,7 @@ skip | routine edits, reading code, running tests | no search
 - `decision <sentence>` = the note's first Decision sentence
 - `code changed since: <symbols>` = that code changed after the note; run `links <symbol>` first
 - `superseded by X` = decision reversed; act on X
+- `… lines 27-51` (under a section) = bullets that did not match; `sed -n '27,51p' note.md` if needed
 - `learned 0.88` (in `--explain`) = an earlier question this close was answered by this note
 - `read first a. path:a-b name score why` = code spans to read first: `sed -n 'a,bp' path`
 - `no relevant note` = the store has nothing; work from the code and say so

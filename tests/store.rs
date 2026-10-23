@@ -473,7 +473,7 @@ fn brief_prints_the_hit_line_and_the_decision_sentence() {
     let scope = Scope::single(p.id);
     let (hits, _) = search(&conn, &scope, "brief default", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(!hits.is_empty());
-    let r = render::search(&conn, &hits, &[], &render::Options { query: "brief default", sections: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "brief default", sections: false, whole: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
     let lines: Vec<&str> = r.text.lines().collect();
     assert!(lines[0].starts_with("1. memorycastle/journal/2026-10-19-brief.md:"), "{}", r.text);
     assert!(lines[1].starts_with("   decision") && lines[1].contains("Brief is the default output."), "{}", r.text);
@@ -494,7 +494,7 @@ fn render_follows_the_fixed_grammar() {
     let (hits, _) = search(&conn, &scope, "label grammar", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
     assert!(hits.len() >= 2);
     for sections in [false, true] {
-        let r = render::search(&conn, &hits, &[], &render::Options { query: "label grammar", sections, brief: false, explain: false, abs: false, repo_root: None }).unwrap();
+        let r = render::search(&conn, &hits, &[], &render::Options { query: "label grammar", sections, whole: false, brief: false, explain: false, abs: false, repo_root: None }).unwrap();
         let lines: Vec<&str> = r.text.lines().collect();
         let mut hit_lines = 0;
         for (i, l) in lines.iter().enumerate() {
@@ -702,7 +702,7 @@ fn hits_carry_line_ranges_and_the_notes_other_parts() {
         assert!(!lines[part.line as usize - 1].trim().is_empty(), "{part:?}");
     }
     assert!(h.parts.iter().any(|x| x.section == "Rejected" && x.line == 10 && x.end == 10), "{:?}", h.parts);
-    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter tokenizer", sections: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter tokenizer", sections: false, whole: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
     assert!(r.text.lines().any(|l| l.starts_with("   lines      ")), "{}", r.text);
     // links: the sections that name the target, header lines left out.
     let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/2026-10-20-stem.md'", [], |r| r.get(0)).unwrap();

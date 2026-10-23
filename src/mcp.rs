@@ -139,7 +139,8 @@ fn tool_list() -> Value {
                 "also": {"type": "array", "items": {"type": "string"}, "description": "The same question in other words: the repo's own terms or the likely name of the mechanism. Hits are merged per note. One wording found 3 to 6 more answers in 187 gold questions; give one for a why or design question"},
                 "k": {"type": "integer", "default": 5},
                 "brief": {"type": "boolean", "default": true, "description": "The default: one line per hit (confidence, note:line, section) plus the note's Decision sentence, then the read table, about 50 tokens per hit; pick a note, then ask for its sections. false gives a 3-line block per hit with a text snippet"},
-                "sections": {"type": "boolean", "default": false, "description": "Print each note's Decision, Rejected and Measured sections (bounded, about 2 KB per note); ask for it on the note you picked, before a design choice"},
+                "sections": {"type": "boolean", "default": false, "description": "Print each note's Decision, Rejected and Measured sections: the bullets and paragraphs that matched the question, the rest as line ranges; ask for it on the note you picked, before a design choice"},
+                "whole": {"type": "boolean", "default": false, "description": "With sections: every line of each section (up to 30 per section), not only the matched blocks"},
                 "related": {"type": "boolean", "description": "Include sibling projects in the same group"},
                 "project": {"type": "string", "description": "Project name glob, when not in a git checkout"},
                 "all": {"type": "boolean"},
@@ -195,6 +196,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 all: args.get("all").and_then(Value::as_bool).unwrap_or(false),
             };
             let sections = args.get("sections").and_then(Value::as_bool).unwrap_or(false);
+            let whole = args.get("whole").and_then(Value::as_bool).unwrap_or(false);
             let brief = args.get("brief").and_then(Value::as_bool).unwrap_or(true) && !sections;
             let also: Vec<String> = args.get("also").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect()).unwrap_or_default();
             let (hits, explain) = ctx.search_also(query, &also, &flags, &SearchOptions { k, mode, working: Vec::new() })?;
@@ -209,7 +211,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             // The same budgeted text the CLI prints, so a tool call costs the
             // same tokens whichever way the agent reaches the store.
             let root = ctx.repo.as_ref().map(|r| r.root.clone());
-            let r = crate::render::search(&ctx.conn, &hits, &read, &crate::render::Options { query, sections, brief, explain: false, abs: true, repo_root: root.as_deref() })?;
+            let r = crate::render::search(&ctx.conn, &hits, &read, &crate::render::Options { query, sections: sections || whole, whole, brief, explain: false, abs: true, repo_root: root.as_deref() })?;
             let text = if hits.is_empty() { crate::render::empty_line(&explain) } else { r.text.clone() };
             if let Some(p) = &ctx.project {
                 crate::render::record(&ctx.conn, p.id, &r)?;

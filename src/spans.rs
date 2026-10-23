@@ -35,12 +35,18 @@ pub struct ReadSpan {
     pub bytes: usize,
 }
 
+/// A backticked name that is one of the note's own files (`cite.tex`), not
+/// a symbol (`tex`).
+pub fn is_note_file(sym: &str, note_files: &[&String]) -> bool {
+    sym.contains('.') && note_files.iter().any(|f| graph::same_file(f, sym))
+}
+
 /// The definitions of a name a note writes that are about that note: those
 /// in the note's own `Files:`, else the name's only one or two definitions
 /// (not an enum variant). A note writing `default`, `new` or `Build` meant
 /// the word, and the 25 to 45 files defining it were noise (rushtex,
 /// 2026-10-23).
-fn note_defs(defs: Vec<Def>, note_files: &[&String]) -> Vec<Def> {
+pub fn note_defs(defs: Vec<Def>, note_files: &[&String]) -> Vec<Def> {
     let (mine, other): (Vec<Def>, Vec<Def>) = defs.into_iter().partition(|d| note_files.iter().any(|f| graph::same_file(f, &d.path)));
     if !mine.is_empty() {
         return mine;
@@ -101,7 +107,7 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
                     continue;
                 }
                 let lower = sym.rsplit("::").next().unwrap_or(sym).rsplit('.').next().unwrap_or(sym).to_ascii_lowercase();
-                if lower.trim_matches('_').len() < 3 {
+                if lower.trim_matches('_').len() < 3 || is_note_file(sym, &note_files) {
                     continue;
                 }
                 let shares = q_words.iter().any(|q| lower.contains(q.as_str()));

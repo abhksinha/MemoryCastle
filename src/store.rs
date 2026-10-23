@@ -1231,6 +1231,27 @@ pub fn section_body(conn: &Connection, note_id: i64, name: &str) -> Result<Optio
     Ok(if bodies.is_empty() { None } else { Some(bodies.join("\n\n")) })
 }
 
+/// A note's section bodies by canonical name, each line with its line
+/// number in the note file, in note order.
+pub fn section_lines(conn: &Connection, note_id: i64, name: &str) -> Result<Vec<(u32, String)>> {
+    let content: String = conn.query_row("SELECT content FROM notes WHERE id = ?1", [note_id], |r| r.get(0))?;
+    let lines: Vec<&str> = content.lines().collect();
+    let mut stmt = conn.prepare_cached("SELECT line, body FROM sections WHERE note_id = ?1 AND name = ?2 ORDER BY ordinal")?;
+    let mut out = Vec::new();
+    for row in stmt.query_map(params![note_id, name], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))? {
+        let (heading, body) = row?;
+        // The body is trimmed: skip the blank lines under the heading.
+        let mut at = heading as usize;
+        while at < lines.len() && lines[at].trim().is_empty() {
+            at += 1;
+        }
+        for (i, l) in body.lines().enumerate() {
+            out.push(((at + i + 1) as u32, l.to_string()));
+        }
+    }
+    Ok(out)
+}
+
 /// Fills `sections` for every note once after the v14 migration.
 pub fn ensure_sections(conn: &Connection) -> Result<()> {
     if crate::db::meta_get(conn, "sections_rebuild")?.is_none() || crate::db::is_readonly(conn) {

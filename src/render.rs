@@ -13,6 +13,8 @@ use std::path::Path;
 pub struct Options<'a> {
     pub query: &'a str,
     pub sections: bool,
+    /// With `sections`: whole sections, not only the blocks that matched.
+    pub whole: bool,
     /// The hit line and the note's Decision sentence per hit, then the read
     /// table: the default, about 50 tokens per hit.
     pub brief: bool,
@@ -169,21 +171,27 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
                 }
                 block.push_str(&field("text", body.trim_end()));
             }
+            // The blocks (a bullet, a paragraph, a table) that hold a scored
+            // part of the note; the rest as line ranges to read on demand.
+            let mut matched: Vec<(u32, u32)> = vec![(h.line, h.end_line())];
+            matched.extend(h.parts.iter().filter(|p| p.confidence >= crate::limits::MIN_CONFIDENCE).map(|p| (p.line, p.end)));
             for name in names {
-                if let Some(body) = store::section_body(conn, h.note_id, name)? {
-                    let total = body.lines().count();
-                    let mut shown: String = body.lines().take(SECTION_LINES).collect::<Vec<_>>().join("\n");
-                    if total > SECTION_LINES {
-                        shown.push_str(&format!("\n… {} more lines", total - SECTION_LINES));
-                    }
-                    block.push_str(&field(&name.to_ascii_lowercase(), &shown));
+                let body = store::section_lines(conn, h.note_id, name)?;
+                if body.is_empty() {
+                    continue;
                 }
+                let shown = if o.whole { whole_section(&body) } else { matched_blocks(&body, &matched, *name == "Decision") };
+                block.push_str(&field(&name.to_ascii_lowercase(), &shown));
             }
             // Where the code this note names lives now.
             if let Some(l) = note_links.get(&h.note_id) {
                 let mut rows: Vec<(String, String)> = Vec::new();
                 for (_, sym) in l.iter().filter(|(k, _)| *k == graph::Kind::Symbol) {
-                    for d in code::defs_named(conn, h.project_id, sym)?.iter().take(2) {
+                    let files: Vec<&String> = l.iter().filter(|(k, _)| *k == graph::Kind::File).map(|(_, f)| f).collect();
+                    if crate::spans::is_note_file(sym, &files) {
+                        continue;
+                    }
+                    for d in crate::spans::note_defs(code::defs_named(conn, h.project_id, sym)?, &files).iter().take(2) {
                         let span = match o.repo_root {
                             Some(r) => code::current_span(conn, h.project_id, r, d)?,
                             None => Some((d.line, d.end)),
@@ -387,8 +395,85 @@ pub fn parse_date(s: &str) -> Option<i64> {
     Some((era * 146097 + doe - 719468) * 86400)
 }
 
+/// A section as printed by `--sections --whole`: its lines, up to `SECTION_LINES`.
+fn whole_section(body: &[(u32, String)]) -> String {
+    let mut shown: String = body.iter().take(SECTION_LINES).map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
+    if body.len() > SECTION_LINES {
+        shown.push_str(&format!("\n… {} more lines", body.len() - SECTION_LINES));
+    }
+    shown
+}
+
+/// The blocks of a section that overlap a matched line range, the first
+/// block too when `lead` (a Decision opens with the decision); every
+/// skipped run becomes `… lines a-b`. A block is a top-level bullet or
+/// numbered item with its continuation lines, or a run of non-blank lines.
+fn matched_blocks(body: &[(u32, String)], matched: &[(u32, u32)], lead: bool) -> String {
+    let mut blocks: Vec<&[(u32, String)]> = Vec::new();
+    let mut start = 0;
+    for i in 1..=body.len() {
+        let ends = i == body.len() || {
+            let l = body[i].1.as_str();
+            let item = l.starts_with("- ") || l.starts_with("* ") || l.split_once(". ").is_some_and(|(n, _)| !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()));
+            l.trim().is_empty() || body[i - 1].1.trim().is_empty() || item
+        };
+        if ends {
+            if body[start..i].iter().any(|(_, l)| !l.trim().is_empty()) {
+                blocks.push(&body[start..i]);
+            }
+            start = i;
+        }
+    }
+    let mut hits: Vec<bool> = blocks.iter().enumerate().map(|(k, b)| (lead && k == 0) || matched.iter().any(|&(x, y)| x <= b[b.len() - 1].0 && b[0].0 <= y)).collect();
+    // A one-line block between two printed ones costs what its range would.
+    for k in 1..blocks.len().saturating_sub(1) {
+        if blocks[k].len() == 1 && hits[k - 1] && hits[k + 1] {
+            hits[k] = true;
+        }
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut skipped: Option<(u32, u32)> = None;
+    let mut printed = 0;
+    for (b, &hit) in blocks.iter().zip(&hits) {
+        let (a, z) = (b[0].0, b[b.len() - 1].0);
+        if hit && printed < SECTION_LINES {
+            if let Some((x, y)) = skipped.take() {
+                out.push(format!("… lines {x}-{y}"));
+            }
+            for (_, l) in b.iter().filter(|(_, l)| !l.trim().is_empty()) {
+                out.push(l.clone());
+                printed += 1;
+            }
+        } else {
+            skipped = Some(skipped.map_or((a, z), |(x, _)| (x, z)));
+        }
+    }
+    if let Some((x, y)) = skipped {
+        out.push(if printed == 0 { format!("lines {x}-{y}, none matched") } else { format!("… lines {x}-{y}") });
+    }
+    out.join("\n")
+}
+
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn sections_print_the_matched_blocks_and_ranges_for_the_rest() {
+        let body: Vec<(u32, String)> = [
+            "- First decision line.", "  continued.", "- Second, about tables.", "  more.", "- Third, about chunks.", "", "A paragraph", "over two lines.",
+        ]
+        .iter()
+        .enumerate()
+        .map(|(i, l)| (10 + i as u32, l.to_string()))
+        .collect();
+        let shown = matched_blocks(&body, &[(14, 14)], true);
+        assert_eq!(shown, "- First decision line.\n  continued.\n… lines 12-13\n- Third, about chunks.\n… lines 16-17");
+        assert_eq!(matched_blocks(&body, &[(90, 95)], false), "lines 10-17, none matched");
+        // Lines 12-13 are two lines: still a range. A one-line block between printed ones is printed.
+        let one: Vec<(u32, String)> = ["- a", "- b", "- c"].iter().enumerate().map(|(i, l)| (1 + i as u32, l.to_string())).collect();
+        assert_eq!(matched_blocks(&one, &[(3, 3)], true), "- a\n- b\n- c");
+    }
+
     use super::*;
 
     #[test]
