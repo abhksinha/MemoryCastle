@@ -34,7 +34,7 @@ skip | routine edits, reading code, running tests | no search
 ## Read the answer
 
 - `note.md:13-14 0.71 Rejected` = the note's lines that matched, confidence 0 to 1, section
-- confidence = 1.00 exact identifier; 0.70 and up answer; 0.30 to 0.69 verify; under 0.30 dropped
+- confidence = 1.00 exact identifier; 0.70 and up answer; 0.36 to 0.69 verify; under 0.36 dropped (0.30 without the model)
 - verify = read the hit's lines and check them against the code
 - `lines 13-14 0.71 Rejected, 9-10 0.53 Decision` = the note's parts, best first; read those lines, not the note
 - `decision <sentence>` = the note's first Decision sentence

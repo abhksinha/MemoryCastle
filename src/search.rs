@@ -129,8 +129,10 @@ pub struct Explain {
     pub best_confidence: f32,
     /// The question's rare words, which a hit must hold for its cosine to count in full.
     pub distinctive: Vec<String>,
-    /// Hits dropped for confidence under `MIN_CONFIDENCE`.
+    /// Hits dropped for confidence under the floor.
     pub dropped: usize,
+    /// The floor applied: `MIN_CONFIDENCE_MODEL` when the model ran, else `MIN_CONFIDENCE`.
+    pub floor: f32,
 }
 
 /// A searchable memory: the store, or a baseline. The harness measures any of these.
@@ -437,7 +439,8 @@ pub fn search(
         by_note.entry(h.note_id).or_default().push(Part { line: h.line, end: h.end_line(), confidence: h.trace.confidence, section });
     }
     let before = hits.len();
-    hits.retain(|h| h.trace.confidence >= MIN_CONFIDENCE);
+    ex.floor = if run_model { crate::limits::MIN_CONFIDENCE_MODEL } else { MIN_CONFIDENCE };
+    hits.retain(|h| h.trace.confidence >= ex.floor);
     ex.dropped = before - hits.len();
     // The same fact in a tracker entry and a dated note: keep one, the dated
     // one when both are present (it carries the context the tracker lacks).

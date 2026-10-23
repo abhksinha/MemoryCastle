@@ -47,7 +47,7 @@ sister repo | question about a repo in a declared group | memcastle search \"<qu
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
 skip | routine edits, reading code, running tests | use links before an edit
 read as: note.md:13-14 0.71 Rejected = lines that matched, confidence 0 to 1, section
-read as: confidence = 1.00 exact identifier; 0.70 and up answer; 0.30 to 0.69 verify; under 0.30 dropped
+read as: confidence = 1.00 exact identifier; 0.70 and up answer; 0.36 to 0.69 verify; under 0.36 dropped (0.30 without the model)
 read as: verify = read the hit's lines and check them against the code
 read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; read those lines
 read as: decision <sentence> = the note's first Decision sentence
@@ -58,7 +58,7 @@ read as: no relevant note = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>
 combine: printed range | sed -n 'a,bp' path, or Read with offset and limit
 combine: no relevant note | grep -rn the names you know, then read the code
-combine: hit at 0.30 to 0.69 | read its lines, then check the code it names
+combine: hit at 0.36 to 0.69 | read its lines, then check the code it names
 ";
 
 #[derive(Parser)]
@@ -526,7 +526,7 @@ fn run(cli: Cli) -> Result<()> {
                     ex.vec_hits,
                     ex.scan_ms,
                     ex.dropped,
-                    memorycastle::limits::MIN_CONFIDENCE,
+                    ex.floor,
                     if ex.distinctive.is_empty() { "none".to_string() } else { ex.distinctive.join(" ") }
                 );
             }

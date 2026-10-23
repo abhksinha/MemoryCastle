@@ -342,7 +342,7 @@ pub fn tidy_files(files: &[String]) -> Vec<String> {
 /// The "no results" line for an empty hit list.
 pub fn empty_line(ex: &crate::search::Explain) -> String {
     if ex.dropped > 0 {
-        format!("no relevant note (best confidence {:.2}, below {:.2}); the store has nothing on this", ex.best_confidence, crate::limits::MIN_CONFIDENCE)
+        format!("no relevant note (best confidence {:.2}, below {:.2}); the store has nothing on this", ex.best_confidence, ex.floor.max(crate::limits::MIN_CONFIDENCE))
     } else {
         "no results".to_string()
     }

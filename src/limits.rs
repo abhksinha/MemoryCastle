@@ -47,6 +47,12 @@ pub const NOTE_GUARD_MIN_BYTES: usize = 3000;
 pub const COSINE_FLOOR: f32 = 0.60;
 pub const COSINE_CEIL: f32 = 0.80;
 pub const MIN_CONFIDENCE: f32 = 0.30;
+/// The floor when the model ran. The false answers to absent questions sat
+/// at 0.33 to 0.35 (2026-10-23): at 0.36 they went from 8 of 44 to 2, notes
+/// printed fell 14%, and with one `--also` wording right answers rose (164 to
+/// 166 and 163 to 165 of 187); without it they fell 155 to 150. Keyword-only
+/// confidence is a share of words (one of three is 0.33), so it keeps 0.30.
+pub const MIN_CONFIDENCE_MODEL: f32 = 0.36;
 /// A chunk whose heading matches what the question asks for (Measured for a
 /// number question) gets this on its score.
 pub const SECTION_CUE_WEIGHT: f32 = 1.6;

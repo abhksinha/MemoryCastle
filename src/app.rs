@@ -103,6 +103,15 @@ impl Context {
     /// merged one hit per note (`search::merge_queries`). The explain is the
     /// question's own.
     pub fn search_also(&mut self, query: &str, also: &[String], flags: &ScopeFlags, opts: &SearchOptions) -> Result<(Vec<Hit>, Explain)> {
+        // One model for every wording: a lazily opened local model is dropped
+        // after its search, and ONNX Runtime allows one environment per
+        // process, so the second wording failed when no `serve` was running.
+        if !also.is_empty() && opts.mode != Mode::Keyword && cfg!(feature = "ort") && self.embedder.is_none() {
+            self.embedder = Some(match RemoteEmbedder::connect(embed::default_space_def().dims) {
+                Some(remote) => Box::new(remote),
+                None => embed::open_default(self.quiet)?,
+            });
+        }
         let (hits, ex) = self.search(query, flags, opts)?;
         if also.is_empty() {
             return Ok((hits, ex));

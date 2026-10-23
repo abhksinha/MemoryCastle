@@ -335,7 +335,7 @@ fn bit_prefilter_matches_exact_scan() {
         let (hits, ex) = search(conn, &s, q, &SearchOptions { k: 10, mode: Mode::Meaning, working: Vec::new() }, ModelSource::Warm(e)).unwrap();
         (hits.into_iter().map(|h| h.chunk_id).collect(), ex)
     };
-    let mut agree = 0;
+    let (mut agree, mut compared) = (0, 0);
     let queries = ["topic 3 item 5", "words 11 sentence", "item 20 topic 9", "sentence about topic 12", "item 2 words 4"];
     for q in queries {
         std::env::set_var("MEMORYCASTLE_NO_BITS", "1");
@@ -347,8 +347,11 @@ fn bit_prefilter_matches_exact_scan() {
         assert_eq!(ex_exact.prefiltered, 0);
         assert_eq!(ex_fast.prefiltered as i64, n);
         agree += exact.iter().take(5).filter(|id| fast.contains(id)).count();
+        compared += exact.len().min(5);
     }
-    assert!(agree >= 20, "top-5 overlap across 5 queries was {agree}/25");
+    // Hash vectors score low, so the confidence floor keeps only some hits;
+    // the prefilter must agree on the ones it keeps.
+    assert!(compared >= 10 && agree * 5 >= compared * 4, "top-5 overlap across 5 queries was {agree}/{compared}");
     // Saving a note drops the pack; the next search rebuilds it.
     save(&mut conn, &p, "memorycastle/journal/2026-02-01-x.md", "# X\nFiles: src/a.rs\n## S\nnew text");
     let packs: i64 = conn.query_row("SELECT count(*) FROM vector_bits", [], |r| r.get(0)).unwrap();
