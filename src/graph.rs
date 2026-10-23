@@ -230,6 +230,14 @@ pub fn store_links(tx: &Connection, note_id: i64, project_id: i64, note_path: &s
     Ok(links.len())
 }
 
+/// A primitive type name (`u8`, `f32`, `bool`). A note writing `u8` means the
+/// type, not a reader method that happens to be called `u8`, so its body
+/// is not tracked: rushtex's `fn u8(` in a snapshot reader flagged its
+/// architecture note as "code changed" on every edit of that reader.
+fn is_primitive_type(name: &str) -> bool {
+    matches!(name, "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "f32" | "f64" | "bool" | "char" | "str")
+}
+
 /// Records the body hash of every definition a note names (its `Symbol`
 /// links, up to two definitions each), so a later search can tell whether
 /// the code the note describes has changed. Needs the checkout; without a
@@ -244,7 +252,7 @@ pub fn refresh_note_code(conn: &Connection, project_id: i64, root: &Path, note_p
     let symbols: Vec<String> = names.query_map(params![note_id, Kind::Symbol as i64], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
     let mut ins = conn.prepare_cached("INSERT OR REPLACE INTO note_code(note_id, project_id, name, path, body_hash) VALUES (?1, ?2, ?3, ?4, ?5)")?;
     let mut n = 0;
-    for sym in symbols {
+    for sym in symbols.into_iter().filter(|s| !is_primitive_type(s)) {
         for d in crate::code::defs_named(conn, project_id, &sym)?.into_iter().take(2) {
             if let Some(h) = crate::code::body_hash(conn, project_id, root, &d)? {
                 ins.execute(params![note_id, project_id, d.name, d.path, h])?;
@@ -262,7 +270,7 @@ pub fn code_changed(conn: &Connection, project_id: i64, root: &Path, note_id: i6
     let mut stmt = conn.prepare_cached("SELECT name, path, body_hash FROM note_code WHERE note_id = ?1")?;
     let rows: Vec<(String, String, Vec<u8>)> = stmt.query_map([note_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
     let mut out = Vec::new();
-    for (name, path, then) in rows {
+    for (name, path, then) in rows.into_iter().filter(|r| !is_primitive_type(&r.0)) {
         let now = crate::code::defs_named(conn, project_id, &name)?
             .into_iter()
             .find(|d| d.path == path)

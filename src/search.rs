@@ -53,6 +53,10 @@ pub struct Trace {
     /// Working-set weight applied: up to `WORKING_WEIGHT` when the note links
     /// a file the session is working on, or a symbol defined in one.
     pub working: f32,
+    /// An identifier from the question found verbatim: confidence 1.0 that
+    /// outranks the model, unlike a cosine at the ceiling.
+    #[serde(skip)]
+    pub identifier: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -353,6 +357,7 @@ pub fn search(
         // verdict but not overrule it, so coverage is capped at the raw
         // rescaled cosine (a chunk the model put under the floor stays there).
         let raw_cos = t.cosine.map(|c| ((c - COSINE_FLOOR) / (COSINE_CEIL - COSINE_FLOOR)).clamp(0.0, 1.0)).unwrap_or(0.0);
+        t.identifier = ident_hit;
         t.confidence = if ident_hit { 1.0 } else if run_model { cos.max(cov.min(raw_cos)) } else { cos.max(cov) };
         h.trace = t;
     }
@@ -412,10 +417,12 @@ pub fn search(
     // and graph links still order near-equal hits; then newer first.
     // Without the model, confidence is word overlap, too coarse to order by;
     // the fused score (with section cue and graph) orders alone.
-    let bucket = |c: f32| if run_model { (c * 4.0).floor() as i32 } else { 0 };
+    // A cosine at the ceiling (1.00) is in the top quarter, not above it;
+    // only a verbatim identifier hit sits over the quarters.
+    let bucket = |t: &Trace| if !run_model { 0 } else if t.identifier { 4 } else { ((t.confidence * 4.0).floor() as i32).min(3) };
     hits.sort_by(|a, b| {
-        bucket(b.trace.confidence)
-            .cmp(&bucket(a.trace.confidence))
+        bucket(&b.trace)
+            .cmp(&bucket(&a.trace))
             .then(b.trace.score.total_cmp(&a.trace.score))
             .then(b.saved_at.cmp(&a.saved_at))
             .then(a.chunk_id.cmp(&b.chunk_id))
@@ -505,7 +512,7 @@ pub fn mark_code_changed(conn: &Connection, root: &std::path::Path, hits: &mut [
     // stable sort by the weighted score within a quarter only moves a
     // changed-code hit under its unchanged neighbours. Without the model
     // every hit is in one quarter and the score orders alone, as before.
-    let bucket = |h: &Hit| if h.trace.cosine.is_some() { (h.trace.confidence * 4.0).floor() as i32 } else { 0 };
+    let bucket = |h: &Hit| if h.trace.cosine.is_none() { 0 } else if h.trace.identifier { 4 } else { ((h.trace.confidence * 4.0).floor() as i32).min(3) };
     hits.sort_by(|a, b| bucket(b).cmp(&bucket(a)).then(b.trace.score.total_cmp(&a.trace.score)));
     Ok(())
 }
