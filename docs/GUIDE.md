@@ -49,6 +49,7 @@ skip | routine edits, reading code, running tests | no search
 - `read: path:a-b caller calls name 0.7` = one call site, the lines around it, its confidence
 - `nodes.store(` = a field's declared type (`nodes: Nodes`) points the call at `Nodes::store`
 - `too wide: read path:a-b` = function over 150 lines; read the block shown
+- `blocks: ... widest: a-b header` = inner blocks of a function over 150 lines; read the one you edit
 - `as foo::bar` = spelling the note used, or the neighbour it was ranked by
 - `no notes link to X`, nothing after = not indexed; check spelling or run `memcastle graph --code`
 - limits: call edges are by name; a call through a trait or a macro is missed

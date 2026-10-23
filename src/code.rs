@@ -957,6 +957,70 @@ pub fn narrow_span(root: &Path, d: &Def, line: u32) -> Option<(String, u32, u32)
     found
 }
 
+/// For a definition wider than `limits::SPAN_WIDE`: its inner blocks (match
+/// arms, `if`s, loops; indented suites in Python) as `a-b header`, the
+/// widest `limits::WIDE_BLOCKS_SHOWN` in line order. A block covering most
+/// of the span (the `match` of a dispatcher) is opened to its own children.
+/// None when the definition is not wide or has no inner block.
+pub fn wide_blocks(root: &Path, path: &str, start: u32, end: u32) -> Option<String> {
+    if end.saturating_sub(start) < crate::limits::SPAN_WIDE {
+        return None;
+    }
+    let text = std::fs::read_to_string(root.join(path)).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let py = ext_of(path) == "py";
+    let (mut a, mut b) = ((start as usize).saturating_sub(1), (end as usize).saturating_sub(1).min(lines.len().saturating_sub(1)));
+    let mut kids: Vec<(usize, usize)> = Vec::new();
+    for _ in 0..4 {
+        kids.clear();
+        if py {
+            let indent = |l: &str| l.len() - l.trim_start().len();
+            let base = indent(lines[a]);
+            let inner = lines[a + 1..=b].iter().filter(|l| !l.trim().is_empty()).map(|l| indent(l)).filter(|i| *i > base).min()?;
+            for i in a + 1..=b {
+                let l = lines[i];
+                if !l.trim().is_empty() && indent(l) == inner && l.trim_end().ends_with(':') {
+                    kids.push((i, span_end(&lines, i, true)));
+                }
+            }
+        } else {
+            let mut depth: i32 = 0;
+            for i in a..=b {
+                let code = strip_strings_and_comments(lines[i]);
+                let (opens, closes) = (code.matches('{').count() as i32, code.matches('}').count() as i32);
+                if i > a && depth == 1 && opens > closes {
+                    kids.push((i, span_end(&lines, i, false).min(b)));
+                }
+                depth += opens - closes;
+            }
+        }
+        kids.retain(|(i, e)| e > i);
+        match kids.iter().max_by_key(|(i, e)| e - i) {
+            Some(&(i, e)) if (e - i) * 5 >= (b - a) * 4 => (a, b) = (i, e),
+            _ => break,
+        }
+    }
+    if kids.is_empty() {
+        return None;
+    }
+    let n = kids.len();
+    kids.sort_by(|x, y| (y.1 - y.0).cmp(&(x.1 - x.0)).then(x.0.cmp(&y.0)));
+    kids.truncate(crate::limits::WIDE_BLOCKS_SHOWN);
+    kids.sort();
+    let shown: Vec<String> = kids
+        .iter()
+        .map(|(i, e)| {
+            let mut h: String = lines[*i].trim().trim_end_matches('{').trim_end().chars().take(40).collect();
+            if lines[*i].trim().chars().count() > 40 {
+                h.push_str("...");
+            }
+            format!("{}-{} {h}", i + 1, e + 1)
+        })
+        .collect();
+    let more = if n > shown.len() { format!(" +{} more", n - shown.len()) } else { String::new() };
+    Some(format!("   blocks: {} lines, too wide to read whole; widest: {}{more}; `links {path} --at <line>` narrows", end - start + 1, shown.join(", ")))
+}
+
 /// Definitions wider than `limits::SPAN_WIDE`, widest first: the ones a
 /// note cannot point at readably.
 pub fn wide_defs(conn: &Connection, project_id: i64, limit: usize) -> Result<Vec<(String, String, u32)>> {
@@ -991,6 +1055,10 @@ mod narrow_tests {
         assert_eq!(a, 2 + 62 * 2 + 1);
         assert_eq!(b, a + 61);
         assert!(narrow_span(&dir, &Def { end: 100, ..d.clone() }, 50).is_none(), "a narrow definition is left alone");
+        // links <symbol>: the dispatcher's match is opened, its arms listed.
+        let blocks = wide_blocks(&dir, "w.rs", 1, lines.len() as u32).expect("wide function lists blocks");
+        assert!(blocks.contains("3-64 Cmd::A0 { x } =>") && blocks.contains("189-250 Cmd::A3"), "{blocks}");
+        assert!(wide_blocks(&dir, "w.rs", 1, 100).is_none(), "a narrow definition is left alone");
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -22,6 +22,7 @@ read as: caller under 0.7 = check the call site; it may reach another definition
 read as: +N by name only, under 0.3 = calls too unlikely to list, counted only; --all lists them
 read as: read: path:a-b caller calls name 0.7 = one call site, the lines around it, its confidence
 read as: too wide: read path:a-b = function over 150 lines, read the block shown
+read as: blocks: a-b header = inner blocks of a function over 150 lines, read the one you edit
 read as: lines 9-11 Decision = note sections naming it; read those lines, not the note
 read as: decision <sentence> = the note's first Decision sentence (first two notes)
 read as: nodes.store( = a field's declared type (nodes: Nodes) points at Nodes::store
@@ -1511,7 +1512,13 @@ fn run(cli: Cli) -> Result<()> {
                         None => Some((d.line, d.end)),
                     };
                     match span {
-                        Some((a, b)) if b > a => out.push_str(&format!("defined: {}:{}-{}  ({})\n", d.path, a, b, d.kind)),
+                        Some((a, b)) if b > a => {
+                            out.push_str(&format!("defined: {}:{}-{}  ({})\n", d.path, a, b, d.kind));
+                            if let Some(blocks) = root.as_ref().and_then(|r| memorycastle::code::wide_blocks(r, &d.path, a, b)) {
+                                out.push_str(&blocks);
+                                out.push('\n');
+                            }
+                        }
                         Some((a, _)) => out.push_str(&format!("defined: {}:{}  ({})\n", d.path, a, d.kind)),
                         None => out.push_str(&format!("defined: {}  ({}; moved since the last `graph --code`)\n", d.path, d.kind)),
                     }

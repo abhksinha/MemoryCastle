@@ -265,6 +265,10 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 let abs = root.as_ref().map(|r| r.join(&d.path).to_string_lossy().into_owned()).unwrap_or_else(|| d.path.clone());
                 if let Some((a, b)) = span {
                     text.push_str(&format!("defined: {abs}:{a}-{b}  ({})\n", d.kind));
+                    if let Some(blocks) = root.as_ref().and_then(|r| crate::code::wide_blocks(r, &d.path, a, b)) {
+                        text.push_str(&blocks);
+                        text.push('\n');
+                    }
                     crate::store::record_span(&ctx.conn, pid, &d.path, a, b, 0)?;
                     spans.push(json!({"path": abs, "start": a, "end": b, "kind": d.kind, "name": d.name}));
                 } else {
