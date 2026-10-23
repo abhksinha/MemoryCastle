@@ -45,6 +45,7 @@ full sections | Decision, Rejected, Measured of the hits | memcastle search \"<q
 past work | user says \"like we did X\", or resuming | memcastle search \"<X in its own words>\" --sections
 sister repo | question about a repo in a declared group | memcastle search \"<question>\" --related
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
+learned | questions searches learned, teach or drop one | memcastle learned; learned add <note.md> \"<q>\"
 skip | routine edits, reading code, running tests | use links before an edit
 read as: note.md:13-14 0.71 Rejected = lines that matched, confidence 0 to 1, section
 read as: confidence = 1.00 exact identifier; 0.70 and up answer; 0.36 to 0.69 verify; under 0.36 dropped (0.30 without the model)
@@ -53,6 +54,7 @@ read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; 
 read as: decision <sentence> = the note's first Decision sentence
 read as: code changed since: <symbols> = that code changed after the note; run links <symbol> first
 read as: superseded by X = decision reversed, act on X
+read as: learned 0.88 (--explain) = an earlier question this close was answered by this note
 read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
 read as: no relevant note = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>

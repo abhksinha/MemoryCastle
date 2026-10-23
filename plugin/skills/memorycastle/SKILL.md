@@ -20,6 +20,10 @@ Run `memcastle init` to see the full rules; the short form:
   with no notes, what it defines and who uses it; `--at <line>` gives the
   function holding the line. It works before the first note is written.
 - `no relevant note` means the store has nothing; do not act on a weak hit.
+- Searches learn by themselves: when you read a note the search did not
+  rank first, the question is kept for that note and the same question in
+  other words finds it next time. Read the note that answered, not a guess.
+  `memcastle learned` lists them; `learned forget <id>` drops a wrong one.
 - At the end of a task that changed a decision, measured something, or
   rejected an approach: write `memorycastle/journal/YYYY-MM-DD-<topic>.md`
   with Author, Files, Decision, Rejected, Measured, Open; then
