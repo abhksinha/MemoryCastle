@@ -1,7 +1,6 @@
 //! Learned questions: the index learns from what agents do, not from a
 //! model change. Every agent search is logged (`searches`); when the agent
-//! then opens a note the search did not rank first (a read of the note file
-//! or its sections, same session, within `LEARN_WINDOW_SECS`), the question
+//! then reads the file of a note the search did not rank first (same session, within `LEARN_WINDOW_SECS`), the question
 //! and its vector are kept for that note (`learned`). A later question
 //! close to a learned one (cosine at least `LEARNED_MIN_COSINE`, which on
 //! the gold sets is the same question in other words, never a question
@@ -51,11 +50,13 @@ pub fn record_search(conn: &Connection, project_id: i64, query: &str, also: &[St
 }
 
 /// Turns logged searches whose window has closed into learned questions.
-/// The first note the same session opened (a `read` or `sections` row in
-/// `served_notes`) at least `OPEN_MIN_SECS` and at most `LEARN_WINDOW_SECS`
+/// The first note file the same session read (a `read` row in
+/// `served_notes`; a `--sections` search prints several notes nobody chose,
+/// so it is not an open) at least `OPEN_MIN_SECS` and at most `LEARN_WINDOW_SECS`
 /// after the search is the answer, unless recall, `links` or a hook served
 /// that note in between (then that is why it was read). Learned only when
-/// the search did not rank it first. Returns how many were learned.
+/// the search did not rank it first; a read of the first hit ends it, even
+/// if another note is read later. Returns how many were learned.
 pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     use crate::limits::{LEARN_WINDOW_SECS, OPEN_MIN_SECS};
     if crate::db::is_readonly(conn) {
@@ -70,7 +71,7 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
         .query_map(params![project_id, now - LEARN_WINDOW_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut opened = conn.prepare_cached(
-        "SELECT note_id, at FROM served_notes WHERE project_id = ?1 AND session = ?2 AND mode IN ('read', 'sections') AND at >= ?3 AND at <= ?4 ORDER BY at LIMIT 1",
+        "SELECT note_id, at FROM served_notes WHERE project_id = ?1 AND session = ?2 AND mode = 'read' AND at >= ?3 AND at <= ?4 ORDER BY at LIMIT 1",
     )?;
     let mut nudged = conn.prepare_cached(
         "SELECT 1 FROM served_notes WHERE project_id = ?1 AND session = ?2 AND note_id = ?3 AND mode NOT IN ('read', 'sections', 'brief', 'snippet') AND at >= ?4 AND at <= ?5 LIMIT 1",

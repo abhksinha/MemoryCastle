@@ -783,6 +783,10 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     // The note ranked first and opened teaches nothing.
     log(&format!("{fallback},{fonts}"), fallback);
     assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
+    // A `--sections` search 30 s later prints notes nobody chose: no open.
+    conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![t - 1000, a.id, q, format!("{fonts},{fallback}"), space.id, vec]).unwrap();
+    conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'sections', 's1')", rusqlite::params![t - 970, a.id, fallback]).unwrap();
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
     let learned = memorycastle::learned::list(&conn, a.id).unwrap();
     assert_eq!((learned.len(), learned[0].note_id, learned[0].kind.as_str()), (1, fallback, "lift"));
     // The same question again brings the note in by the learned match.
