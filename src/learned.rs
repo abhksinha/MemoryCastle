@@ -56,7 +56,8 @@ pub fn record_search(conn: &Connection, project_id: i64, query: &str, also: &[St
 /// after the search is the answer, unless recall, `links` or a hook served
 /// that note in between (then that is why it was read). Learned only when
 /// the search did not rank it first; a read of the first hit ends it, even
-/// if another note is read later. Returns how many were learned.
+/// if another note is read later. A note saved after the search is one the
+/// agent wrote, not one it found. Returns how many were learned.
 pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     use crate::limits::{LEARN_WINDOW_SECS, OPEN_MIN_SECS};
     if crate::db::is_readonly(conn) {
@@ -76,12 +77,13 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     let mut nudged = conn.prepare_cached(
         "SELECT 1 FROM served_notes WHERE project_id = ?1 AND session = ?2 AND note_id = ?3 AND mode NOT IN ('read', 'sections', 'brief', 'snippet') AND at >= ?4 AND at <= ?5 LIMIT 1",
     )?;
+    let mut written = conn.prepare_cached("SELECT 1 FROM notes WHERE id = ?1 AND saved_at > ?2")?;
     let mut learned = 0;
     for (id, at, session, query, printed, space_id, vec) in rows {
         conn.execute("UPDATE searches SET done = 1 WHERE id = ?1", [id])?;
         let (Some(session), Some(space_id), Some(vec)) = (session, space_id, vec) else { continue };
         let Some((note, when)) = opened.query_row(params![project_id, session, at + OPEN_MIN_SECS, at + LEARN_WINDOW_SECS], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))).optional()? else { continue };
-        if nudged.exists(params![project_id, session, note, at, when])? {
+        if nudged.exists(params![project_id, session, note, at, when])? || written.exists(params![note, at])? {
             continue;
         }
         let rank = printed.split(',').position(|p| p == note.to_string());

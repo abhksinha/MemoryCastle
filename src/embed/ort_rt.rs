@@ -73,11 +73,23 @@ impl OrtEmbedder {
         download::ensure_file(&dir, &variant.data_name(), &variant.data(), quiet)?;
         let tok_path = download::ensure_file(&dir, "tokenizer.json", &download::TOKENIZER, quiet)?;
 
-        let env = ort::init_from(&dylib)
-            .map_err(|e| err!("load ONNX Runtime from {}: {e}", dylib.display()))?
-            .with_name("memorycastle")
-            .build()
-            .map_err(|e| err!("ONNX Runtime init: {e}"))?;
+        // ONNX Runtime allows one environment per process: a model opened
+        // again (the MCP server's second cold search, `--also`, save then
+        // search) reuses it instead of failing.
+        static ENV: std::sync::Mutex<Option<ort::environment::Environment>> = std::sync::Mutex::new(None);
+        let mut slot = ENV.lock().unwrap_or_else(|e| e.into_inner());
+        let env = match slot.as_ref() {
+            Some(env) => env.clone(),
+            None => {
+                let env = ort::init_from(&dylib)
+                    .map_err(|e| err!("load ONNX Runtime from {}: {e}", dylib.display()))?
+                    .with_name("memorycastle")
+                    .build()
+                    .map_err(|e| err!("ONNX Runtime init: {e}"))?;
+                slot.insert(env).clone()
+            }
+        };
+        drop(slot);
         use ort::session::builder::GraphOptimizationLevel as G;
         let level = match opts.opt_level {
             0 => G::Disable,

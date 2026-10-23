@@ -773,6 +773,7 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     assert_eq!(ex.qvec.len(), def.dims, "the question's vector is kept for the log");
     let vec: Vec<u8> = ex.qvec.iter().flat_map(|x| x.to_le_bytes()).collect();
     let t = memorycastle::sys::now() - 2 * memorycastle::limits::LEARN_WINDOW_SECS;
+    conn.execute("UPDATE notes SET saved_at = ?1", [t - 5000]).unwrap();
     // Printed fonts first; the agent then read the fallback note.
     let log = |printed: &str, opened: i64| {
         conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![t, a.id, q, printed, space.id, vec]).unwrap();
@@ -786,6 +787,11 @@ fn a_search_followed_by_an_open_of_another_note_teaches_that_note_the_question()
     // A `--sections` search 30 s later prints notes nobody chose: no open.
     conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6)", rusqlite::params![t - 1000, a.id, q, format!("{fonts},{fallback}"), space.id, vec]).unwrap();
     conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'sections', 's1')", rusqlite::params![t - 970, a.id, fallback]).unwrap();
+    assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
+    // A note saved after the search is one the agent wrote, not found.
+    conn.execute("UPDATE notes SET saved_at = ?1 WHERE id = ?2", rusqlite::params![t - 1990, fonts]).unwrap();
+    conn.execute("INSERT INTO searches(at, project_id, session, query, printed, space_id, vec) VALUES (?1, ?2, 's1', 'another question', ?3, ?4, ?5)", rusqlite::params![t - 2000, a.id, format!("{fallback},{fonts}"), space.id, vec]).unwrap();
+    conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'read', 's1')", rusqlite::params![t - 1980, a.id, fonts]).unwrap();
     assert_eq!(memorycastle::learned::derive(&conn, a.id).unwrap(), 0);
     let learned = memorycastle::learned::list(&conn, a.id).unwrap();
     assert_eq!((learned.len(), learned[0].note_id, learned[0].kind.as_str()), (1, fallback, "lift"));

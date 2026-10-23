@@ -34,8 +34,13 @@ elif tool == "Bash":
     cmd = inp.get("command", "")
     # Every file argument of every cat/sed/head/tail in the command, not
     # only the first: `cat a b` and `head x; cat y` read each of them.
+    # A redirect target (`cat > note.md <<EOF`) and `sed -i` are writes.
     for seg in re.finditer(r"\b(?:cat|sed|head|tail)\b([^|;&]*)", cmd):
-        for p in re.findall(r"\s((?:[~./\w-]+/)?[\w.-]+\.[A-Za-z0-9]+)(?=\s|$)", seg.group(1)):
+        args = seg.group(1)
+        if re.search(r"(?:^|\s)-i\b", args):
+            continue
+        args = re.sub(r"\d?>>?\s*\S+", " ", args)
+        for p in re.findall(r"\s((?:[~./\w-]+/)?[\w.-]+\.[A-Za-z0-9]+)(?=\s|$)", args):
             if p not in paths:
                 paths.append(p)
     if len(paths) == 1:
