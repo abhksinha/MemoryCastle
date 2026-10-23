@@ -526,6 +526,11 @@ fn run(cli: Cli) -> Result<()> {
             };
             if cli.json {
                 println!("{}", serde_json::json!({"hits": hits, "read": read_spans, "explain": if explain { Some(&ex) } else { None }}));
+                if let (Some(p), false) = (&ctx.project, explain) {
+                    let mut notes: Vec<i64> = hits.iter().map(|h| h.note_id).collect();
+                    notes.dedup();
+                    memorycastle::learned::record_search(&ctx.conn, p.id, &query, &also, &notes, &ex)?;
+                }
                 return Ok(());
             }
             if explain {
