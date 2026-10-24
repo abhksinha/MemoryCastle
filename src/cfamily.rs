@@ -25,11 +25,19 @@ pub fn is_c_family(ext: &str) -> bool {
     EXTS.contains(&ext)
 }
 
+/// Java and C# share C's statement grammar (a method has no keyword before
+/// its name either), so this scanner reads them too.
+pub fn handles(ext: &str) -> bool {
+    is_c_family(ext) || ext == "java" || ext == "cs"
+}
+
 const CONTROL: &[&str] = &["if", "for", "while", "switch", "return", "sizeof", "catch", "do", "else", "case", "goto", "defined", "alignof", "_Alignof", "typeof", "__typeof__", "static_assert", "_Static_assert"];
 /// Names that take parentheses before the real name (`__attribute__((x)) int f(`).
 const ATTRIBUTES: &[&str] = &["__attribute__", "__attribute", "__declspec", "alignas", "_Alignas", "decltype", "__asm__", "asm", "noexcept", "throw", "__pragma", "_Pragma"];
-const TYPE_KW: &[&str] = &["struct", "union", "class", "enum"];
-const NOT_NAMES: &[&str] = &["final", "struct", "union", "class", "enum", "typedef", "const", "volatile", "static", "extern", "inline", "unsigned", "signed", "long", "short", "int", "char", "void", "float", "double", "public", "private", "protected", "virtual", "register", "auto", "restrict", "__restrict", "override"];
+const TYPE_KW: &[&str] = &["struct", "union", "class", "enum", "interface", "record"];
+/// Words before a definition that do not change what it is.
+const MODS: &[&str] = &["static", "const", "volatile", "extern", "inline", "public", "private", "protected", "internal", "abstract", "final", "sealed", "partial", "readonly", "unsafe", "new", "override", "virtual", "async", "synchronized", "native", "strictfp", "transient", "default"];
+const NOT_NAMES: &[&str] = &["final", "sealed", "partial", "abstract", "readonly", "internal", "interface", "record", "struct", "union", "class", "enum", "typedef", "const", "volatile", "static", "extern", "inline", "unsigned", "signed", "long", "short", "int", "char", "void", "float", "double", "public", "private", "protected", "virtual", "register", "auto", "restrict", "__restrict", "override"];
 
 #[derive(Clone, Copy, PartialEq)]
 enum Block {
@@ -179,13 +187,25 @@ fn function_name(head: &[Tok]) -> Option<&Tok> {
         }
     }
     let mut depth = 0i32;
+    let mut square = 0i32;
     for (i, t) in head.iter().enumerate() {
         match t.text.as_str() {
+            "[" => square += 1,
+            "]" => square -= 1,
+            "(" if square > 0 => depth += 1,
             "(" => {
                 if depth == 0 {
                     let prev = i.checked_sub(1).map(|j| &head[j]);
+                    // `@Override(`, `@DataClass.Generated(`: an annotation's arguments.
+                    let annotation = {
+                        let mut k = i - 1;
+                        while k >= 2 && head[k - 1].text == "." && is_ident(&head[k - 2].text) {
+                            k -= 2;
+                        }
+                        k >= 1 && head[k - 1].text == "@"
+                    };
                     match prev {
-                        Some(p) if is_ident(&p.text) && ATTRIBUTES.contains(&p.text.as_str()) => {}
+                        Some(p) if is_ident(&p.text) && (ATTRIBUTES.contains(&p.text.as_str()) || annotation) => {}
                         Some(p) if is_ident(&p.text) => {
                             let tilde = i >= 2 && head[i - 2].text == "~";
                             let op = head[..i].iter().rev().take(3).any(|t| t.text == "operator");
@@ -214,9 +234,9 @@ fn type_name(head: &[Tok]) -> Option<&Tok> {
     let mut name = None;
     for t in &head[kw + 1..] {
         match t.text.as_str() {
-            "(" => depth += 1,
-            ")" => depth -= 1,
-            ":" if depth == 0 => break,
+            "(" | "<" => depth += 1,
+            ")" | ">" => depth -= 1,
+            ":" | "extends" | "implements" | "where" if depth == 0 => break,
             s if depth == 0 && is_ident(s) && !NOT_NAMES.contains(&s) => name = Some(t),
             _ => {}
         }
@@ -259,6 +279,10 @@ fn def(path: &str, raw: &[&str], name: &Tok, kind: &'static str, end: usize) -> 
 pub fn definitions(path: &str, text: &str) -> Vec<Def> {
     let raw: Vec<&str> = text.lines().collect();
     let code = clean(text);
+    let ext = crate::code::ext_of(path);
+    // Java and C#: a method with no body (an interface's) is a definition,
+    // and so is a C# property and an expression-bodied `=> x;` member.
+    let jc = ext == "java" || ext == "cs";
     let mut out: Vec<Def> = Vec::new();
     // Open blocks: kind, and for a type the index of its Def in `out`, so
     // its end is set at the closing brace; `typedef` braces name the type
@@ -336,6 +360,12 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                     paren = 0;
                 }
                 (Block::Enum, ",") => enum_expect = true,
+                // A Java enum's constants end at `;`; methods follow.
+                (Block::Enum, ";") if jc => {
+                    if let Some(top) = stack.last_mut() {
+                        top.0 = Block::Container;
+                    }
+                }
                 (Block::Enum, s) => {
                     if enum_expect && is_ident(s) && enum_count < MAX_VARIANTS_PER_ENUM {
                         out.push(def(path, &raw, &tok, "variant", n));
@@ -352,6 +382,13 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                     head.push(tok);
                 }
                 (Block::Container, ";") if paren <= 0 => {
+                    let in_type = stack.last().is_some_and(|b| b.1.is_some());
+                    let arrow = head.windows(2).any(|w| w[0].text == "=" && w[1].text == ">");
+                    if jc && in_type && (arrow || !head.iter().any(|t| t.text == "=")) {
+                        if let Some(name) = function_name(&head) {
+                            out.push(def(path, &raw, name, "fn", n));
+                        }
+                    }
                     if let Some(start) = typedef_tail.take() {
                         // `} Name, *PName;` after a typedef'd body: the
                         // span is the whole declaration.
@@ -375,10 +412,45 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                     let h = skip_template(&head);
                     let typedef = h.first().is_some_and(|t| t.text == "typedef");
                     let h = if typedef { &h[1..] } else { h };
-                    let first_kw = h.iter().find(|t| is_ident(&t.text) && !["static", "const", "volatile", "extern", "inline"].contains(&t.text.as_str()));
+                    // `@Entity`, `@Table(name = "x")` and `[Serializable]` are not the
+                    // definition's first word.
+                    let mut skip = vec![false; h.len()];
+                    let (mut sq, mut i) = (0i32, 0usize);
+                    while i < h.len() {
+                        match h[i].text.as_str() {
+                            "[" => sq += 1,
+                            "]" => sq -= 1,
+                            "@" if i + 1 < h.len() && h[i + 1].text != "interface" => {
+                                // `@jdk.internal.ValueBased`: the whole dotted name.
+                                let mut k = i + 1;
+                                skip[k] = true;
+                                while h.get(k + 1).is_some_and(|t| t.text == ".") && h.get(k + 2).is_some_and(|t| is_ident(&t.text)) {
+                                    skip[k + 1] = true;
+                                    skip[k + 2] = true;
+                                    k += 2;
+                                }
+                                if h.get(k + 1).is_some_and(|t| t.text == "(") {
+                                    let mut d = 0;
+                                    for (j, t) in h.iter().enumerate().skip(k + 1) {
+                                        d += (t.text == "(") as i32 - (t.text == ")") as i32;
+                                        skip[j] = true;
+                                        if d == 0 {
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                        if sq > 0 {
+                            skip[i] = true;
+                        }
+                        i += 1;
+                    }
+                    let first_kw = h.iter().enumerate().find(|(i, t)| !skip[*i] && is_ident(&t.text) && !MODS.contains(&t.text.as_str())).map(|(_, t)| t);
                     let block = if h.iter().any(|t| t.text == "namespace") || (h.len() == 1 && h[0].text == "extern") {
                         (Block::Container, None, false, n)
-                    } else if first_kw.is_some_and(|t| TYPE_KW.contains(&t.text.as_str())) && !h.iter().any(|t| t.text == "=") {
+                    } else if first_kw.is_some_and(|t| TYPE_KW.contains(&t.text.as_str())) && !h.iter().enumerate().any(|(i, t)| !skip[i] && t.text == "=") {
                         let is_enum = first_kw.is_some_and(|t| t.text == "enum");
                         let idx = type_name(h).map(|t| {
                             out.push(def(path, &raw, t, "type", n));
@@ -395,6 +467,13 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                         out.push(def(path, &raw, name, "fn", n));
                         (Block::Body, Some(out.len() - 1), false, n)
                     } else {
+                        // `public string Name { get; set; }`: a C# property.
+                        let in_type = stack.last().is_some_and(|b| b.1.is_some());
+                        if ext == "cs" && in_type && !h.iter().any(|t| t.text == "=") {
+                            if let Some(t) = h.last().filter(|t| is_ident(&t.text) && !MODS.contains(&t.text.as_str()) && !NOT_NAMES.contains(&t.text.as_str())) {
+                                out.push(def(path, &raw, t, "val", n));
+                            }
+                        }
                         (Block::Body, None, false, n)
                     };
                     stack.push(block);
@@ -457,5 +536,15 @@ mod tests {
         }
         assert_eq!(d.iter().filter(|x| x.0 == "twice").count(), 1, "one branch of an #if: {d:?}");
         assert!(!d.iter().any(|x| x.0 == "for" || x.0 == "operator" || x.0 == "EXPORT" || x.0 == "i"), "{d:?}");
+    }
+    #[test]
+    fn java_and_csharp_methods_have_no_keyword() {
+        let java = "@jdk.internal.ValueBased\npublic final class Integer extends Number implements Comparable<Integer> {\n    @Native public static final int MIN = 0;\n    public Integer(int v) { }\n    static String name(String a) {\n        return a;\n    }\n    @Override\n    public int hashCode() { return 0; }\n    interface Cb { void run(); }\n    enum Mode { A, B; int code() { return 0; } }\n}\n@interface Generated { }\n";
+        let d: Vec<(String, &str)> = definitions("A.java", java).into_iter().map(|d| (d.name, d.kind)).collect();
+        let names: Vec<&str> = d.iter().filter(|x| x.1 != "variant" && x.1 != "const").map(|x| x.0.as_str()).collect();
+        assert_eq!(names, ["Integer", "Integer", "name", "hashCode", "Cb", "run", "Mode", "code", "Generated"], "{d:?}");
+        let cs = "namespace X {\n    [Serializable]\n    public class Store {\n        public int Size() { return 1; }\n        private static async Task<int> LoadAsync(string p) { return 0; }\n        public string Name { get; set; }\n    }\n}\n";
+        let names: Vec<String> = definitions("A.cs", cs).into_iter().map(|d| d.name).collect();
+        assert_eq!(names, ["Store", "Size", "LoadAsync", "Name"]);
     }
 }

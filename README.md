@@ -131,7 +131,8 @@ scanning lines with no parser: definitions with their spans, imports and
 call edges, for Rust, Kotlin, Java, Python, TypeScript and JavaScript, Go,
 Swift, Ruby, PHP, C# and C/C++. C is read by its own grammar (a C function
 has no keyword before its name): on six real C and C++ trees it finds 98%
-of what `ctags` finds.
+of what `ctags` finds; Go, Java, TypeScript and Python were checked against
+their own parsers and find 99% to 100% of functions and types.
 
 **3. An agent asks.** Search runs keyword and meaning retrieval, fuses them,
 reranks by the graph, and drops anything off topic rather than returning

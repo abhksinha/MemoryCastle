@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "15";
+pub const CODE_VERSION: &str = "16";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -216,7 +216,7 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
     Ok(st)
 }
 
-fn ext_of(path: &str) -> &str {
+pub(crate) fn ext_of(path: &str) -> &str {
     path.rsplit('.').next().unwrap_or("")
 }
 
@@ -310,18 +310,108 @@ pub fn walk(root: &Path) -> Vec<String> {
 const DEF_KEYWORDS: &[(&str, &str)] = &[
     ("fn", "fn"), ("def", "fn"), ("func", "fn"), ("fun", "fn"), ("function", "fn"),
     ("class", "type"), ("struct", "type"), ("enum", "type"), ("trait", "type"), ("interface", "type"), ("object", "type"), ("type", "type"), ("protocol", "type"), ("typealias", "type"),
-    ("const", "const"), ("static", "const"), ("val", "val"), ("macro_rules!", "fn"),
+    ("const", "const"), ("static", "const"), ("val", "val"), ("macro_rules!", "fn"), ("module", "type"),
 ];
 const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe", "extern", "export", "default", "private", "public", "protected", "internal", "override", "open", "abstract", "final", "suspend", "inline", "static", "data", "sealed", "const", "lateinit", "companion", "declare", "readonly"];
+
+const JS_MODS: &[&str] = &["public", "private", "protected", "static", "async", "readonly", "override", "abstract", "get", "set", "declare", "*"];
+const JS_NOT_METHODS: &[&str] = &["if", "for", "while", "switch", "catch", "function", "return", "with", "constructor", "super", "await", "typeof", "new", "else"];
+
+/// `async load(p: string): Promise<void> {`: modifiers, a name, a parameter
+/// list closed on the same line, an optional return type, then `{` ending
+/// the line. A call with a callback (`describe("x", () => {`) never closes
+/// its parenthesis before the brace, so it is not one.
+fn js_method(l: &str) -> Option<&str> {
+    let code = l.split(" //").next().unwrap_or(l).trim_end();
+    // `private async load(` with its parameters on the next lines: a call
+    // never starts with a modifier.
+    let open = code.ends_with('(');
+    if !code.contains('{') && !open {
+        return None;
+    }
+    let mut rest = code;
+    let mut modified = false;
+    loop {
+        let w = rest.split_whitespace().next()?;
+        if JS_MODS.contains(&w) && rest.len() > w.len() {
+            rest = rest[w.len()..].trim_start();
+            modified = true;
+        } else {
+            break;
+        }
+    }
+    let rest = rest.trim_start_matches('*').trim_start_matches('#');
+    let name_len = rest.bytes().take_while(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'$').count();
+    let (name, after) = rest.split_at(name_len);
+    if name.is_empty() || name.as_bytes()[0].is_ascii_digit() || JS_NOT_METHODS.contains(&name) {
+        return None;
+    }
+    // Optional generics, then the parameter list, closed on this line.
+    let mut after = after.trim_start();
+    if after.starts_with('<') {
+        let close = after.find(">(")?;
+        after = &after[close + 1..];
+    }
+    if !after.starts_with('(') {
+        return None;
+    }
+    let mut depth = 0i32;
+    let mut end = None;
+    for (i, c) in after.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let Some(end) = end else {
+        return (open && modified && after.trim_end() == "(").then_some(name);
+    };
+    let tail = after[end + 1..].trim();
+    // The body right after `)`, or after a return type `: T {`.
+    // A return type ends at the body's `{` closing the line; an interface's
+    // `name(): Promise<{ a: T }>;` has none.
+    (tail.starts_with('{') || (tail.starts_with(':') && tail.ends_with('{') && !tail.contains("=>"))).then_some(name)
+}
+
+/// Python declares with `def` and `class` only, and `module` is Ruby's, so
+/// either word elsewhere is prose (a docstring's "function from this module").
+fn keyword_applies(ext: &str, kw: &str) -> bool {
+    match ext {
+        "py" => matches!(kw, "def" | "class"),
+        "rb" => matches!(kw, "def" | "class" | "module"),
+        _ => kw != "module",
+    }
+}
+
+/// The name after a Go method's receiver: `func (s *Store) Size()` is `Size`.
+fn go_method(l: &str) -> Option<String> {
+    let after = &l[l.find("func")? + 4..];
+    let after = after.trim_start().strip_prefix('(')?;
+    let close = after.find(')')?;
+    let name: String = after[close + 1..].trim_start().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+    (!name.is_empty()).then_some(name)
+}
 
 /// Definitions in one file: keyword-before-name on each line. Top-level or
 /// not makes no difference; a method is a definition too.
 pub fn definitions(path: &str, text: &str) -> Vec<Def> {
-    if crate::cfamily::is_c_family(ext_of(path)) {
+    if crate::cfamily::handles(ext_of(path)) {
         return crate::cfamily::definitions(path, text);
     }
     let mut out = Vec::new();
     let mut in_block_comment = false;
+    let js = matches!(ext_of(path), "ts" | "tsx" | "js" | "jsx" | "mjs");
+    let ext = ext_of(path);
+    let go = ext == "go";
+    // Inside Go's `type (` group every line opens with a type's name.
+    let mut go_types = false;
     for (n, raw) in text.lines().enumerate() {
         let l = raw.trim_start();
         if in_block_comment {
@@ -337,6 +427,31 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
         if l.is_empty() || l.starts_with("//") || l.starts_with('#') && !l.starts_with("#[") || l.starts_with('*') {
             continue;
         }
+        if go {
+            if l.starts_with("type (") {
+                go_types = true;
+                continue;
+            }
+            if go_types {
+                if raw.starts_with(')') {
+                    go_types = false;
+                } else if raw.starts_with('\t') && !raw.starts_with("\t\t") && !raw.starts_with("\t}") {
+                    let name = def_name(l.split_whitespace().next().unwrap_or(""));
+                    if name.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_') {
+                        out.push(Def { path: path.to_string(), name, kind: "type", line: n as u32 + 1, end: 0, anchor: l.chars().take(160).collect() });
+                    }
+                }
+                continue;
+            }
+        }
+        // A class or object method in JavaScript and TypeScript has no
+        // keyword: `async load(p: string) {`.
+        if js {
+            if let Some(name) = js_method(l) {
+                out.push(Def { path: path.to_string(), name: name.to_string(), kind: "fn", line: n as u32 + 1, end: 0, anchor: l.chars().take(160).collect() });
+                continue;
+            }
+        }
         // Keyword after modifiers only, or right after an opening brace on
         // the same line (`impl Foo { fn method`). Elsewhere a keyword is prose.
         let words: Vec<&str> = l.split_whitespace().collect();
@@ -351,7 +466,15 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
             if w.starts_with('@') || w.starts_with("#[") || (MODIFIERS.contains(&bare) && (next_is_kw || !DEF_KEYWORDS.iter().any(|(k, _)| *k == bare))) {
                 continue;
             }
+            // `type: 'message',` is an object key, not the keyword.
+            if w.ends_with(':') && !w.ends_with("::") && DEF_KEYWORDS.iter().any(|(k, _)| *k == bare) {
+                break;
+            }
             if let Some((_, kind)) = DEF_KEYWORDS.iter().find(|(k, _)| *k == bare) {
+                // `function` in a Python docstring, `module` outside Ruby: prose.
+                if ok && !keyword_applies(ext, bare) {
+                    break;
+                }
                 if ok {
                     kw = Some(*kind);
                     name = words.get(i + 1).copied().unwrap_or("");
@@ -362,6 +485,19 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
             ok = w.ends_with('{') || w.ends_with(';');
         }
         let Some(kind) = kw else { continue };
+        // `import { type Foo, bar }`: a type named in a list, not defined.
+        if js && kind == "type" && (name.ends_with(',') || name.ends_with('}')) {
+            continue;
+        }
+        // Go's method receiver sits between `func` and the name:
+        // `func (s *Store) Size() int {`.
+        let receiver;
+        let name = if kind == "fn" && name.starts_with('(') {
+            receiver = go_method(l);
+            receiver.as_deref().unwrap_or("")
+        } else {
+            name
+        };
         let name = def_name(name);
         let name = name.as_str();
         if name.is_empty() || !name.chars().next().map(|c| c.is_alphabetic() || c == '_').unwrap_or(false) || NAME_STOPLIST.contains(&name) {
@@ -371,7 +507,9 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
         out.push(Def { path: path.to_string(), name: name.to_string(), kind, line: n as u32 + 1, end: 0, anchor: l.chars().take(160).collect() });
     }
     let lines: Vec<&str> = text.lines().collect();
-    let py = ext_of(path) == "py";
+    // Python and Ruby close a definition by indentation (Ruby's `end` sits
+    // at the definition's own indent), not by a brace.
+    let py = matches!(ext_of(path), "py" | "rb");
     for d in out.iter_mut() {
         d.end = span_end(&lines, d.line as usize - 1, py) as u32 + 1;
     }
@@ -554,7 +692,7 @@ pub fn current_span(conn: &Connection, project_id: i64, root: &Path, d: &Def) ->
         let start = if d.kind == "use" { d.line as usize - 1 } else { doc_start(&lines, d.line as usize - 1) };
         return Ok(Some((start as u32 + 1, d.end)));
     }
-    let py = ext_of(&d.path) == "py";
+    let py = matches!(ext_of(&d.path), "py" | "rb");
     let anchor = d.anchor.trim();
     let found = (!anchor.is_empty()).then(|| lines.iter().position(|l| l.trim() == anchor)).flatten().or_else(|| {
         definitions(&d.path, &text).into_iter().find(|x| x.name == d.name).map(|x| x.line as usize - 1)
@@ -687,7 +825,8 @@ fn def_name(tok: &str) -> String {
             _ => {}
         }
     }
-    let head = no_generics.split(['(', ':', '{', '=', ';', ',']).next().unwrap_or("");
+    // `[` opens Go's type parameters: `func New[T any](`.
+    let head = no_generics.split(['(', ':', '{', '=', ';', ',', '[']).next().unwrap_or("");
     let last = head.rsplit('.').next().unwrap_or(head);
     last.trim_matches(|c: char| !(c.is_alphanumeric() || c == '_')).to_string()
 }
@@ -824,6 +963,18 @@ mod tests {
         let py = "class Foo:\n    def bar(self):\n        pass\ndef baz(): ...\n";
         let names: Vec<String> = definitions("a.py", py).into_iter().map(|d| d.name).collect();
         assert_eq!(names, ["Foo", "bar", "baz"]);
+        let names = |p: &str, t: &str| definitions(p, t).into_iter().map(|d| d.name).collect::<Vec<_>>();
+        // A docstring's "function from this module" is prose; a class with bases is one.
+        let py = "\"\"\"\n    function from this module.\n\"\"\"\nclass IPv4Address(_BaseV4, _BaseAddress):\n    pass\n";
+        assert_eq!(names("a.py", py), ["IPv4Address"]);
+        let go = "type (\n\tA struct{}\n\tB = int\n)\nfunc New[T any]() *Store { return nil }\nfunc (s *Store) Size() int { return 0 }\n";
+        assert_eq!(names("a.go", go), ["A", "B", "New", "Size"]);
+        let ts = "import { type Opts, x } from './o';\nexport class Store {\n  async load(p: string): Promise<void> {\n  private async lock(\n    id: string,\n  ) {\n  list(): Promise<{ a: T }>;\n  send({ type: 'message' });\n  describe('x', () => {\n}\n";
+        assert_eq!(names("a.ts", ts), ["Store", "load", "lock"]);
+        let rb = "module Util\n  class Store\n    def size\n      1\n    end\n  end\nend\n";
+        let d = definitions("a.rb", rb);
+        assert_eq!(d.iter().map(|d| d.name.as_str()).collect::<Vec<_>>(), ["Util", "Store", "size"]);
+        assert_eq!(d[2].end, 4, "the body, by indentation");
     }
 
     #[test]
@@ -917,7 +1068,7 @@ pub fn narrow_span(root: &Path, d: &Def, line: u32) -> Option<(String, u32, u32)
     }
     let text = std::fs::read_to_string(root.join(&d.path)).ok()?;
     let lines: Vec<&str> = text.lines().collect();
-    let py = ext_of(&d.path) == "py";
+    let py = matches!(ext_of(&d.path), "py" | "rb");
     let target = (line as usize).saturating_sub(1);
     let (mut a, mut b) = ((d.line as usize).saturating_sub(1), (d.end as usize).saturating_sub(1).min(lines.len().saturating_sub(1)));
     let mut found: Option<(String, u32, u32)> = None;
@@ -988,7 +1139,7 @@ pub fn wide_blocks(root: &Path, path: &str, start: u32, end: u32) -> Option<Stri
     }
     let text = std::fs::read_to_string(root.join(path)).ok()?;
     let lines: Vec<&str> = text.lines().collect();
-    let py = ext_of(path) == "py";
+    let py = matches!(ext_of(path), "py" | "rb");
     let (mut a, mut b) = ((start as usize).saturating_sub(1), (end as usize).saturating_sub(1).min(lines.len().saturating_sub(1)));
     let mut kids: Vec<(usize, usize)> = Vec::new();
     for _ in 0..4 {
