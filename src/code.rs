@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Source extensions indexed. Everything else is a file node only if a note names it.
-pub const CODE_EXTS: &[&str] = &["rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "hpp", "swift", "rb", "php", "cs"];
+pub const CODE_EXTS: &[&str] = &["rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "inl", "ipp", "tpp", "cu", "cuh", "swift", "rb", "php", "cs"];
 /// Largest source file read.
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// Most files indexed per checkout.
@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "14";
+pub const CODE_VERSION: &str = "15";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -317,6 +317,9 @@ const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe
 /// Definitions in one file: keyword-before-name on each line. Top-level or
 /// not makes no difference; a method is a definition too.
 pub fn definitions(path: &str, text: &str) -> Vec<Def> {
+    if crate::cfamily::is_c_family(ext_of(path)) {
+        return crate::cfamily::definitions(path, text);
+    }
     let mut out = Vec::new();
     let mut in_block_comment = false;
     for (n, raw) in text.lines().enumerate() {
@@ -641,7 +644,7 @@ pub fn imports(path: &str, text: &str, by_name: &HashMap<&str, Vec<&String>>) ->
                     }
                 }
             }
-            "c" | "h" | "cc" | "cpp" | "hpp" => {
+            e if crate::cfamily::is_c_family(e) => {
                 if let Some(rest) = l.strip_prefix("#include \"") {
                     let f = rest.split('"').next().unwrap_or("");
                     let name = f.rsplit('/').next().unwrap_or("");

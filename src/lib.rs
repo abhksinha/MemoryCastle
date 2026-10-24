@@ -14,6 +14,7 @@
 //! - [`mcp`]     the stdio MCP server
 //! - [`serve`]   the warm embedding server and its client
 
+pub mod cfamily;
 pub mod chunk;
 pub mod code;
 pub mod db;
