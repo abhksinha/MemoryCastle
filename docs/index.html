@@ -248,7 +248,7 @@ memcastle install</code></pre>
     <div class="steps reveal">
       <div class="card"><h3>The agent writes a note</h3><p>At the end of a task that changed a decision: Context, Decision, Rejected, Measured, in <code>memorycastle/journal/</code>, committed with the code. Written in the session that did the work, with the numbers still in hand.</p></div>
       <div class="card"><h3>The store indexes it</h3><p>Split by heading, indexed for keywords with SQLite FTS5, embedded with a local EmbeddingGemma 2 model, int8, on the CPU. No API key, no network after the first download.</p></div>
-      <div class="card"><h3>A question gets a paragraph and a line range</h3><p>Keyword and meaning results are fused, judged for confidence, reranked by what the note declares it is about. Each hit names the lines of the note that matched, each part with its own confidence, and the answer ends with <code>path:start-end</code> spans of code: the lines to read, not the files.</p></div>
+      <div class="card"><h3>A question gets a paragraph and a line range</h3><p>Keyword and meaning results are fused, judged for confidence, reranked by what the note declares it is about. Each hit names the lines of the note that matched, each part with its own confidence, and the answer ends with <code>path:start-end</code> spans of code: the lines to read, not the files. It learns from use: a note read after a search that ranked it lower keeps the question, so the next wording finds it first.</p></div>
       <div class="card"><h3>Hooks keep it honest</h3><p>Recall on every prompt, the right notes before every edit, a read guard, a silent read ledger, and the note asked for at the moments it is due. In Claude Code, Codex, Gemini CLI and Cursor.</p></div>
     </div>
 
@@ -328,7 +328,7 @@ read first (5 spans, 5.5 KB; sed -n 'a,bp' path):
   <section id="graph" class="alt"><div class="wrap">
     <span class="eyebrow">The graph</span>
     <h2>Where it is, who calls it, what we said about it. One call.</h2>
-    <p class="sub">Every save reads the note for the files and symbols it names in backticks and keeps them as edges. Every checkout gets a code index: definitions with their end line, imports, call edges by name, built by scanning lines, no parser, no model, no LLM. <code>links</code> answers from both at once, and from the code alone when no note exists yet.</p>
+    <p class="sub">Every save reads the note for the files and symbols it names in backticks and keeps them as edges. Every checkout gets a code index: definitions with their end line, imports, call edges by name, built by scanning lines, no parser, no model, no LLM. Rust, Kotlin, Java, Python, TypeScript and JavaScript, Go, Swift, Ruby, PHP, C# and C/C++; C is read by its own grammar and finds 98% of what <code>ctags</code> finds on six real C and C++ trees. <code>links</code> answers from both at once, and from the code alone when no note exists yet.</p>
     <div class="changes reveal">
       <div class="change"><div class="k">You want</div><div>To edit a function.</div>
         <div class="k">Run</div><div><code>memcastle links upsert_snippet</code></div>

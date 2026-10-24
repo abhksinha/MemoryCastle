@@ -126,7 +126,12 @@ model, a 512-dimension vector in the same SQLite file. The header lines
 agents already write (`Files:`, `Supersedes:`, backticked names) become
 graph edges, so "what do we know about this file" needs no text match. A
 newer note that supersedes an older one is declared, never edited; the old
-note stays searchable and labelled.
+note stays searchable and labelled. The checkout's own code is indexed too, by
+scanning lines with no parser: definitions with their spans, imports and
+call edges, for Rust, Kotlin, Java, Python, TypeScript and JavaScript, Go,
+Swift, Ruby, PHP, C# and C/C++. C is read by its own grammar (a C function
+has no keyword before its name): on six real C and C++ trees it finds 98%
+of what `ctags` finds.
 
 **3. An agent asks.** Search runs keyword and meaning retrieval, fuses them,
 reranks by the graph, and drops anything off topic rather than returning
@@ -154,6 +159,16 @@ note's first Decision sentence, about 50 tokens: enough to pick a note.
 the older title-and-snippet block. Every answer ends with the code
 spans to read, re-found by their anchor line after edits, so the agent
 reads 60 lines instead of a 110 KB file.
+
+The agent can pass a second wording with `--also` ("the same question in
+the repo's own words"), which found the right note in the top 3 for 6 more
+of 187 test questions. And the index learns from use, with no model
+retrained: when an agent searches and then reads a note (or the code a note
+covers) that the search did not rank first, the question is kept for that
+note, so the next wording of it finds the note first. One search and one
+read is enough; on 187 questions in new wordings the right note in the top 3
+went from 163 to 173, and none was lost. `memcastle learned` lists what it
+learned and `learned forget` drops one.
 
 **4. Hooks keep it honest.** In Claude Code, Codex, Gemini CLI and Cursor
 (`install` wires each one; Codex asks you to trust them once with `/hooks`),
