@@ -114,7 +114,11 @@ pub fn extract(note_path: &str, content: &str) -> Vec<(Kind, String)> {
         while let Some(a) = rest.find('`') {
             let after = &rest[a + 1..];
             let Some(b) = after.find('`') else { break };
-            let span = after[..b].trim().trim_end_matches("()");
+            let raw = after[..b].trim();
+            let span = raw.trim_end_matches("()");
+            // `tex()` is written as a call: a function, even when its name is
+            // a plain word that alone would not pass as a symbol.
+            let called = raw.len() > span.len() && span.len() >= 3 && span.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_');
             rest = &after[b + 1..];
             if span.is_empty() || span.len() > 80 || span.contains(' ') {
                 continue;
@@ -130,7 +134,7 @@ pub fn extract(note_path: &str, content: &str) -> Vec<(Kind, String)> {
                 push(Kind::Note, resolve_note_ref(note_path, span));
             } else if looks_like_path(span) {
                 push(Kind::File, span.to_string());
-            } else if symbols < MAX_SYMBOLS && looks_like_symbol(span) {
+            } else if symbols < MAX_SYMBOLS && (looks_like_symbol(span) || called && span.as_bytes()[0].is_ascii_alphabetic()) {
                 symbols += 1;
                 push(Kind::Symbol, span.to_string());
             }
@@ -184,6 +188,13 @@ const FILE_EXTS: &[&str] = &[
     "rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "hpp", "swift", "m", "mm", "rb", "php", "cs",
     "toml", "json", "yaml", "yml", "md", "txt", "sh", "zsh", "bash", "sql", "html", "css", "scss", "xml", "gradle", "proto", "env", "cfg", "ini",
     "lock", "csv", "tsv", "pb", "bin", "onnx", "plist", "gitignore", "dockerfile", "makefile", "cmake", "nix", "tf", "ipynb", "svg", "png",
+    // Documents, packages and the rest of the languages a checkout holds: a
+    // bare `newline.tex` is a file, never a symbol `newline.tex` (whose last
+    // segment `tex` then matched every note naming a `.tex` file).
+    // Short extensions that are also field or method names (`.out`, `.log`,
+    // `.s`) are left out: `cfg.out` stays a symbol.
+    "tex", "sty", "cls", "bib", "bst", "dtx", "ins", "lua", "jl", "scala", "zig", "dart", "vue", "svelte", "exs", "erl", "hs", "ps1", "bat",
+    "mk", "asm", "cu", "metal", "glsl", "wgsl", "hlsl", "clj", "nim", "rst", "adoc", "pdf", "jpg", "jpeg", "gif", "webp", "patch", "diff",
 ];
 
 pub fn looks_like_path(t: &str) -> bool {
@@ -193,6 +204,14 @@ pub fn looks_like_path(t: &str) -> bool {
     let name = t.rsplit('/').next().unwrap_or(t);
     let ext = name.rsplit('.').next().filter(|e| *e != name).map(|e| e.to_ascii_lowercase());
     let known_ext = ext.as_deref().map(|e| FILE_EXTS.contains(&e)).unwrap_or(false);
+    // `.sty` and `.rs` name a kind of file, not one; `.gitignore` and `.env`
+    // are files; `-v1.webp` is the tail of a name.
+    if name.starts_with('-') {
+        return false;
+    }
+    if name.starts_with('.') && name[1..].len() == ext.as_deref().map_or(0, str::len) && !matches!(ext.as_deref(), Some("gitignore" | "env")) {
+        return false;
+    }
     if t.starts_with('/') {
         // Absolute: a real file system path has an extension or a known root; a URL route has neither.
         return known_ext || t.starts_with("/opt/") || t.starts_with("/etc/") || t.starts_with("/usr/") || t.starts_with("/var/") || t.starts_with("/home/") || t.starts_with("/Users/");
@@ -286,7 +305,7 @@ pub fn code_changed(conn: &Connection, project_id: i64, root: &Path, note_id: i6
 
 /// Bump when `extract` changes what it finds; stores with older links are
 /// rebuilt in one pass on the next graph command.
-pub const LINKS_VERSION: &str = "5";
+pub const LINKS_VERSION: &str = "6";
 
 /// Builds links for live notes that have none (stores created before the
 /// links table) or that were linked by an older extractor. One pass over
@@ -1165,6 +1184,15 @@ mod tests {
         assert_eq!(strip_line_range("host:8080"), "host:8080", "no dot, not a path");
         assert_eq!(strip_line_range("Scope::single"), "Scope::single");
         assert!(is_note_name("2026-10-19-x.md"));
+        // A bare `.tex` name is a file; a plain word written as a call is a function.
+        let l = extract("memorycastle/journal/2026-10-20-t.md", "# T\n\n## Decision\nProbe `newline.tex`; delete `tex()`; keep `cfg.out` and `tex`.\n");
+        assert!(l.contains(&(Kind::File, "newline.tex".into())));
+        assert!(l.contains(&(Kind::Symbol, "tex".into())), "a call-shaped plain word");
+        assert!(l.contains(&(Kind::Symbol, "cfg.out".into())), "a field stays a symbol");
+        assert!(!l.iter().any(|(k, t)| *k == Kind::Symbol && t.ends_with(".tex")));
+        assert!(!looks_like_path(".sty") && !looks_like_path(".rs"), "an extension is not a file");
+        assert!(looks_like_path(".gitignore") && looks_like_path(".env"));
+        assert!(!looks_like_path("-v1.webp"));
         assert!(!is_note_name("README.md"));
     }
 

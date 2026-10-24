@@ -647,6 +647,31 @@ fn a_common_identifier_proves_nothing_a_rare_one_does() {
 }
 
 #[test]
+fn a_mixed_case_name_proves_a_hit_only_when_the_code_defines_it() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "rt", None);
+    let root = std::env::temp_dir().join(format!("mc-mixed-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.rs"), "pub fn parseHeader() -> i32 {\n    1\n}\n").unwrap();
+    memorycastle::code::index(&mut conn, p.id, &root).unwrap();
+    let topics = ["line breaking", "page builder", "font loading", "hyphenation", "math spacing", "glue setting", "box packing", "token lists", "error recovery", "pdf output", "image embedding", "colour stacks"];
+    for (i, t) in topics.iter().enumerate() {
+        save(&mut conn, &p, &format!("memorycastle/journal/n{i}.md"), &format!("# {t}\n\n## Decision\nThe engine handles {t} natively."));
+    }
+    save(&mut conn, &p, "memorycastle/journal/corpus.md", "# The corpus\n\n## Decision\nPapers are fetched from arXiv and counted.");
+    save(&mut conn, &p, "memorycastle/journal/header.md", "# Headers\n\n## Decision\n`parseHeader` reads the first line.");
+    let scope = Scope::single(p.id);
+    let q = |s: &str| search(&conn, &scope, s, &SearchOptions { k: 10, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap().0;
+    // A proper noun spelled in mixed case is a word, not code.
+    assert!(q("how often do arXiv papers use equations").iter().all(|h| h.trace.confidence < 1.0), "arXiv proved a hit");
+    // A mixed-case name the checkout defines still settles it.
+    let hits = q("where is parseHeader called");
+    assert_eq!(hits[0].path, "memorycastle/journal/header.md");
+    assert_eq!(hits[0].trace.confidence, 1.0);
+    std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
 fn an_unfilled_draft_is_not_a_note() {
     use memorycastle::draft;
     let skeleton = format!("# {}\nAuthor: a | Date: 2026-10-20\n\n## Decision\n<what was chosen and why>\n", draft::PLACEHOLDER_TITLE);

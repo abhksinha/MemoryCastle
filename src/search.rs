@@ -792,9 +792,20 @@ pub fn focus(text: &str, query: &str, max_bytes: usize) -> (String, u32) {
 /// proof it had recall print three unrelated notes at confidence 1.00.
 /// Under ten chunks every identifier counts, as for distinctive words.
 fn rare_identifiers(conn: &Connection, scope: &Scope, query: &str) -> Result<Vec<String>> {
-    let idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
+    let mut idents: Vec<String> = fts::terms(query).iter().filter(|t| fts::is_identifier(t)).map(|t| t.to_string()).collect();
     if idents.is_empty() {
         return Ok(idents);
+    }
+    // Mixed case alone is how names are spelled too (`arXiv`, `LaTeX`,
+    // `GitHub`): such a word proves a hit only when the checkout defines it.
+    // `arXiv` in a question about paper counts had four notes at 1.00.
+    // An `_` or a digit is code's own shape and needs no index.
+    let indexed: Vec<i64> = scope.ids().filter(|&p| crate::code::has_index(conn, p).unwrap_or(false)).collect();
+    if !indexed.is_empty() {
+        idents.retain(|t| t.contains('_') || t.bytes().any(|b| b.is_ascii_digit()) || indexed.iter().any(|&p| crate::code::defs_named(conn, p, t).is_ok_and(|d| !d.is_empty())));
+        if idents.is_empty() {
+            return Ok(idents);
+        }
     }
     let total: i64 = conn.query_row(
         &format!("SELECT count(*) FROM chunks WHERE project_id IN {}", scope.placeholders(1)),
