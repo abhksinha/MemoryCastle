@@ -381,7 +381,43 @@ pub fn notes_for(conn: &Connection, project_id: i64, kind: Kind, target: &str) -
         let mut out: Vec<NoteRef> = Vec::new();
         for r in stmt.query_map(params![project_id, kind as i64, short], map)? {
             let r = r?;
-            if !out.iter().any(|o| o.id == r.id) {
+            // `LIKE` ignores case; `Block::VSpace` is not `vspace`.
+            if same_symbol(&r.via, short) && !out.iter().any(|o| o.id == r.id) {
+                out.push(r);
+            }
+        }
+        // A plain word in backticks is not a link (most are prose), but when
+        // the checkout defines it, a note writing `vspace` or `\vspace` may be
+        // about that definition. Exact case, at least four letters. A name
+        // with `_` or a capital (`Token`, `normal_cr`) is a code name as it
+        // stands; a lowercase word (`write`, `list`) counts only when the
+        // note's own files hold the definition: rushtex's `fn write` is a
+        // byte writer, not the `\write` its notes discuss.
+        let defs = if short.len() >= 4 { crate::code::defs_named(conn, project_id, short)? } else { Vec::new() };
+        let structural = short.contains('_') || short.chars().any(|c| c.is_uppercase());
+        let mut files = conn.prepare_cached("SELECT target FROM links WHERE note_id = ?1 AND kind = ?2")?;
+        if !defs.is_empty() {
+            let mut stmt = conn.prepare_cached(
+                "SELECT id, path, title, saved_at, superseded_by, source, dated FROM notes
+                 WHERE project_id = ?1 AND deleted_at IS NULL
+                   AND (instr(content, '`' || ?2 || '`') > 0 OR instr(content, '`\\' || ?2 || '`') > 0)
+                 ORDER BY (superseded_by IS NOT NULL), saved_at DESC",
+            )?;
+            let named = stmt.query_map(params![project_id, short], |r| {
+                Ok(NoteRef { id: r.get(0)?, path: r.get(1)?, title: r.get(2)?, saved_at: r.get(3)?, dated: r.get(6)?, superseded_by: r.get(4)?, author: r.get(5)?, via: short.to_string() })
+            })?;
+            for r in named {
+                let r = r?;
+                if out.iter().any(|o| o.id == r.id) {
+                    continue;
+                }
+                if !structural {
+                    let linked: Vec<String> = files.query_map(params![r.id, Kind::File as i64], |x| x.get(0))?.collect::<rusqlite::Result<_>>()?;
+                    let holds = defs.iter().any(|d| linked.iter().any(|f| d.path == *f || d.path.ends_with(&format!("/{f}"))));
+                    if !holds {
+                        continue;
+                    }
+                }
                 out.push(r);
             }
         }

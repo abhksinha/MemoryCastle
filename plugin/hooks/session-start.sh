@@ -7,6 +7,10 @@ input=$(cat)
 sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 [ -n "$sid" ] && export MEMORYCASTLE_SESSION="$sid"
 [ -n "$sid" ] && memcastle session "$sid" --agent claude >/dev/null 2>&1
+# Every Bash command the agent runs gets the session too, so a `memcastle
+# search` typed in another repo is logged under this session, not that
+# repo's last declared one, and learning can pair it with the reads.
+[ -n "$sid" ] && [ -n "$CLAUDE_ENV_FILE" ] && echo "export MEMORYCASTLE_SESSION=$sid" >> "$CLAUDE_ENV_FILE"
 source=$(printf '%s' "$input" | sed -n 's/.*"source"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
 # Warm model for the session: every lookup is 90 ms instead of 230 ms cold.
 memcastle serve --detach >/dev/null 2>&1

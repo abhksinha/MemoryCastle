@@ -9,7 +9,7 @@ use crate::error::Result;
 use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Source extensions indexed. Everything else is a file node only if a note names it.
 pub const CODE_EXTS: &[&str] = &["rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "inl", "ipp", "tpp", "cu", "cuh", "swift", "rb", "php", "cs"];
@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "16";
+pub const CODE_VERSION: &str = "20";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -270,10 +270,78 @@ fn ignored(rules: &[Ignore], rel: &str, name: &str, is_dir: bool) -> bool {
     })
 }
 
+/// Paths git tracks, read from the index file (versions 2 to 4), and every
+/// directory holding one. `.gitignore` never applies to a tracked file, and
+/// AbhiGram tracks 98 files under an ignored `web/`. No `git` process.
+fn tracked(root: &Path) -> Option<(HashSet<String>, HashSet<String>)> {
+    let dot = root.join(".git");
+    let dir = if dot.is_file() {
+        let t = std::fs::read_to_string(&dot).ok()?;
+        let g = t.trim().strip_prefix("gitdir:")?.trim().to_string();
+        let g = PathBuf::from(g);
+        if g.is_absolute() { g } else { root.join(g) }
+    } else {
+        dot
+    };
+    let b = std::fs::read(dir.join("index")).ok()?;
+    if b.len() < 12 || &b[..4] != b"DIRC" {
+        return None;
+    }
+    let be32 = |i: usize| b.get(i..i + 4).map(|x| u32::from_be_bytes([x[0], x[1], x[2], x[3]]));
+    let (version, count) = (be32(4)?, be32(8)? as usize);
+    let (mut files, mut dirs) = (HashSet::new(), HashSet::new());
+    let mut prev: Vec<u8> = Vec::new();
+    let mut i = 12;
+    for _ in 0..count {
+        let start = i;
+        let flags = u16::from_be_bytes([*b.get(i + 60)?, *b.get(i + 61)?]);
+        i += 62;
+        if version >= 3 && flags & 0x4000 != 0 {
+            i += 2;
+        }
+        let path = if version >= 4 {
+            // Prefix compression: drop N bytes of the previous path, then a suffix.
+            let mut c = *b.get(i)?;
+            i += 1;
+            let mut strip = (c & 127) as usize;
+            while c & 128 != 0 {
+                c = *b.get(i)?;
+                i += 1;
+                strip = ((strip + 1) << 7) | (c & 127) as usize;
+            }
+            let end = i + b.get(i..)?.iter().position(|&x| x == 0)?;
+            let mut p = prev[..prev.len().saturating_sub(strip)].to_vec();
+            p.extend_from_slice(&b[i..end]);
+            i = end + 1;
+            p
+        } else {
+            let end = i + b.get(i..)?.iter().position(|&x| x == 0)?;
+            let p = b[i..end].to_vec();
+            // Entries are NUL-padded to a multiple of 8 bytes.
+            i = start + (end - start + 8) / 8 * 8;
+            p
+        };
+        let s = String::from_utf8_lossy(&path).into_owned();
+        let mut d = s.as_str();
+        while let Some(k) = d.rfind('/') {
+            d = &d[..k];
+            if !dirs.insert(d.to_string()) {
+                break;
+            }
+        }
+        files.insert(s);
+        prev = path;
+    }
+    Some((files, dirs))
+}
+
 /// Source files under `root`, relative, bounded, skipping VCS and build
-/// output and whatever `.gitignore` files (root and nested) say to skip.
+/// output and whatever `.gitignore` files (root and nested) say to skip,
+/// unless git tracks the file.
 pub fn walk(root: &Path) -> Vec<String> {
     let mut out = Vec::new();
+    // Read only when an ignore rule first matches.
+    let mut index: Option<Option<(HashSet<String>, HashSet<String>)>> = None;
     let mut stack = vec![(root.to_path_buf(), parse_ignores(root, ""))];
     while let Some((dir, rules)) = stack.pop() {
         let Ok(rd) = std::fs::read_dir(&dir) else { continue };
@@ -285,7 +353,11 @@ pub fn walk(root: &Path) -> Vec<String> {
             let Ok(ft) = entry.file_type() else { continue };
             let rel = p.strip_prefix(root).map(|r| r.to_string_lossy().into_owned()).unwrap_or_default();
             if ignored(&rules, &rel, &name, ft.is_dir()) {
-                continue;
+                let t = index.get_or_insert_with(|| tracked(root));
+                let keep = t.as_ref().is_some_and(|(files, dirs)| if ft.is_dir() { dirs.contains(&rel) } else { files.contains(&rel) });
+                if !keep {
+                    continue;
+                }
             }
             if ft.is_dir() {
                 if !SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') {
@@ -454,6 +526,11 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
         }
         // Keyword after modifiers only, or right after an opening brace on
         // the same line (`impl Foo { fn method`). Elsewhere a keyword is prose.
+        // `pub(in crate::engine) fn` is `pub fn` for finding the keyword.
+        let l = match l.strip_prefix("pub(in ").and_then(|r| r.split_once(')')) {
+            Some((_, rest)) => rest.trim_start(),
+            None => l,
+        };
         let words: Vec<&str> = l.split_whitespace().collect();
         let mut kw = None;
         let mut name = "";
@@ -600,6 +677,25 @@ pub fn span_end(lines: &[&str], start: usize, py: bool) -> usize {
         }
         if !opened && code.trim_end().ends_with(';') {
             return i;
+        }
+        // An initializer opening a bracket (`static DOC: [..] = [`,
+        // `val routes = listOf(`) ends where that bracket closes: its lines
+        // are the table's, and the calls in them its calls.
+        if !opened && i == start && code.contains('=') && (code.trim_end().ends_with('[') || code.trim_end().ends_with('(')) {
+            let mut depth = 0i32;
+            for (j, l) in lines.iter().enumerate().take(limit + 1).skip(start) {
+                for c in strip_strings_and_comments(l).chars() {
+                    match c {
+                        '(' | '[' | '{' => depth += 1,
+                        ')' | ']' | '}' => depth -= 1,
+                        _ => {}
+                    }
+                }
+                if depth <= 0 {
+                    return j;
+                }
+            }
+            return limit.min(last);
         }
         // Kotlin and Scala expression bodies: `fun f() = expr` with no brace.
         if !opened && i == start && code.contains('=') && !code.trim_end().ends_with('=') && !code.trim_end().ends_with(',') && !code.trim_end().ends_with('(') {
@@ -1043,6 +1139,38 @@ pub fn file_facts(conn: &Connection, project_id: i64, path: &str) -> Result<Vec<
     Ok(out)
 }
 
+/// The functions that use a non-function definition (a table, a constant)
+/// by name, its own file first and then the files that mention it, as one
+/// `links` line: `vspace` is called by the `DOC` table, and this says which
+/// function reads `DOC`. `None` when nothing does.
+pub fn used_by_line(conn: &Connection, project_id: i64, root: &Path, d: &Def) -> Result<Option<String>> {
+    let cap = crate::limits::CONTEXT_ITEMS;
+    let mut files = vec![d.path.clone()];
+    let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND src != ?3 ORDER BY n DESC LIMIT 20")?;
+    files.extend(stmt.query_map(params![project_id, d.name, d.path], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?);
+    let mut users: Vec<String> = Vec::new();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    for path in &files {
+        let Ok(text) = std::fs::read_to_string(root.join(path)) else { continue };
+        for (i, line) in text.lines().enumerate() {
+            let ln = i as u32 + 1;
+            if *path == d.path && d.line <= ln && ln <= d.end || !crate::spans::is_identifier_use(line, &d.name) {
+                continue;
+            }
+            let Some(f) = def_enclosing(conn, project_id, path, ln)? else { continue };
+            if f.kind != "fn" || f.name == d.name || !seen.insert((f.name.clone(), path.clone())) {
+                continue;
+            }
+            users.push(format!("{} {path}:{ln}", f.name));
+        }
+    }
+    if users.is_empty() {
+        return Ok(None);
+    }
+    let more = if users.len() > cap { format!(" +{} more", users.len() - cap) } else { String::new() };
+    Ok(Some(format!("used by: {}  {}{more}", users.len(), users.iter().take(cap).cloned().collect::<Vec<_>>().join(", "))))
+}
+
 /// The files that use a name, most mentions first, as one `links` line.
 pub fn users_line(conn: &Connection, project_id: i64, name: &str, defining: &str) -> Result<Option<String>> {
     let short = name.rsplit("::").next().unwrap_or(name).rsplit('.').next().unwrap_or(name).trim_end_matches("()");
@@ -1284,13 +1412,27 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
     let mut out: Vec<(String, String, u32, String)> = Vec::new();
     let mut per: HashMap<String, usize> = HashMap::new();
     let mut seen: HashSet<(String, String, String)> = HashSet::new();
-    for (i, raw) in text.lines().enumerate() {
+    let raw_lines: Vec<&str> = text.lines().collect();
+    for (i, raw) in raw_lines.iter().enumerate() {
         let ln = i as u32 + 1;
-        if !raw.contains('(') {
+        if !raw.contains('(') && !raw.contains("::") {
             continue;
         }
-        let Some(caller) = defs.iter().filter(|d| d.line <= ln && ln <= d.end && d.kind == "fn").max_by_key(|d| d.line) else { continue };
-        if ln == caller.line {
+        // The innermost function holding the line; outside every function,
+        // the definition that holds it: a dispatch table (`static DOC = [
+        // ("vspace", |m| m.vspace()), ..]`), a field initializer. 363 of
+        // rushtex's 541 functions with no caller were called only from such
+        // places.
+        // Only a top-level `const`, `static` or `val` (not indented): a local
+        // `const bobKey = ..` in a test callback the index holds no function
+        // for is not a caller anyone looks up.
+        let table = |d: &&Def| matches!(d.kind, "const" | "val") && raw_lines.get(d.line as usize - 1).is_some_and(|l| !l.starts_with([' ', '\t']));
+        let Some(caller) = defs.iter().filter(|d| d.line <= ln && ln <= d.end && d.kind == "fn").max_by_key(|d| d.line).or_else(|| defs.iter().filter(|d| d.line <= ln && ln <= d.end && table(d)).max_by_key(|d| d.line)) else { continue };
+        if ln == caller.line && caller.kind == "fn" {
+            continue;
+        }
+        // A line that declares a function (`external fun f(`) calls nothing.
+        if caller.kind != "fn" && defs.iter().any(|d| d.line == ln && d.kind == "fn") {
             continue;
         }
         let code = strip_strings_and_comments(raw);
@@ -1298,7 +1440,8 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
             if tok.len() < MIN_CALL_LEN || !names.contains_key(tok) {
                 continue;
             }
-            let Some(q) = qualifier(&code, tok) else { continue };
+            // `.map(str::trim)` is the standard library's, as `x.trim()` is.
+            let Some(q) = qualifier(&code, tok).or_else(|| reference(&code, tok).filter(|_| !METHOD_STOPLIST.contains(&tok))) else { continue };
             // A call to its own name is recursion unless it names another
             // module or type (`eval::run` inside `main.rs`'s `run`).
             if tok == caller.name && (q.is_empty() || q == "self" || q.starts_with('.')) {
@@ -1322,6 +1465,41 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
         }
     }
     out
+}
+
+/// A function named as a value, not called: `.map(Self::render)`,
+/// `handlers.push(engine::vspace)`, Java and Kotlin `Foo::bar`, `::bar`.
+/// The path before `::` makes it a function, where a bare name could be a
+/// variable; what follows must end the expression. Returns the qualifier as
+/// `qualifier` would, prefixed with `&`.
+pub fn reference(code: &str, name: &str) -> Option<String> {
+    let t = code.trim_start();
+    if t.starts_with("use ") || t.starts_with("pub use ") || t.starts_with("import ") || t.starts_with("pub(crate) use ") {
+        return None;
+    }
+    let bytes = code.as_bytes();
+    let mut from = 0;
+    while let Some(i) = code[from..].find(name) {
+        let start = from + i;
+        let end = start + name.len();
+        from = end;
+        if end < bytes.len() && (bytes[end].is_ascii_alphanumeric() || bytes[end] == b'_') {
+            continue;
+        }
+        let Some(head) = code[..start].strip_suffix("::") else { continue };
+        let next = code[end..].trim_start().chars().next();
+        if !matches!(next, None | Some(')' | ',' | ';' | '}' | ']')) {
+            continue;
+        }
+        let word: String = head.chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').collect::<Vec<_>>().into_iter().rev().collect();
+        let q = match word.as_str() {
+            "self" | "this" | "Self" | "super" | "crate" => "self".to_string(),
+            "" => String::new(),
+            w => format!("{w}::"),
+        };
+        return Some(format!("&{q}"));
+    }
+    None
 }
 
 /// How the first call of `name` in `code` is written: `self` (`self.f(`,
@@ -1386,6 +1564,10 @@ pub fn qualifier(code: &str, name: &str) -> Option<String> {
 /// receiver name of a `.x` call is declared with (`code_fields`).
 pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<String>, local: bool, recv: &HashSet<String>) -> f32 {
     use crate::limits::*;
+    // A function passed by name (`&Self::render`) is judged by its path.
+    if let Some(q) = qual.strip_prefix('&') {
+        return call_confidence(q, unique, same_file, own, local, recv);
+    }
     match qual {
         "self" if same_file || unique => CALL_CONF_SELF,
         "self" if local => CALL_CONF_OTHER,
@@ -1602,7 +1784,23 @@ mod call_edge_tests {
         let m = calls_in("m.rs", "fn outer() {\n    crate::helper::thing(1);\n}\n", &names);
         assert!(m.iter().all(|c| c.1 != "helper"), "a module path is not a call: {m:?}");
         let c = strip(full);
-        assert_eq!(c, vec![("outer".to_string(), "helper".to_string(), 2), ("outer".to_string(), "thing".to_string(), 5)], "{c:?}");
+        assert_eq!(c, vec![("outer".to_string(), "helper".to_string(), 2), ("outer".to_string(), "thing".to_string(), 5), ("K".to_string(), "helper".to_string(), 10)], "a top-level constant's initializer calls too: {c:?}");
+    }
+
+    #[test]
+    fn tables_and_function_references_are_callers() {
+        let names: HashMap<String, usize> = ["vspace", "render", "trim", "helper"].iter().map(|s| (s.to_string(), 1)).collect();
+        let src = "static DOC: [(&str, Native); 2] = [\n    (\"vspace\", |m| m.vspace()),\n    (\"x\", |m| m.render()),\n];\nfn run(v: Vec<X>) {\n    v.iter().map(Self::render);\n    v.split(',').map(str::trim);\n    use crate::a::helper;\n}\nfn vspace() {}\nfn render() {}\nfn trim() {}\nfn helper() {}\n";
+        let c: Vec<(String, String, String)> = calls_in("a.rs", src, &names).into_iter().map(|(a, b, _, q)| (a, b, q)).collect();
+        assert!(c.contains(&("DOC".to_string(), "vspace".to_string(), ".m".to_string())), "{c:?}");
+        assert!(c.contains(&("DOC".to_string(), "render".to_string(), ".m".to_string())), "{c:?}");
+        assert!(c.contains(&("run".to_string(), "render".to_string(), "&self".to_string())), "passed by name: {c:?}");
+        assert!(!c.iter().any(|x| x.1 == "trim" || x.1 == "helper"), "a standard name or an import is not a reference: {c:?}");
+        // A local constant in a callback is not a caller; a declaration calls nothing.
+        let ts = "test('x', () => {\n  const k = render();\n});\n";
+        assert!(calls_in("a.ts", ts, &names).is_empty());
+        let kt = "object Bridge {\n    external fun render(k: String): Boolean\n}\n";
+        assert!(calls_in("a.kt", kt, &names).is_empty());
     }
 
     #[test]

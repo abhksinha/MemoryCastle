@@ -1603,7 +1603,15 @@ fn run(cli: Cli) -> Result<()> {
                     // `read:` lines add the call sites, they do not replace
                     // the scored list.
                     let calls = memorycastle::code::call_lines(&ctx.conn, pid, d, true, all)?;
-                    if calls.is_empty() {
+                    // A table or constant is read, not called: the functions
+                    // reading it are its callers' next hop.
+                    let used = match &root {
+                        Some(r) if d.kind != "fn" && !calls.iter().any(|l| l.starts_with("called by")) => memorycastle::code::used_by_line(&ctx.conn, pid, r, d)?,
+                        _ => None,
+                    };
+                    if let Some(l) = &used {
+                        out.push_str(&format!("   {l}\n"));
+                    } else if calls.is_empty() {
                         if let Some(l) = memorycastle::code::users_line(&ctx.conn, pid, &d.name, &d.path)? {
                             out.push_str(&format!("   {l}\n"));
                         }

@@ -110,7 +110,7 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     )?;
     type Row = (i64, i64, Option<String>, String, String, Option<i64>, Option<Vec<u8>>);
     let rows: Vec<Row> = pending
-        .query_map(params![project_id, now - LEARN_WINDOW_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+        .query_map(params![project_id, now - OPEN_MIN_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut opened = conn.prepare_cached(
         "SELECT note_id, at FROM served_notes WHERE project_id = ?1 AND session = ?2 AND mode = 'read' AND at >= ?3 AND at <= ?4 ORDER BY at LIMIT 1",
@@ -130,6 +130,17 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     let cover = Coverage::load(conn, project_id)?;
     let mut learned = 0;
     for (id, at, session, query, printed, space_id, vec) in rows {
+        // A search whose window is still open is settled by its first note
+        // read, which no later read changes, so it is learned at once and the
+        // agent's next wording in the same task benefits; without one it waits.
+        let open = at > now - LEARN_WINDOW_SECS;
+        let read_now = match &session {
+            Some(s) if open => opened.exists(params![project_id, s, at + OPEN_MIN_SECS, now])?,
+            _ => false,
+        };
+        if open && !read_now {
+            continue;
+        }
         conn.execute("UPDATE searches SET done = 1 WHERE id = ?1", [id])?;
         let (Some(session), Some(space_id), Some(vec)) = (session, space_id, vec) else { continue };
         let printed: Vec<i64> = printed.split(',').filter_map(|p| p.parse().ok()).collect();
