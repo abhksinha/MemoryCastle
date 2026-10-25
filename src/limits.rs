@@ -168,6 +168,11 @@ pub const OWED_REMIND_COOLDOWN_SECS: i64 = 30 * 60;
 /// and the right note's median, a little stricter than recall.
 pub const GATE_SEARCH_K: usize = 3;
 pub const GATE_SEARCH_BLOCK: f32 = 0.60;
+/// Lines the edit gate hands the agent per edit, the rest replaced by a
+/// pointer: a field report counted the outline of a 2,001-line function and
+/// "+10 more notes" on every edit, spent context that brought compaction
+/// sooner. About 25 lines is a links answer for one file with its notes.
+pub const GATE_MAX_LINES: usize = 25;
 /// Characters of the Rejected line a tripwire quotes: enough for the
 /// measurement, under a line of context.
 pub const TRIP_LINE_CHARS: usize = 220;

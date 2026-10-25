@@ -124,13 +124,17 @@ def gate(paths):
             d = os.path.dirname(d)
         if not d:
             continue
+        # A new file in a directory that does not exist yet is a path this
+        # parser resolved against the wrong directory, not an edit to gate.
+        if not os.path.exists(a) and d != os.path.dirname(a):
+            continue
         r = subprocess.run(["memorycastle", "gate", a], cwd=d, capture_output=True, text=True)
         if r.returncode == 2 and r.stderr.strip():
             blocks.append(r.stderr.strip())
         elif r.stdout.strip():
             context.append(r.stdout.strip())
     if blocks:
-        sys.stderr.write("\n".join(blocks + context) + "\nThe command writes these files; it passes on the retry.\n")
+        sys.stderr.write("\n".join(blocks + context) + "\nNothing in this command ran, not its other writes and not its builds or tests. Every file it writes is now looked up: send the same command again and it runs.\n")
         sys.exit(2)
     if context:
         print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "\n".join(context)}}))

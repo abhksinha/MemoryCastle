@@ -1783,7 +1783,7 @@ fn run(cli: Cli) -> Result<()> {
                     }
                 }
                 if let Some(d) = defs.first() {
-                    for l in memorycastle::code::calls_footer(&d.name, said.0, said.1) {
+                    for l in memorycastle::code::calls_footer(&d.name, said.0, said.1 && !said.0) {
                         out.push_str(&format!("{l}\n"));
                     }
                 }

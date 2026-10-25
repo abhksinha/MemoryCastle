@@ -207,14 +207,17 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     }
     // Every edit, not only the first: the new text is what can bring back a
     // rejected approach. Each (note, name) once per session.
-    if let Some(added) = new_text {
-        let before = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
-        // The baseline for the next shell-edit check: what this edit
-        // starts from, so its own lines are not counted again as new
-        // after it lands (they were checked here).
+    let before = if exists { std::fs::read_to_string(root.join(rel)).unwrap_or_default() } else { String::new() };
+    // The baseline for the shell-edit check in `changed`: the file as this
+    // edit starts from, for every gated write (a Python or `sed -i` write
+    // has no new text here, and without a baseline `changed` fell back to
+    // HEAD, where uncommitted lines read as added).
+    if exists {
         if let Some(sid) = store::current_session(conn, project_id)? {
             crate::tripwire::write_snapshot(&sid, rel, &before);
         }
+    }
+    if let Some(added) = new_text {
         let trips: Vec<_> = crate::tripwire::check(conn, project_id, rel, &before, added, None, None)?
             .into_iter()
             .filter(|t| !have.contains(&format!("trip:{}:{}", t.note, t.name)))
@@ -227,7 +230,12 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     // Only a new file, where `links` has nothing to say: for an existing
     // file a search on its path repeated the notes `links` printed and
     // added unrelated ones (0.74 on `src/serve.rs`, 0.64 on `src/fts.rs`).
-    if !exists {
+    // Once per file, as for an existing one: searched on every call, the
+    // retry of a blocked command was blocked again. A path whose directory
+    // does not exist is not a new file in the repo but a path resolved
+    // against the wrong directory (`deltest.sh` written in a scratch dir).
+    let parent_exists = root.join(rel).parent().is_some_and(|d| d.is_dir());
+    if !exists && first_file && parent_exists {
         let k = limits::GATE_SEARCH_K.to_string();
         let out = run(root, &["search", rel, "-k", &k]);
         // Under `GATE_SEARCH_BLOCK` nothing: a new path's words matched
@@ -236,6 +244,8 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
             block.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
         }
     }
+    cap_lines(&mut block, rel, at);
+    cap_lines(&mut context, rel, at);
     // Context by default; blocking is opt-in (`MEMORYCASTLE_GATE=block`)
     // until the lookups-to-edits ratio shows context alone is not read.
     if !block.is_empty() && !blocking() {
@@ -253,6 +263,24 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         return Ok(Outcome::Context(format!("memorycastle: {}", context.join("\n"))));
     }
     Ok(Outcome::Pass)
+}
+
+/// At most `limits::GATE_MAX_LINES` lines across the parts, then where the rest is.
+fn cap_lines(parts: &mut Vec<String>, rel: &str, at: Option<u32>) {
+    let total: usize = parts.iter().map(|p| p.lines().count()).sum();
+    if total <= limits::GATE_MAX_LINES {
+        return;
+    }
+    let mut left = limits::GATE_MAX_LINES;
+    for p in parts.iter_mut() {
+        let lines: Vec<&str> = p.lines().collect();
+        let keep = lines.len().min(left);
+        left -= keep;
+        *p = lines[..keep].join("\n");
+    }
+    parts.retain(|p| !p.is_empty());
+    let at = at.map(|a| format!(" --at {a}")).unwrap_or_default();
+    parts.push(format!("+{} more lines: links {rel}{at}", total - limits::GATE_MAX_LINES));
 }
 
 /// The grep gate: a code search for one name the code index defines is

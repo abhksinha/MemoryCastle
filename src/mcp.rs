@@ -296,7 +296,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 }
             }
             if let Some(d) = defs.first() {
-                for l in crate::code::calls_footer(&d.name, said.0, said.1) {
+                for l in crate::code::calls_footer(&d.name, said.0, said.1 && !said.0) {
                     text.push_str(&format!("{l}\n"));
                 }
             }

@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "24";
+pub const CODE_VERSION: &str = "25";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -627,6 +627,20 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                         kw = Some(*second);
                         name = words.get(i + 2).copied().unwrap_or("");
                     }
+                    // Kotlin and Swift type parameters before the name:
+                    // `fun <T> exclusive(`, `fun <K, V> Map<K, V>.merge(`.
+                    if name.starts_with('<') {
+                        let mut depth = 0i32;
+                        let mut k = i + 1;
+                        while let Some(w) = words.get(k) {
+                            depth += w.matches('<').count() as i32 - w.matches('>').count() as i32;
+                            k += 1;
+                            if depth <= 0 {
+                                break;
+                            }
+                        }
+                        name = words.get(k).copied().unwrap_or("");
+                    }
                 }
                 break;
             }
@@ -1207,6 +1221,9 @@ mod span_tests {
         let kt = "enum class Quality { Sd, Hd }\nfun interface Listener { fun on() }\nannotation class Marker\nvalue class Id(val v: Long)\n";
         let names: Vec<String> = definitions("a.kt", kt).into_iter().filter(|d| d.kind == "type").map(|d| d.name).collect();
         assert_eq!(names, ["Quality", "Listener", "Marker", "Id"]);
+        let g = "private fun <T> exclusive(block: () -> T): T = synchronized(L) {\n    block()\n}\nfun <K, V> merge(a: K, b: V) {}\n";
+        let d: Vec<(String, u32, u32)> = definitions("a.kt", g).into_iter().map(|d| (d.name, d.line, d.end)).collect();
+        assert_eq!(d, [("exclusive".to_string(), 1, 3), ("merge".to_string(), 4, 4)]);
     }
 
     #[test]
@@ -1365,7 +1382,7 @@ pub fn file_facts(conn: &Connection, project_id: i64, path: &str, all: bool) -> 
         "SELECT m.src, SUM(m.n) AS n FROM code_mentions m JOIN code_defs d ON d.project_id = m.project_id AND d.name = m.name \
          WHERE d.project_id = ?1 AND d.path = ?2 AND m.src != ?2 GROUP BY m.src ORDER BY n DESC",
     )?;
-    let using: Vec<String> = users.query_map(params![project_id, p], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let using: Vec<String> = users.query_map(params![project_id, p], |r| r.get(0))?.filter_map(|r| r.ok()).filter(|src: &String| same_family(src, p)).collect();
     if !using.is_empty() {
         let more = if using.len() > cap { format!(" +{} more", using.len() - cap) } else { String::new() };
         out.push(format!("used from: {} files  {}{more}", using.len(), using.iter().take(cap).cloned().collect::<Vec<_>>().join(", ")));
@@ -1406,11 +1423,37 @@ pub fn used_by_line(conn: &Connection, project_id: i64, root: &Path, d: &Def) ->
 }
 
 /// The files that use a name, most mentions first, as one `links` line.
+/// Languages that can name each other's definitions without a bridge:
+/// Kotlin and Java, TypeScript and JavaScript, C and C++. A mention from
+/// another family is a common word (`refresh`, `clear`), not a use: a
+/// Kotlin class was "used from 291 files" of Rust server and Tor code.
+/// Calls across a bridge are explicit edges (`jni`).
+fn lang_family(path: &str) -> &'static str {
+    match ext_of(path) {
+        "kt" | "kts" | "java" => "jvm",
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => "js",
+        "c" | "h" | "cc" | "cpp" | "cxx" | "hpp" | "hh" | "hxx" | "inl" | "ipp" | "tpp" | "cu" | "cuh" => "c",
+        "rs" => "rs",
+        "py" => "py",
+        "go" => "go",
+        "rb" => "rb",
+        "swift" => "swift",
+        "cs" => "cs",
+        "php" => "php",
+        _ => "",
+    }
+}
+
+fn same_family(a: &str, b: &str) -> bool {
+    let (fa, fb) = (lang_family(a), lang_family(b));
+    fa.is_empty() || fb.is_empty() || fa == fb
+}
+
 pub fn users_line(conn: &Connection, project_id: i64, name: &str, defining: &str) -> Result<Option<String>> {
     let short = name.rsplit("::").next().unwrap_or(name).rsplit('.').next().unwrap_or(name).trim_end_matches("()");
     let cap = crate::limits::CONTEXT_ITEMS;
     let mut stmt = conn.prepare_cached("SELECT src FROM code_mentions WHERE project_id = ?1 AND name = ?2 AND src != ?3 ORDER BY n DESC")?;
-    let using: Vec<String> = stmt.query_map(params![project_id, short, defining], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+    let using: Vec<String> = stmt.query_map(params![project_id, short, defining], |r| r.get(0))?.filter_map(|r| r.ok()).filter(|src: &String| same_family(src, defining)).collect();
     if using.is_empty() {
         return Ok(None);
     }
@@ -1661,7 +1704,20 @@ pub fn calls_in(path: &str, text: &str, names: &HashMap<String, usize>) -> Vec<(
         // `const bobKey = ..` in a test callback the index holds no function
         // for is not a caller anyone looks up.
         let table = |d: &&Def| matches!(d.kind, "const" | "val") && raw_lines.get(d.line as usize - 1).is_some_and(|l| !l.starts_with([' ', '\t']));
-        let Some(caller) = defs.iter().filter(|d| d.line <= ln && ln <= d.end && d.kind == "fn").max_by_key(|d| d.line).or_else(|| defs.iter().filter(|d| d.line <= ln && ln <= d.end && table(d)).max_by_key(|d| d.line)) else { continue };
+        // Last, the innermost type: a call in a constructor parameter's
+        // default lambda or a property initializer (`class C(val load: .. =
+        // { NativeGateway.f(..) })`) is the class's call; dropped, `links f`
+        // called a live function dead.
+        let holds = |d: &&Def| d.line <= ln && ln <= d.end;
+        let Some(caller) = defs
+            .iter()
+            .filter(|d| holds(d) && d.kind == "fn")
+            .max_by_key(|d| d.line)
+            .or_else(|| defs.iter().filter(|d| holds(d) && table(d)).max_by_key(|d| d.line))
+            .or_else(|| defs.iter().filter(|d| holds(d) && d.kind == "type" && d.line != ln).max_by_key(|d| d.line))
+        else {
+            continue;
+        };
         if ln == caller.line && caller.kind == "fn" {
             continue;
         }
@@ -2074,7 +2130,8 @@ pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: boo
             .collect();
         let more = if callers.len() > caller_cap { format!(" +{} more", callers.len() - caller_cap) } else { String::new() };
         // Said once, so the agent does not grep to confirm a complete list.
-        let complete = if more.is_empty() && root.is_some() { COMPLETE_NOTE } else { "" };
+        // Not with callers held back as unlikely: one of them may be real.
+        let complete = if more.is_empty() && root.is_some() && unlikely == 0 { COMPLETE_NOTE } else { "" };
         out.push(format!("called by: {}  {}{more}{tail}{complete}", callers.len(), shown.join(", ")));
     } else if unlikely > 0 {
         out.push(format!("called by: 0{tail}"));
