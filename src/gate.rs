@@ -209,6 +209,12 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     // rejected approach. Each (note, name) once per session.
     if let Some(added) = new_text {
         let before = std::fs::read_to_string(root.join(rel)).unwrap_or_default();
+        // The baseline for the next shell-edit check: what this edit
+        // starts from, so its own lines are not counted again as new
+        // after it lands (they were checked here).
+        if let Some(sid) = store::current_session(conn, project_id)? {
+            crate::tripwire::write_snapshot(&sid, rel, &before);
+        }
         let trips: Vec<_> = crate::tripwire::check(conn, project_id, rel, &before, added, None, None)?
             .into_iter()
             .filter(|t| !have.contains(&format!("trip:{}:{}", t.note, t.name)))

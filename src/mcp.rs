@@ -244,7 +244,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             if let Some(r) = ctx.repo.as_ref().map(|r| r.root.clone()) {
                 crate::code::refresh(&mut ctx.conn, pid, &r)?;
             }
-            let kind = if target.ends_with(".md") && target.contains('/') { crate::graph::Kind::Note } else if target.contains('/') || target.contains('.') { crate::graph::Kind::File } else { crate::graph::Kind::Symbol };
+            let kind = if target.ends_with(".md") && target.contains('/') { crate::graph::Kind::Note } else if crate::code::is_file_target(&ctx.conn, pid, target)? { crate::graph::Kind::File } else { crate::graph::Kind::Symbol };
             let mut notes = crate::graph::notes_for(&ctx.conn, pid, kind, target)?;
             if notes.is_empty() && kind == crate::graph::Kind::File {
                 notes = crate::graph::notes_for(&ctx.conn, pid, crate::graph::Kind::Symbol, target)?;
@@ -328,7 +328,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
                 text = format!("no notes link to {target}\n");
                 // The code index still answers for a file nobody wrote about.
                 if target.contains('/') || target.contains('.') {
-                    for f in crate::code::file_facts(&ctx.conn, pid, target)? {
+                    for f in crate::code::file_facts(&ctx.conn, pid, target, false)? {
                         text.push_str(&format!("   {f}\n"));
                     }
                 }

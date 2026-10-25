@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "23";
+pub const CODE_VERSION: &str = "24";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -446,7 +446,7 @@ const DEF_KEYWORDS: &[(&str, &str)] = &[
     ("class", "type"), ("struct", "type"), ("enum", "type"), ("trait", "type"), ("interface", "type"), ("object", "type"), ("type", "type"), ("protocol", "type"), ("typealias", "type"),
     ("const", "const"), ("static", "const"), ("val", "val"), ("macro_rules!", "fn"), ("module", "type"),
 ];
-const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe", "extern", "external", "tailrec", "operator", "infix", "actual", "expect", "inner", "mutating", "fileprivate", "convenience", "required", "export", "default", "private", "public", "protected", "internal", "override", "open", "abstract", "final", "suspend", "inline", "static", "data", "sealed", "const", "lateinit", "companion", "declare", "readonly"];
+const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe", "extern", "external", "tailrec", "operator", "infix", "actual", "expect", "inner", "annotation", "value", "mutating", "fileprivate", "convenience", "required", "export", "default", "private", "public", "protected", "internal", "override", "open", "abstract", "final", "suspend", "inline", "static", "data", "sealed", "const", "lateinit", "companion", "declare", "readonly"];
 
 const JS_MODS: &[&str] = &["public", "private", "protected", "static", "async", "readonly", "override", "abstract", "get", "set", "declare", "*"];
 const JS_NOT_METHODS: &[&str] = &["if", "for", "while", "switch", "catch", "function", "return", "with", "constructor", "super", "await", "typeof", "new", "else"];
@@ -621,6 +621,12 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
                 if ok {
                     kw = Some(*kind);
                     name = words.get(i + 1).copied().unwrap_or("");
+                    // `enum class Quality`, `fun interface Listener`: the
+                    // second keyword is part of the first.
+                    if let Some((_, second)) = DEF_KEYWORDS.iter().find(|(k, _)| *k == name) {
+                        kw = Some(*second);
+                        name = words.get(i + 2).copied().unwrap_or("");
+                    }
                 }
                 break;
             }
@@ -1197,6 +1203,13 @@ pub fn has_index(conn: &Connection, project_id: i64) -> Result<bool> {
 mod span_tests {
     use super::*;
     #[test]
+    fn kotlin_two_word_type_heads() {
+        let kt = "enum class Quality { Sd, Hd }\nfun interface Listener { fun on() }\nannotation class Marker\nvalue class Id(val v: Long)\n";
+        let names: Vec<String> = definitions("a.kt", kt).into_iter().filter(|d| d.kind == "type").map(|d| d.name).collect();
+        assert_eq!(names, ["Quality", "Listener", "Marker", "Id"]);
+    }
+
+    #[test]
     fn jni_names_resolve_to_the_class_and_method() {
         assert_eq!(jni_target("Java_com_app_bridge_RustBridge_nativeEncryptMediaFd"), Some(("com/app/bridge/RustBridge".into(), "nativeEncryptMediaFd".into())));
         assert_eq!(jni_target("Java_a_B_native_1x__I"), Some(("a/B".into(), "native_x".into())));
@@ -1318,18 +1331,28 @@ mod tests {
 /// names it: its definitions, the files that import it and the files that
 /// use its names. Lines in the `links` grammar; empty when the file is not
 /// indexed. Bounded by `limits::CONTEXT_ITEMS` names per line.
-pub fn file_facts(conn: &Connection, project_id: i64, path: &str) -> Result<Vec<String>> {
+pub fn file_facts(conn: &Connection, project_id: i64, path: &str, all: bool) -> Result<Vec<String>> {
     let paths = paths_ending_with(conn, project_id, path)?;
     let Some(p) = paths.first() else { return Ok(Vec::new()) };
-    let cap = crate::limits::CONTEXT_ITEMS;
+    let cap = if all { usize::MAX } else { crate::limits::CONTEXT_ITEMS };
     let mut out = Vec::new();
     let mut stmt = conn.prepare_cached("SELECT name, kind, line, end_line FROM code_defs WHERE project_id = ?1 AND path = ?2 ORDER BY line")?;
     let defs: Vec<(String, String, i64, i64)> = stmt
         .query_map(params![project_id, p], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<rusqlite::Result<_>>()?;
     if !defs.is_empty() {
+        // Types and functions first: a file's constants open it and filled
+        // the line (`val DRAFT_DEBOUNCE_MS` before any composable).
+        let rank = |k: &str| match k {
+            "fn" => 1,
+            "variant" => 3,
+            "type" | "struct" | "enum" | "trait" | "class" | "interface" | "impl" => 0,
+            _ => 2,
+        };
+        let mut defs = defs;
+        defs.sort_by_key(|d| rank(&d.1));
         let shown: Vec<String> = defs.iter().take(cap).map(|(n, k, a, b)| if b > a { format!("{k} {n}:{a}-{b}") } else { format!("{k} {n}:{a}") }).collect();
-        let more = if defs.len() > cap { format!(" +{} more", defs.len() - cap) } else { String::new() };
+        let more = if defs.len() > cap { format!(" +{} more (--all lists them)", defs.len() - cap) } else { String::new() };
         out.push(format!("defines: {} in {p}  {}{more}", defs.len(), shown.join(", ")));
     }
     let mut imp = conn.prepare_cached("SELECT src FROM code_imports WHERE project_id = ?1 AND dst = ?2 ORDER BY src")?;
@@ -1860,7 +1883,29 @@ fn defined_once(conn: &Connection, project_id: i64, name: &str) -> Result<bool> 
 
 /// Who calls the definition `d`: (caller, file, line, confidence), most
 /// confident first, then by file and line.
+/// The type owning `d` (`code_defs.owner`), empty for a free definition.
+fn owner_of(conn: &Connection, project_id: i64, d: &Def) -> Result<String> {
+    Ok(conn
+        .prepare_cached("SELECT owner FROM code_defs WHERE project_id = ?1 AND path = ?2 AND name = ?3 AND line = ?4")?
+        .query_row(params![project_id, d.path, d.name, d.line], |r| r.get::<_, Option<String>>(0))
+        .optional()?
+        .flatten()
+        .unwrap_or_default())
+}
+
+/// A call written through the definition's own type (`RustBridge.f(` on a
+/// Kotlin `object RustBridge`, `Foo::f(`) names it as exactly as a path does.
+fn through_owner(qual: &str, owner: &str, conf: f32) -> f32 {
+    let q = qual.trim_start_matches('&');
+    if !owner.is_empty() && (q.strip_suffix('.') == Some(owner) || q.strip_suffix("::") == Some(owner)) {
+        conf.max(crate::limits::CALL_CONF_QUALIFIED)
+    } else {
+        conf
+    }
+}
+
 pub fn callers_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(String, String, u32, f32)>> {
+    let owner = owner_of(conn, project_id, d)?;
     let unique = defined_once(conn, project_id, &d.name)?;
     let own = own_names(conn, project_id, &d.path)?;
     let homes: HashSet<String> = defs_named(conn, project_id, &d.name)?.into_iter().filter(|x| x.kind == "fn").map(|x| x.path).collect();
@@ -1873,7 +1918,7 @@ pub fn callers_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(S
     let mut out: Vec<(String, String, u32, f32)> = Vec::with_capacity(rows.len());
     for (c, f, l, q) in rows {
         let recv = receiver_types(conn, project_id, &q, &mut recv_cache)?;
-        let conf = call_confidence(&q, unique, f == d.path, &own, f != d.path && homes.contains(&f), &recv);
+        let conf = through_owner(&q, &owner, call_confidence(&q, unique, f == d.path, &own, f != d.path && homes.contains(&f), &recv));
         match out.iter_mut().find(|o| o.0 == c && o.1 == f) {
             Some(o) if o.3 < conf => *o = (c, f, l, conf),
             Some(_) => {}
@@ -1891,7 +1936,7 @@ pub fn site_confidence(conn: &Connection, project_id: i64, d: &Def, f: &str, qua
     let own = own_names(conn, project_id, &d.path)?;
     let homes: HashSet<String> = defs_named(conn, project_id, &d.name)?.into_iter().filter(|x| x.kind == "fn").map(|x| x.path).collect();
     let recv = receiver_types(conn, project_id, qual, &mut HashMap::new())?;
-    Ok(call_confidence(qual, unique, f == d.path, &own, f != d.path && homes.contains(f), &recv))
+    Ok(through_owner(qual, &owner_of(conn, project_id, d)?, call_confidence(qual, unique, f == d.path, &own, f != d.path && homes.contains(f), &recv)))
 }
 
 /// What `d` calls: (callee, confidence) in order of first call, the
@@ -1907,7 +1952,7 @@ pub fn callees_for(conn: &Connection, project_id: i64, d: &Def) -> Result<Vec<(S
         let recv = receiver_types(conn, project_id, &qual, &mut HashMap::new())?;
         let mut best = 0f32;
         for t in &targets {
-            best = best.max(call_confidence(&qual, unique, t.path == d.path, &own_names(conn, project_id, &t.path)?, local && t.path != d.path, &recv));
+            best = best.max(through_owner(&qual, &owner_of(conn, project_id, t)?, call_confidence(&qual, unique, t.path == d.path, &own_names(conn, project_id, &t.path)?, local && t.path != d.path, &recv)));
         }
         match out.iter_mut().find(|o| o.0 == callee) {
             Some(o) => o.1 = o.1.max(best),
@@ -2279,6 +2324,21 @@ pub fn find(conn: &Connection, project_id: i64, question: &str, k: usize) -> Res
 /// For `links <name>` when nothing is defined by that name: the definitions
 /// its words describe, so a guessed name (`sign_internal`) leads to the real
 /// one. Empty for a file path.
+/// Whether a links target is a file: a path, or a dotted name whose tail
+/// is not a definition (`store.rs`, not `MediaBridge.encrypt`).
+pub fn is_file_target(conn: &Connection, project_id: i64, target: &str) -> Result<bool> {
+    if target.contains('/') {
+        return Ok(true);
+    }
+    if !target.contains('.') || target.contains("::") {
+        return Ok(false);
+    }
+    let file: bool = conn
+        .prepare_cached("SELECT EXISTS(SELECT 1 FROM code_files WHERE project_id = ?1 AND (path = ?2 OR path LIKE '%/' || ?2))")?
+        .query_row(params![project_id, target], |r| r.get(0))?;
+    Ok(file || defs_named(conn, project_id, target)?.is_empty())
+}
+
 pub fn nearest_line(conn: &Connection, project_id: i64, target: &str) -> Result<Option<String>> {
     if target.contains('/') || target.rsplit_once('.').is_some_and(|(_, e)| e.len() <= 4 && e.chars().all(|c| c.is_ascii_lowercase())) {
         return Ok(None);
@@ -2294,8 +2354,9 @@ pub fn nearest_line(conn: &Connection, project_id: i64, target: &str) -> Result<
         })
         .take(crate::limits::CODE_FIND_K)
         .collect();
+    // Said even with nothing near: "no notes" alone reads as "found, unnoted".
     if hits.is_empty() {
-        return Ok(None);
+        return Ok(Some(format!("no definition named {target} in the code index")));
     }
     let list: Vec<String> = hits.iter().map(|(d, _)| format!("{} {}:{}-{} {}", d.name, d.path, d.line, d.end, d.kind)).collect();
     Ok(Some(format!("no definition named {target}; nearest by its words: {}", list.join(", "))))

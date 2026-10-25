@@ -1206,11 +1206,24 @@ fn run(cli: Cli) -> Result<()> {
                 // The tripwire for shell edits: the lines the checkout added
                 // against HEAD, the file at HEAD as the before.
                 let git = |args: &[&str]| std::process::Command::new("git").args(args).current_dir(&repo.root).output().map(|o| String::from_utf8_lossy(&o.stdout).into_owned()).unwrap_or_default();
-                let before = git(&["show", &format!("HEAD:{rel}")]);
-                let added: String = match before.is_empty() {
-                    true => std::fs::read_to_string(repo.root.join(rel.as_str())).unwrap_or_default(),
-                    false => git(&["diff", "-U0", "HEAD", "--", rel]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| &l[1..]).collect::<Vec<_>>().join("\n"),
+                // The file as this session last saw it (the edit hook keeps
+                // it before every edit), else HEAD.
+                let current = std::fs::read_to_string(repo.root.join(rel.as_str())).unwrap_or_default();
+                let (before, added) = match memorycastle::tripwire::read_snapshot(&sid, rel) {
+                    Some(snap) => {
+                        let added = memorycastle::tripwire::added_lines(&snap, &current);
+                        (snap, added)
+                    }
+                    None => {
+                        let before = git(&["show", &format!("HEAD:{rel}")]);
+                        let added = match before.is_empty() {
+                            true => current.clone(),
+                            false => git(&["diff", "-U0", "HEAD", "--", rel]).lines().filter(|l| l.starts_with('+') && !l.starts_with("+++")).map(|l| &l[1..]).collect::<Vec<_>>().join("\n"),
+                        };
+                        (before, added)
+                    }
                 };
+                memorycastle::tripwire::write_snapshot(&sid, rel, &current);
                 let trips: Vec<_> = memorycastle::tripwire::check(&ctx.conn, p.id, rel, &before, &added, None, None)?.into_iter().filter(|t| !have.contains(&format!("trip:{}:{}", t.note, t.name))).collect();
                 if !trips.is_empty() {
                     memorycastle::gate::mark(&ctx.conn, p.id, &trips.iter().map(|t| format!("trip:{}:{}", t.note, t.name)).collect::<Vec<_>>())?;
@@ -1602,7 +1615,7 @@ fn run(cli: Cli) -> Result<()> {
             if let Some(r) = ctx.repo.as_ref().map(|r| r.root.clone()) {
                 memorycastle::code::refresh(&mut ctx.conn, pid, &r)?;
             }
-            let kind = if target.ends_with(".md") && target.contains('/') { graph::Kind::Note } else if target.contains('/') || target.contains('.') { graph::Kind::File } else { graph::Kind::Symbol };
+            let kind = if target.ends_with(".md") && target.contains('/') { graph::Kind::Note } else if memorycastle::code::is_file_target(&ctx.conn, pid, &target)? { graph::Kind::File } else { graph::Kind::Symbol };
             // A qualified name (`render::search`) is one definition: its
             // notes, not every note naming some `search` (22 notes, 5.5 KB,
             // for a question about five call sites).
@@ -1653,13 +1666,20 @@ fn run(cli: Cli) -> Result<()> {
             // With no note, the code index still answers: what the file
             // defines and who uses it, or the definition the line sits in.
             let facts: Vec<String> = if notes.is_empty() && kind == graph::Kind::File {
-                let mut f = memorycastle::code::file_facts(&ctx.conn, pid, &target)?;
+                let mut f = memorycastle::code::file_facts(&ctx.conn, pid, &target, all)?;
                 if !at_line.is_empty() {
                     f.insert(0, at_line.clone());
                 }
                 f
             } else {
                 Vec::new()
+            };
+            // With notes, what the file defines still answers "where is X in
+            // here" without a grep: the first fact line only.
+            let defines_line = if !notes.is_empty() && kind == graph::Kind::File && at_def.is_none() {
+                memorycastle::code::file_facts(&ctx.conn, pid, &target, all)?.into_iter().find(|f| f.starts_with("defines:"))
+            } else {
+                None
             };
             if cli.json {
                 // Callers and callees per definition, every one with its score.
@@ -1700,6 +1720,10 @@ fn run(cli: Cli) -> Result<()> {
                 let mut stood = 0usize;
                 if !at_line.is_empty() {
                     out.push_str(&at_line);
+                    out.push('\n');
+                }
+                if let Some(l) = &defines_line {
+                    out.push_str(l);
                     out.push('\n');
                 }
                 for d in &defs {

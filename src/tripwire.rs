@@ -158,6 +158,39 @@ fn is_code_path(rel: &str) -> bool {
 /// added it. Live, every saved note counts.
 pub type Known<'a> = Option<&'a std::collections::HashMap<String, i64>>;
 
+/// The file as this session last saw it, kept in the temp dir per
+/// (session, path): the before for a shell edit. HEAD is wrong when the
+/// checkout already holds uncommitted work: every line added earlier read as
+/// added by this command, and a name the file already had tripped.
+fn snapshot_path(session: &str, rel: &str) -> std::path::PathBuf {
+    use sha2::{Digest, Sha256};
+    let h = Sha256::digest(format!("{session}\0{rel}").as_bytes());
+    let name: String = h.iter().take(12).map(|b| format!("{b:02x}")).collect();
+    std::env::temp_dir().join("memorycastle-snap").join(name)
+}
+
+pub fn read_snapshot(session: &str, rel: &str) -> Option<String> {
+    std::fs::read_to_string(snapshot_path(session, rel)).ok()
+}
+
+/// Kept only for files the code index would read (`code::MAX_FILE_BYTES`).
+pub fn write_snapshot(session: &str, rel: &str, text: &str) {
+    if text.len() as u64 > crate::code::MAX_FILE_BYTES {
+        return;
+    }
+    let p = snapshot_path(session, rel);
+    if let Some(d) = p.parent() {
+        let _ = std::fs::create_dir_all(d);
+    }
+    let _ = std::fs::write(p, text);
+}
+
+/// Lines of `after` that `before` does not hold, by trimmed text.
+pub fn added_lines(before: &str, after: &str) -> String {
+    let had: std::collections::HashSet<&str> = before.lines().map(str::trim).collect();
+    after.lines().filter(|l| !had.contains(l.trim())).collect::<Vec<_>>().join("\n")
+}
+
 /// The trips for an edit of `rel`: `before` is the file as it was, `added`
 /// the text the edit brings. With `as_of` (replay), a note counts only when
 /// `known` says it existed by then, and a reversal only when dated by then.
@@ -227,6 +260,19 @@ mod tests {
     #[test]
     fn comments_do_not_trip() {
         assert_eq!(code_lines("# sed -i, a script\nx = 1\n    // porter\n#[derive(Debug)]"), "x = 1\n#[derive(Debug)]");
+    }
+
+    #[test]
+    fn shell_edits_diff_against_the_session_snapshot() {
+        let sid = format!("t{}", std::process::id());
+        // The checkout already holds `inJustDecodeBounds` from earlier work;
+        // the command only adds `scale`.
+        write_snapshot(&sid, "a.kt", "fun f() {\n    o.inJustDecodeBounds = true\n}\n");
+        let now = "fun f() {\n    o.inJustDecodeBounds = true\n    val scale = 2\n}\n";
+        let snap = read_snapshot(&sid, "a.kt").unwrap();
+        assert_eq!(added_lines(&snap, now), "    val scale = 2");
+        assert!(!holds(&added_lines(&snap, now), "inJustDecodeBounds"));
+        let _ = std::fs::remove_file(snapshot_path(&sid, "a.kt"));
     }
 
     #[test]
