@@ -1576,6 +1576,15 @@ fn run(cli: Cli) -> Result<()> {
                         target = d.name.clone();
                     }
                     at_def = Some(d);
+                } else {
+                    // Outside every definition: say so, and name the
+                    // neighbours, so the answer is never notes alone.
+                    let (before, after) = memorycastle::code::defs_beside(&ctx.conn, pid, &target, line)?;
+                    let side = |d: &memorycastle::code::Def| format!("{} ({}) {}:{}-{}", d.name, d.kind, d.path, d.line, d.end);
+                    let near: Vec<String> = [before.as_ref().map(|d| format!("before: {}", side(d))), after.as_ref().map(|d| format!("after: {}", side(d)))].into_iter().flatten().collect();
+                    if !near.is_empty() {
+                        at_line = format!("at: line {line} is outside every definition; {}", near.join(", "));
+                    }
                 }
             }
             // Every lookup counts as shown this session, so the hooks' `--once`

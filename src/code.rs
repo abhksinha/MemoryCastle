@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "22";
+pub const CODE_VERSION: &str = "23";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -213,6 +213,29 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
             }
         }
     }
+    // Pass 4: JNI. Kotlin or Java `external fun nativeX` is implemented by
+    // a native `Java_<package>_<Class>_nativeX`; no call is written between
+    // them, so the edge comes from the name, rebuilt whole when anything
+    // changed (both sides can move).
+    if !changed.is_empty() {
+        tx.execute("DELETE FROM code_calls WHERE project_id = ?1 AND qual = 'jni'", params![project_id])?;
+        let natives: Vec<String> = {
+            let mut stmt = tx.prepare("SELECT DISTINCT name FROM code_defs WHERE project_id = ?1 AND kind = 'fn' AND name LIKE 'Java\\_%' ESCAPE '\\'")?;
+            let rows = stmt.query_map(params![project_id], |r| r.get::<_, String>(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        let mut find = tx.prepare_cached("SELECT path, line FROM code_defs WHERE project_id = ?1 AND name = ?2 AND kind = 'fn' AND (path LIKE ?3 OR path LIKE ?4)")?;
+        let mut ins = tx.prepare_cached("INSERT OR IGNORE INTO code_calls(project_id, src, caller, callee, line, qual) VALUES (?1, ?2, ?3, ?4, ?5, 'jni')")?;
+        for native in natives {
+            let Some((class_path, method)) = jni_target(&native) else { continue };
+            let rows: Vec<(String, i64)> = find
+                .query_map(params![project_id, method, format!("%{class_path}.kt"), format!("%{class_path}.java")], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            for (path, line) in rows {
+                st.calls += ins.execute(params![project_id, path, method, native, line])?;
+            }
+        }
+    }
     if !changed.is_empty() {
         st.mentions -= tx.execute(
             "DELETE FROM code_mentions WHERE project_id = ?1 AND name IN (SELECT name FROM code_mentions WHERE project_id = ?1 GROUP BY name HAVING count(*) > ?2)",
@@ -222,6 +245,37 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
     tx.commit()?;
     st.ms = t.elapsed().as_secs_f64() * 1000.0;
     Ok(st)
+}
+
+/// `Java_com_app_bridge_RustBridge_nativeX` as (`com/app/bridge/RustBridge`,
+/// `nativeX`): JNI's mangling, `_1` an underscore in a name, `__` the start
+/// of an overload's signature. Unicode escapes (`_0xxxx`) give up.
+pub fn jni_target(name: &str) -> Option<(String, String)> {
+    let rest = name.strip_prefix("Java_")?;
+    let rest = rest.split("__").next()?;
+    let mut parts: Vec<String> = Vec::new();
+    let mut cur = String::new();
+    let mut it = rest.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '_' {
+            cur.push(c);
+            continue;
+        }
+        match it.peek() {
+            Some('1') => {
+                it.next();
+                cur.push('_');
+            }
+            Some('0') | Some('2') | Some('3') => return None,
+            _ => parts.push(std::mem::take(&mut cur)),
+        }
+    }
+    parts.push(cur);
+    if parts.len() < 2 || parts.iter().any(|p| p.is_empty()) {
+        return None;
+    }
+    let method = parts.pop()?;
+    Some((parts.join("/"), method))
 }
 
 pub(crate) fn ext_of(path: &str) -> &str {
@@ -392,7 +446,7 @@ const DEF_KEYWORDS: &[(&str, &str)] = &[
     ("class", "type"), ("struct", "type"), ("enum", "type"), ("trait", "type"), ("interface", "type"), ("object", "type"), ("type", "type"), ("protocol", "type"), ("typealias", "type"),
     ("const", "const"), ("static", "const"), ("val", "val"), ("macro_rules!", "fn"), ("module", "type"),
 ];
-const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe", "extern", "export", "default", "private", "public", "protected", "internal", "override", "open", "abstract", "final", "suspend", "inline", "static", "data", "sealed", "const", "lateinit", "companion", "declare", "readonly"];
+const MODIFIERS: &[&str] = &["pub", "pub(crate)", "pub(super)", "async", "unsafe", "extern", "external", "tailrec", "operator", "infix", "actual", "expect", "inner", "mutating", "fileprivate", "convenience", "required", "export", "default", "private", "public", "protected", "internal", "override", "open", "abstract", "final", "suspend", "inline", "static", "data", "sealed", "const", "lateinit", "companion", "declare", "readonly"];
 
 const JS_MODS: &[&str] = &["public", "private", "protected", "static", "async", "readonly", "override", "abstract", "get", "set", "declare", "*"];
 const JS_NOT_METHODS: &[&str] = &["if", "for", "while", "switch", "catch", "function", "return", "with", "constructor", "super", "await", "typeof", "new", "else"];
@@ -548,6 +602,10 @@ pub fn definitions(path: &str, text: &str) -> Vec<Def> {
             // `const` and `static` are keywords when a name follows, modifiers when another keyword does.
             let next_bare = words.get(i + 1).map(|n| n.trim_end_matches([':', '(', '{'])).unwrap_or("");
             let next_is_kw = DEF_KEYWORDS.iter().any(|(k, _)| *k == next_bare) || MODIFIERS.contains(&next_bare);
+            // `extern "system" fn`: the ABI string is part of the modifier.
+            if w.starts_with('"') && i > 0 && words[i - 1] == "extern" {
+                continue;
+            }
             if w.starts_with('@') || w.starts_with("#[") || (MODIFIERS.contains(&bare) && (next_is_kw || !DEF_KEYWORDS.iter().any(|(k, _)| *k == bare))) {
                 continue;
             }
@@ -668,45 +726,119 @@ pub fn span_end(lines: &[&str], start: usize, py: bool) -> usize {
     }
     let mut depth: i32 = 0;
     let mut opened = false;
+    // Parentheses and brackets before the body opens: a parameter list
+    // over several lines (`fun f(\n  a: Int,\n): Boolean`).
+    let mut par: i32 = 0;
+    // After `=` outside the parameters: an expression body or initializer.
+    let mut expr = false;
+    // Inside a string that runs over lines (`"\` in Rust, `"""` in Kotlin).
+    let mut in_str = false;
+    // A Rust `where` clause runs until the body opens.
+    let mut in_where = false;
+    // The next line of code, past blank lines and comments (a `/**` doc
+    // block's `*` lines are not a multiplication).
+    let next_code = |i: usize| {
+        lines.iter().skip(i + 1).take(limit.saturating_sub(i)).map(|l| strip_strings_and_comments(l)).find(|c| {
+            let c = c.trim_start();
+            !c.is_empty() && !c.starts_with("/*") && !c.starts_with('*')
+        })
+    };
     for (i, l) in lines.iter().enumerate().take(limit + 1).skip(start) {
+        // Whether this line leaves a string open: quotes that are not
+        // escaped, not the character `'"'`, and not after a `//` comment.
+        let toggles = {
+            let cs: Vec<char> = l.chars().collect();
+            let mut inside = in_str;
+            let mut flips = false;
+            let mut k = 0;
+            while k < cs.len() {
+                let c = cs[k];
+                if !inside && c == '/' && cs.get(k + 1) == Some(&'/') {
+                    break;
+                }
+                let escaped = cs[..k].iter().rev().take_while(|&&b| b == '\\').count() % 2 == 1;
+                let char_lit = k > 0 && cs[k - 1] == '\'' && cs.get(k + 1) == Some(&'\'');
+                if c == '"' && !escaped && !char_lit {
+                    inside = !inside;
+                    flips = !flips;
+                }
+                k += 1;
+            }
+            flips
+        };
+        // The line a string closes on is read from its closing quote on.
+        let mut l = *l;
+        if toggles && !opened {
+            in_str = !in_str;
+            if in_str {
+                // The line that opens the string still counts up to it.
+                expr |= l.split('"').next().is_some_and(|h| h.contains('='));
+                continue;
+            }
+            l = l.split_once('"').map_or("", |(_, rest)| rest);
+        } else if in_str && !opened {
+            continue;
+        }
         let code = strip_strings_and_comments(l);
-        for c in code.chars() {
+        let mut prev = ' ';
+        let cs: Vec<char> = code.chars().collect();
+        for (k, &c) in cs.iter().enumerate() {
             match c {
+                // Braces inside brackets before the body are a value
+                // (`[Glyph { w: 1 }, ..]`), not the body.
+                '{' if !opened && par > 0 => par += 1,
+                '}' if !opened && par > 0 => par -= 1,
                 '{' => {
                     depth += 1;
                     opened = true;
                 }
                 '}' => depth -= 1,
+                '(' | '[' if !opened => par += 1,
+                ')' | ']' if !opened => par -= 1,
+                '=' if !opened && par <= 0 && !matches!(prev, '=' | '!' | '<' | '>') && !matches!(cs.get(k + 1), Some('=' | '>')) => expr = true,
                 _ => {}
             }
+            prev = c;
         }
         if opened && depth <= 0 {
             return i;
         }
-        if !opened && code.trim_end().ends_with(';') {
+        let t = code.trim_end();
+        if opened || par > 0 {
+            continue;
+        }
+        if t.ends_with(';') {
             return i;
         }
-        // An initializer opening a bracket (`static DOC: [..] = [`,
-        // `val routes = listOf(`) ends where that bracket closes: its lines
-        // are the table's, and the calls in them its calls.
-        if !opened && i == start && code.contains('=') && (code.trim_end().ends_with('[') || code.trim_end().ends_with('(')) {
-            let mut depth = 0i32;
-            for (j, l) in lines.iter().enumerate().take(limit + 1).skip(start) {
-                for c in strip_strings_and_comments(l).chars() {
-                    match c {
-                        '(' | '[' | '{' => depth += 1,
-                        ')' | ']' | '}' => depth -= 1,
-                        _ => {}
-                    }
-                }
-                if depth <= 0 {
-                    return j;
-                }
-            }
-            return limit.min(last);
+        if t.trim_start().starts_with("where") {
+            in_where = true;
         }
-        // Kotlin and Scala expression bodies: `fun f() = expr` with no brace.
-        if !opened && i == start && code.contains('=') && !code.trim_end().ends_with('=') && !code.trim_end().ends_with(',') && !code.trim_end().ends_with('(') {
+        if in_where {
+            continue;
+        }
+        // `val revision: Long,` in a constructor's list ends at its comma.
+        if t.ends_with(',') {
+            return i;
+        }
+        // What the next line opens with decides whether this one goes on:
+        // a body (`{`), a return type, a `where`, a chained call, an operator.
+        let next = next_code(i).map(|c| c.trim_start().to_string()).unwrap_or_default();
+        let carries_on = |n: &str| ["{", "=", ":", "->", "where", "throws", ".", "?.", "?:", "|", "&&", "||", "+", "-", "*", "/"].iter().any(|p| n.starts_with(p));
+        // Strings are blanked in `code`, so `val K = "a"` would look open.
+        let ends_in_literal = matches!(l.trim_end().chars().last(), Some('"' | '\'' | '`'));
+        let open_end = !ends_in_literal && ["=", ",", ".", "(", "[", "+", "-", "*", "/", "&&", "||", "?:", "->", "=>", ":"].iter().any(|p| t.ends_with(p));
+        if expr {
+            // `fun f() =\n    other(x)`: the expression ends on the first
+            // line that neither ends open nor is continued by the next.
+            if !open_end && !carries_on(&next) {
+                return i;
+            }
+            continue;
+        }
+        // The signature closed with no body and no `=`: a declaration
+        // (`external fun f(x: Int): Long`, `abstract fun g()`,
+        // `data class P(val a: Int)`), unless the next line opens one.
+        if !open_end && !carries_on(&next) && !t.is_empty() {
             return i;
         }
     }
@@ -781,6 +913,25 @@ pub fn def_enclosing(conn: &Connection, project_id: i64, path: &str, line: u32) 
         })
         .optional()?;
     Ok(d)
+}
+
+/// The definitions on either side of a line no definition holds (imports,
+/// a file header, the gap between two functions): the last one ending
+/// before it and the first one starting after it.
+pub fn defs_beside(conn: &Connection, project_id: i64, path: &str, line: u32) -> Result<(Option<Def>, Option<Def>)> {
+    let row = |r: &rusqlite::Row| {
+        let kind: String = r.get(2)?;
+        Ok(Def { path: r.get(0)?, name: r.get(1)?, kind: kind_str(&kind), line: r.get::<_, i64>(3)? as u32, end: r.get::<_, i64>(4)? as u32, anchor: r.get(5)? })
+    };
+    let before = conn
+        .prepare_cached("SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND path = ?2 AND end_line < ?3 ORDER BY end_line DESC, line ASC LIMIT 1")?
+        .query_row(params![project_id, path, line as i64], row)
+        .optional()?;
+    let after = conn
+        .prepare_cached("SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND path = ?2 AND line > ?3 ORDER BY line ASC LIMIT 1")?
+        .query_row(params![project_id, path, line as i64], row)
+        .optional()?;
+    Ok((before, after))
 }
 
 pub fn current_span(conn: &Connection, project_id: i64, root: &Path, d: &Def) -> Result<Option<(u32, u32)>> {
@@ -1045,6 +1196,35 @@ pub fn has_index(conn: &Connection, project_id: i64) -> Result<bool> {
 #[cfg(test)]
 mod span_tests {
     use super::*;
+    #[test]
+    fn jni_names_resolve_to_the_class_and_method() {
+        assert_eq!(jni_target("Java_com_app_bridge_RustBridge_nativeEncryptMediaFd"), Some(("com/app/bridge/RustBridge".into(), "nativeEncryptMediaFd".into())));
+        assert_eq!(jni_target("Java_a_B_native_1x__I"), Some(("a/B".into(), "native_x".into())));
+        assert_eq!(jni_target("Java_B"), None);
+        assert_eq!(jni_target("helper"), None);
+        let rs = "#[no_mangle]\npub extern \"system\" fn Java_a_B_nativeX(\n    env: JNIEnv,\n) -> jint {\n    0\n}\n";
+        let d = definitions("ffi.rs", rs);
+        assert_eq!(d.iter().map(|d| (d.name.as_str(), d.line, d.end)).collect::<Vec<_>>(), vec![("Java_a_B_nativeX", 2, 6)]);
+    }
+
+    #[test]
+    fn spans_end_without_braces() {
+        let end = |src: &str, start: usize| span_end(&src.lines().collect::<Vec<_>>(), start, false) + 1;
+        let kt = "object B {\n    external fun a(\n        x: Int,\n    ): ByteArray?\n    external fun b(): Long\n    fun c(x: Int): Boolean =\n        a(x) != null\n    private const val K = \"a_b\"\n\n    private const val M = 16\n}\n";
+        assert_eq!(end(kt, 1), 4, "external fun with parameters over lines");
+        assert_eq!(end(kt, 4), 5, "one-line external fun");
+        assert_eq!(end(kt, 5), 7, "expression body on the next line");
+        assert_eq!(end(kt, 7), 8, "one-line string constant");
+        let data = "data class P(\n    val a: Int,\n    val b: String = \"\",\n)\n";
+        assert_eq!(end(data, 0), 4);
+        assert_eq!(end(data, 1), 2, "a constructor property ends at its comma");
+        let rs = "const H: &str = \"\\\nline \\\"q\nend\";\nfn f<T>(x: T) -> u8\nwhere\n    T: Copy,\n{\n    1\n}\nstatic T: [G; 2] = [\n    G { w: 1 }, // \"\n    G { w: 2 },\n];\nconst D: usize = d!(\"\\\\\");\nconst E: u8 = 1;\n";
+        assert_eq!(end(rs, 0), 3, "a string over lines");
+        assert_eq!(end(rs, 3), 9, "a where clause");
+        assert_eq!(end(rs, 9), 13, "braces and a quote in a comment inside a table");
+        assert_eq!(end(rs, 13), 14, "an escaped backslash before a quote");
+    }
+
     #[test]
     fn lifetimes_do_not_open_strings() {
         let src = "fn page_key(page: &Page<'_>, compressed: bool) -> u128 {\n    let c = 'x';\n    let n = '\\n';\n    'outer: loop {\n        break 'outer;\n    }\n}\nfn next() {}\n";
@@ -1600,6 +1780,8 @@ pub fn call_confidence(qual: &str, unique: bool, same_file: bool, own: &HashSet<
         return call_confidence(q, unique, same_file, own, local, recv);
     }
     match qual {
+        // A JNI pair is named exactly: package, class and method.
+        "jni" => 1.0,
         "self" if same_file || unique => CALL_CONF_SELF,
         "self" if local => CALL_CONF_OTHER,
         // Another file's method on the same type (Rust splits an `impl`
