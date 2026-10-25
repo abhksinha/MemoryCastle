@@ -487,6 +487,23 @@ enum ProjectCmd {
     Group { name: String, group: Option<String> },
     /// Re-attach memory after a remote URL or path change.
     Relink,
+    /// The edit gate for this project, for every agent: `context` (the default) adds what is
+    /// known to the first edit of a file, `block` stops that edit once with it, `off` says nothing.
+    /// `MEMORYCASTLE_GATE` overrides it. With no mode, prints the current one.
+    Gate {
+        #[arg(value_parser = ["block", "context", "off"])]
+        mode: Option<String>,
+    },
+}
+
+/// The first `CONTEXT_ITEMS` entries, then "+N more".
+fn short_list(v: &[String]) -> String {
+    let k = memorycastle::limits::CONTEXT_ITEMS;
+    let mut s = v.iter().take(k).cloned().collect::<Vec<_>>().join(", ");
+    if v.len() > k {
+        s.push_str(&format!(" +{} more", v.len() - k));
+    }
+    s
 }
 
 fn main() {
@@ -676,6 +693,13 @@ fn run(cli: Cli) -> Result<()> {
                     return Err(format!("unknown project '{name}'").into());
                 }
                 println!("{name}: group {}", group.as_deref().unwrap_or("cleared"));
+            }
+            ProjectCmd::Gate { mode } => {
+                let id = ctx.require_project()?.id;
+                if let Some(m) = &mode {
+                    db::meta_set(&ctx.conn, &memorycastle::gate::mode_key(id), m)?;
+                }
+                println!("edit gate: {}", memorycastle::gate::mode(&ctx.conn, id)?);
             }
             ProjectCmd::Relink => {
                 let repo = ctx.repo.clone().ok_or("not inside a git repository")?;
@@ -1418,7 +1442,10 @@ fn run(cli: Cli) -> Result<()> {
                         "this session: {} search/links lookups, {} files edited{}",
                         st.usage.calls_session,
                         st.usage.edits_session,
-                        if st.usage.calls_session == 0 && st.usage.edits_session > 0 { " (edited without a lookup: run links on what you touch)" } else { "" }
+                        match st.usage.unlooked_session.len() {
+                            0 => String::new(),
+                            n => format!(", {n} of them with no links of your own: {}", short_list(&st.usage.unlooked_session)),
+                        }
                     );
                 }
                 if st.usage.served_notes > 0 {
@@ -1613,6 +1640,7 @@ fn run(cli: Cli) -> Result<()> {
                 _ => Vec::new(),
             };
             memorycastle::gate::mark(&ctx.conn, pid, &looked)?;
+            memorycastle::gate::mark_lookup(&ctx.conn, pid, &looked)?;
             // With no note, the code index still answers: what the file
             // defines and who uses it, or the definition the line sits in.
             let facts: Vec<String> = if notes.is_empty() && kind == graph::Kind::File {

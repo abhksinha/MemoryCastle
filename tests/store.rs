@@ -917,3 +917,24 @@ fn a_method_knows_its_owner_type() {
     assert_eq!(owned("a.py", "class Engine:\n    def run(self):\n        pass\n\ndef main():\n    pass\n"), vec![("run".into(), "Engine".into()), ("main".into(), String::new())]);
     assert_eq!(owned("a.kt", "class Repo {\n    fun load() {\n    }\n}\n"), vec![("load".into(), "Repo".into())]);
 }
+
+#[test]
+fn gate_mode_is_per_project_and_unlooked_edits_are_counted() {
+    let conn = db::open_memory().unwrap();
+    let p = project(&conn, "g", None);
+    if std::env::var_os("MEMORYCASTLE_GATE").is_none() {
+        assert_eq!(memorycastle::gate::mode(&conn, p.id).unwrap(), "context");
+        db::meta_set(&conn, &memorycastle::gate::mode_key(p.id), "block").unwrap();
+        assert_eq!(memorycastle::gate::mode(&conn, p.id).unwrap(), "block");
+    }
+    for f in ["src/a.rs", "src/b.rs"] {
+        conn.execute("INSERT INTO code_files(project_id, path, hash, lang) VALUES (?1, ?2, x'00', 'rust')", rusqlite::params![p.id, f]).unwrap();
+        conn.execute("INSERT INTO code_defs(project_id, path, name, kind, line) VALUES (?1, ?2, 'f', 'fn', 1)", rusqlite::params![p.id, f]).unwrap();
+    }
+    // Edits: two code files, a doc and a note; the agent looked up a.rs.
+    for f in ["src/a.rs", "src/b.rs", "README.md", "memorycastle/journal/x.md"] {
+        conn.execute("INSERT INTO edits(at, project_id, path, whole, range_bytes, session) VALUES (1, ?1, ?2, 0, 0, 's1')", rusqlite::params![p.id, f]).unwrap();
+    }
+    db::meta_set(&conn, "looked:s1:src/a.rs", "1").unwrap();
+    assert_eq!(memorycastle::gate::edited_unlooked(&conn, p.id, "s1").unwrap(), vec!["src/b.rs".to_string()]);
+}

@@ -408,6 +408,8 @@ pub struct Usage {
     pub calls_session: u64,
     /// Distinct files the `edits` ledger holds for the current session.
     pub edits_session: u64,
+    /// Of those, the files no `links` call of the agent's answered for.
+    pub unlooked_session: Vec<String>,
     pub saved_tokens_session: u64,
     pub saved_pct_session: f64,
     pub calls: u64,
@@ -643,6 +645,7 @@ pub fn usage_summary(conn: &Connection, project_id: i64) -> Result<Usage> {
         )?;
         u.calls_session = calls_s as u64;
         u.edits_session = conn.query_row("SELECT count(DISTINCT path) FROM edits WHERE project_id = ?1 AND session = ?2", params![project_id, sid], |r| r.get::<_, i64>(0))? as u64;
+        u.unlooked_session = crate::gate::edited_unlooked(conn, project_id, sid)?;
         u.saved_tokens_session = ((stood_s - served_s).max(0) as f64 / crate::limits::BYTES_PER_TOKEN) as u64;
         u.saved_pct_session = pct(served_s, stood_s);
     }

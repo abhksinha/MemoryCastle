@@ -44,11 +44,53 @@ pub fn mark(conn: &Connection, project_id: i64, items: &[String]) -> Result<()> 
     db::meta_set(conn, &key(&sid), &v.into_iter().cloned().collect::<Vec<_>>().join("\n"))
 }
 
+/// Records the files the agent itself looked up this session (a `links`
+/// call it ran, not one a hook ran for it), so `status` can say which edited
+/// files it never looked at. Kept apart from the gate's record, which the
+/// gate also fills.
+pub fn mark_lookup(conn: &Connection, project_id: i64, paths: &[String]) -> Result<()> {
+    if paths.is_empty() || db::is_readonly(conn) || std::env::var_os("MEMORYCASTLE_VIA").is_some() {
+        return Ok(());
+    }
+    let Some(sid) = store::current_session(conn, project_id)? else { return Ok(()) };
+    for p in paths {
+        db::meta_set(conn, &format!("looked:{sid}:{p}"), "1")?;
+    }
+    Ok(())
+}
+
+/// Code files (ones the index holds definitions for) edited this session
+/// that no `links` call of the agent's answered for.
+pub fn edited_unlooked(conn: &Connection, project_id: i64, sid: &str) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT e.path FROM edits e WHERE e.project_id = ?1 AND e.session = ?2 AND e.path NOT LIKE 'memorycastle/%'
+         AND EXISTS (SELECT 1 FROM code_defs d WHERE d.project_id = ?1 AND d.path = e.path)
+         AND NOT EXISTS (SELECT 1 FROM meta m WHERE m.key = 'looked:' || ?2 || ':' || e.path) ORDER BY e.path",
+    )?;
+    let v = stmt.query_map(rusqlite::params![project_id, sid], |r| r.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(v)
+}
+
 /// Forgets this session's record (after compaction).
 pub fn reset(conn: &Connection, project_id: i64) -> Result<()> {
     let Some(sid) = store::current_session(conn, project_id)? else { return Ok(()) };
     conn.execute("DELETE FROM meta WHERE key = ?1", [key(&sid)])?;
     Ok(())
+}
+
+/// The edit gate's mode, `block`, `context` or `off`: `MEMORYCASTLE_GATE`
+/// when set, else the project's `memcastle project gate` setting, so every
+/// agent's hook behaves the same in one repo, else `context`.
+pub fn mode(conn: &Connection, project_id: i64) -> Result<String> {
+    if let Ok(v) = std::env::var("MEMORYCASTLE_GATE") {
+        return Ok(v);
+    }
+    Ok(crate::db::meta_get(conn, &mode_key(project_id))?.unwrap_or_else(|| "context".into()))
+}
+
+/// The `meta` key holding a project's gate mode.
+pub fn mode_key(project_id: i64) -> String {
+    format!("gate_mode:{project_id}")
 }
 
 /// True when the gate stops the first edit (`MEMORYCASTLE_GATE=block`);
@@ -125,6 +167,12 @@ fn run(root: &Path, args: &[&str]) -> String {
 pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Option<u32>, exists: bool, new_text: Option<&str>) -> Result<Outcome> {
     if rel.starts_with("memorycastle/") || store::current_session(conn, project_id)?.is_none() {
         return Ok(Outcome::Pass);
+    }
+    match mode(conn, project_id)?.as_str() {
+        "off" => return Ok(Outcome::Pass),
+        // The project's setting reaches `blocking()` and the lookups this gate runs.
+        "block" => std::env::set_var("MEMORYCASTLE_GATE", "block"),
+        _ => {}
     }
     let have = seen(conn, project_id)?;
     let first_file = !have.contains(rel);
