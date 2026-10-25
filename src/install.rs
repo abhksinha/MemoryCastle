@@ -236,6 +236,36 @@ fn write_if(path: &Path, text: &str, dry: bool) -> Result<()> {
     std::fs::write(path, text).map_err(|e| err!("{}: {e}", path.display()))
 }
 
+/// Instruction files memorycastle itself wrote, as `path\tmtime` lines in
+/// the data dir: `changed` must not charge them to the agent's session (an
+/// `install` in a second terminal made the stop hook ask a note to name
+/// `CLAUDE.md`). Kept to the last `OWN_WRITES_KEPT` lines.
+const OWN_WRITES_KEPT: usize = 64;
+
+fn own_writes_path() -> std::path::PathBuf {
+    crate::sys::data_dir().join("own-writes.tsv")
+}
+
+fn mtime_secs(path: &Path) -> i64 {
+    std::fs::metadata(path).ok().and_then(|m| m.modified().ok()).and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+fn record_own_write(path: &Path) {
+    let Ok(abs) = std::fs::canonicalize(path) else { return };
+    let old = std::fs::read_to_string(own_writes_path()).unwrap_or_default();
+    let mut lines: Vec<String> = old.lines().filter(|l| l.split('\t').next() != abs.to_str()).map(String::from).collect();
+    lines.push(format!("{}\t{}", abs.display(), mtime_secs(&abs)));
+    let start = lines.len().saturating_sub(OWN_WRITES_KEPT);
+    let _ = std::fs::write(own_writes_path(), lines[start..].join("\n") + "\n");
+}
+
+/// Whether the file is as memorycastle last wrote it (same mtime).
+pub fn is_own_write(path: &Path) -> bool {
+    let Ok(abs) = std::fs::canonicalize(path) else { return false };
+    let want = format!("{}\t{}", abs.display(), mtime_secs(&abs));
+    std::fs::read_to_string(own_writes_path()).unwrap_or_default().lines().any(|l| l == want)
+}
+
 /// The memory section upserted into one instruction file, repo or user level.
 pub fn install_snippet(path: &Path, label: &str, o: &Options) -> Result<Step> {
     install_section(path, label, o, false)
@@ -253,6 +283,9 @@ fn install_section(path: &Path, label: &str, o: &Options, short: bool) -> Result
         (section, lead) => {
             let new = lead.unwrap_or(after);
             write_if(path, &new, o.dry_run)?;
+            if !o.dry_run {
+                record_own_write(path);
+            }
             let what = match section {
                 Some(_) if text.is_empty() => "memory section created",
                 Some(_) if text.contains("## Memory (memorycastle)") => "memory section refreshed",
