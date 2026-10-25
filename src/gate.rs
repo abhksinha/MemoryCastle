@@ -295,7 +295,16 @@ fn bash_grep(cmd: &str) -> Option<String> {
     for (s, piped) in segs {
         let words = shell_words(&s);
         let mut w = words.iter().map(String::as_str).peekable();
-        match w.next()? {
+        let mut head = w.next()?;
+        // A wrapper runs the command after it (`timeout 5 grep`, `env K=V grep`,
+        // `K=V grep`): skip it with its options, durations and assignments.
+        while matches!(head, "timeout" | "env" | "nice" | "sudo" | "command" | "time" | "exec") || head.contains('=') {
+            while w.peek().is_some_and(|a| a.starts_with('-') || a.contains('=') || a.starts_with(|c: char| c.is_ascii_digit())) {
+                w.next();
+            }
+            head = w.next()?;
+        }
+        match head {
             "git" if w.peek() == Some(&"grep") => {
                 w.next();
             }
@@ -427,6 +436,10 @@ mod tests {
         // Filtering output, and a command that already runs `links`, are not lookups.
         assert_eq!(grep_target(&ev("Bash", "command", "cargo test 2>&1 | grep failed")), None);
         assert_eq!(grep_target(&ev("Bash", "command", "memcastle links x; grep -rn call_lines src")), None);
+        assert_eq!(grep_target(&ev("Bash", "command", "timeout 5 grep -rn call_lines src")).as_deref(), Some("call_lines"));
+        assert_eq!(grep_target(&ev("Bash", "command", "env LC_ALL=C rg -n call_lines")).as_deref(), Some("call_lines"));
+        assert_eq!(grep_target(&ev("Bash", "command", "LC_ALL=C grep -rn call_lines src")).as_deref(), Some("call_lines"));
+        assert_eq!(grep_target(&ev("Bash", "command", "timeout 5 cargo test")), None);
         assert_eq!(grep_target(&ev("Bash", "command", "ls src || grep -rn xyz")).as_deref(), Some("xyz"));
         assert_eq!(grep_target(&ev("Bash", "command", "python3 - <<'EOF'\nimport os\nos.system('grep -rn call_lines src')\nEOF")), None);
         assert_eq!(grep_target(&ev("Grep", "pattern", "MatrixEnvKind::Matrix")), None);
