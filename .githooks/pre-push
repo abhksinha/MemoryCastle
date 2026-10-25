@@ -1,0 +1,22 @@
+#!/bin/sh
+# Refuse a push whose Cargo.lock does not match its Cargo.toml. CI builds
+# with --locked, so a version bump without the updated lock fails every job
+# (v0.11.36 and v0.11.45 shipped no binaries this way). Enabled per clone:
+#   git config core.hooksPath .githooks
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in *[!0]*) ;; *) continue ;; esac   # a deleted ref
+  toml=$(git show "$local_sha:Cargo.toml" 2>/dev/null | sed -n 's/^version = "\(.*\)"/\1/p' | head -1)
+  lock=$(git show "$local_sha:Cargo.lock" 2>/dev/null | awk '/^name = "memorycastle"$/ { getline; gsub(/version = |"/, ""); print; exit }')
+  if [ -n "$toml" ] && [ "$toml" != "$lock" ]; then
+    echo "pre-push: $local_ref: Cargo.toml says $toml, the committed Cargo.lock says $lock. Commit Cargo.lock." >&2
+    status=1
+  fi
+done
+# Dependencies changed without the lock: the same failure, caught from the
+# working tree (offline, no build, a few milliseconds).
+if ! cargo metadata --locked --offline --format-version 1 >/dev/null 2>&1; then
+  echo "pre-push: Cargo.lock is stale for Cargo.toml; run cargo build and commit Cargo.lock." >&2
+  status=1
+fi
+exit $status

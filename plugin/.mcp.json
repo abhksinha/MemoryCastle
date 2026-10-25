@@ -1,0 +1,5 @@
+{
+  "mcpServers": {
+    "memorycastle": { "command": "memorycastle", "args": ["mcp"] }
+  }
+}

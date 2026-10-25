@@ -1,0 +1,662 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>memorycastle: persistent memory that cuts AI coding agent API costs</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" type="image/svg+xml" href="logo/mark.svg">
+<meta name="description" content="Persistent memory for AI coding agents that cuts API costs: 48% lower on Claude Fable, 28% on Opus, 25% on Sonnet, half the turns, every answer right. One 6 MB binary, no LLM, no API key.">
+<meta name="keywords" content="AI coding agent memory, reduce LLM API costs, Claude Code memory, persistent memory, lower token usage, Codex, Cursor, Gemini CLI, MCP">
+<meta property="og:title" content="memorycastle: persistent memory that cuts AI coding agent API costs">
+<meta property="og:description" content="Persistent memory for AI coding agents that cuts API costs: 48% lower on Claude Fable, 28% on Opus, 25% on Sonnet, half the turns, every answer right. One 6 MB binary, no LLM, no API key.">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary">
+<style>
+/* Layout: a spec sheet. Slim sticky local nav, a short statement, then dense
+   label/content rows and tables in one 980px column, hairlines between rows. */
+:root {
+  --bg: #ffffff;
+  --bg-alt: #f5f5f7;
+  --fg: #1d1d1f;
+  --fg-2: #6e6e73;
+  --line: #d2d2d7;
+  --accent: #0066cc;
+  --nav: rgba(251,251,253,.82);
+  --kept: #1d1d1f;
+  --once: #0066cc;
+  --build: #8e44ad;
+  --removed: #248a3d;
+  --todo: #b25000;
+  --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000; --bg-alt: #161617; --fg: #f5f5f7; --fg-2: #a1a1a6; --line: #424245;
+    --accent: #2997ff; --nav: rgba(22,22,23,.8);
+    --kept: #f5f5f7; --once: #2997ff; --build: #c58af0; --removed: #30d158; --todo: #ff9f0a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #000000; --bg-alt: #161617; --fg: #f5f5f7; --fg-2: #a1a1a6; --line: #424245;
+  --accent: #2997ff; --nav: rgba(22,22,23,.8);
+  --kept: #f5f5f7; --once: #2997ff; --build: #c58af0; --removed: #30d158; --todo: #ff9f0a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 14px/1.5 var(--sans); letter-spacing: -.01em;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+code, .mono { font-family: var(--mono); font-size: .92em; }
+.wrap {
+  max-width: 980px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* Local nav */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--nav); }
+nav.local {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 9;
+  background: var(--nav); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 1px solid var(--line);
+}
+nav.local .wrap { display: flex; align-items: center; gap: 20px; height: 52px; }
+nav.local .name { font: 600 21px/1 var(--display); letter-spacing: -.02em; color: var(--fg); margin-right: auto; }
+nav.local .links { display: flex; gap: 18px; font-size: 12px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+nav.local .links a { color: var(--fg); opacity: .8; white-space: nowrap; }
+nav.local .links a:hover { opacity: 1; text-decoration: none; }
+.pill { display: inline-block; background: var(--accent); color: #fff; border-radius: 980px; padding: 4px 12px; font-size: 12px; white-space: nowrap; }
+.pill:hover { text-decoration: none; filter: brightness(1.08); }
+
+/* Statement */
+header.intro { padding-block: 44px 28px; border-bottom: 1px solid var(--line); }
+.eyebrow { font-size: 12px; font-weight: 600; color: var(--fg-2); letter-spacing: .02em; margin: 0 0 8px; }
+h1 { font: 600 40px/1.1 var(--display); letter-spacing: -.025em; margin: 0 0 12px; text-wrap: balance; max-width: 22ch; }
+.lede { font-size: 17px; line-height: 1.47; color: var(--fg-2); margin: 0; max-width: 66ch; }
+.lede strong { color: var(--fg); font-weight: 600; }
+
+/* Key figures */
+.figures { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 0; margin-top: 28px; border-top: 1px solid var(--line); }
+.fig { padding: 14px 16px 0 0; min-width: 0; }
+.fig + .fig { padding-left: 16px; border-left: 1px solid var(--line); }
+.fig b { display: block; font: 600 30px/1.1 var(--display); letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fig span { display: block; font-size: 12px; color: var(--fg-2); line-height: 1.35; margin-top: 4px; }
+
+/* Sections */
+section { padding-block: 36px; border-bottom: 1px solid var(--line); }
+section.alt { background: var(--bg-alt); }
+h2 { font: 600 28px/1.15 var(--display); letter-spacing: -.02em; margin: 0 0 6px; text-wrap: balance; }
+h2 + .sub { color: var(--fg-2); font-size: 15px; margin: 0 0 22px; max-width: 70ch; }
+h3 { font: 600 15px/1.3 var(--sans); margin: 0 0 6px; }
+p { margin: 0 0 10px; max-width: 72ch; }
+.muted { color: var(--fg-2); }
+.small { font-size: 12px; line-height: 1.45; }
+
+/* Spec rows: label | content */
+.spec { display: grid; grid-template-columns: 200px minmax(0,1fr); border-top: 1px solid var(--line); }
+.spec > dt, .spec > dd { margin: 0; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.spec > dt { font-weight: 600; padding-right: 20px; }
+.spec > dd { min-width: 0; }
+.spec > dd p:last-child { margin-bottom: 0; }
+
+/* Columns */
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 24px; }
+.cols.two { grid-template-columns: repeat(2, minmax(0,1fr)); }
+.cols > div { min-width: 0; }
+.cols p { font-size: 13px; }
+
+/* Tables */
+.table { overflow-x: auto; margin: 0 0 10px; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+th { font-weight: 600; color: var(--fg-2); font-size: 11.5px; vertical-align: bottom; }
+thead tr:first-child th { border-bottom: 0; padding-bottom: 0; }
+th.grp { text-align: center; color: var(--fg); border-bottom: 1px solid var(--line); }
+td.x { font-weight: 600; }
+tr.key td { font-weight: 600; }
+.wrap-cell { white-space: normal; text-align: left; min-width: 260px; }
+
+/* The 16 kinds of work */
+ol.work { list-style: none; margin: 0; padding: 0; counter-reset: w; border-top: 1px solid var(--line); columns: 2; column-gap: 32px; }
+ol.work li { counter-increment: w; break-inside: avoid; display: grid; grid-template-columns: 22px minmax(0,1fr) auto; gap: 2px 8px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+ol.work li::before { content: counter(w); color: var(--fg-2); font-variant-numeric: tabular-nums; font-size: 12px; padding-top: 1px; }
+ol.work .what { min-width: 0; }
+ol.work .how { grid-column: 2 / 4; color: var(--fg-2); font-size: 12px; line-height: 1.4; }
+.tag { font-size: 10.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; height: 18px; line-height: 16px; white-space: nowrap; align-self: start; }
+.t-kept { color: var(--kept); } .t-once { color: var(--once); } .t-build { color: var(--build); } .t-removed { color: var(--removed); } .t-todo { color: var(--todo); }
+.legend { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 0 0 14px; font-size: 12px; color: var(--fg-2); }
+.legend span { display: inline-flex; gap: 6px; align-items: center; }
+
+/* Pipeline */
+.pipe { display: grid; grid-template-columns: repeat(5, minmax(0,1fr)); gap: 0; margin: 0 0 22px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg); }
+.pipe > div { padding: 12px 14px; min-width: 0; position: relative; }
+.pipe > div + div { border-left: 1px solid var(--line); }
+.pipe b { display: block; font-size: 13px; margin-bottom: 2px; }
+.pipe span { display: block; font-size: 12px; color: var(--fg-2); line-height: 1.4; }
+.pipe i { font-style: normal; font-size: 11px; color: var(--fg-2); font-variant-numeric: tabular-nums; }
+ul.rules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 0 24px; border-top: 1px solid var(--line); }
+ul.rules li { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; min-width: 0; }
+ul.rules b { display: block; font-size: 13px; }
+
+/* Status marks */
+.st { font-size: 11px; font-weight: 600; white-space: nowrap; }
+.st.now { color: var(--removed); } .st.next { color: var(--once); } .st.plan { color: var(--todo); }
+ul.plain { margin: 0; padding-left: 18px; }
+ul.plain li { margin: 0 0 4px; }
+pre { background: var(--bg-alt); border-radius: 10px; padding: 12px 14px; overflow-x: auto; font: 12px/1.55 var(--mono); margin: 0 0 10px; }
+section.alt pre { background: var(--bg); }
+
+footer { padding-block: 22px 40px; font-size: 12px; color: var(--fg-2); }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; }
+
+@media (max-width: 860px) {
+  .figures { grid-template-columns: repeat(3, minmax(0,1fr)); }
+  .fig:nth-child(4) { padding-left: 0; border-left: 0; }
+  .fig:nth-child(n+4) { margin-top: 14px; border-top: 1px solid var(--line); }
+  .pipe { grid-template-columns: 1fr; }
+  .pipe > div + div { border-left: 0; border-top: 1px solid var(--line); }
+  ul.rules { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  ol.work { columns: 1; }
+}
+@media (max-width: 640px) {
+  h1 { font-size: 30px; }
+  h2 { font-size: 23px; }
+  .lede { font-size: 15px; }
+  nav.local .links { display: none; }
+  .figures { grid-template-columns: repeat(2, minmax(0,1fr)); }
+  .fig, .fig + .fig { padding-left: 0; border-left: 0; padding-right: 8px; }
+  .fig:nth-child(n+3) { margin-top: 14px; border-top: 1px solid var(--line); }
+  .fig:nth-child(even) { padding-left: 12px; border-left: 1px solid var(--line); }
+  .spec { grid-template-columns: 1fr; }
+  .spec > dt { border-bottom: 0; padding-bottom: 0; }
+  .cols, .cols.two { grid-template-columns: 1fr; }
+  ul.rules { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<nav class="local" aria-label="Sections">
+  <div class="wrap">
+    <a class="name" href="#top">memorycastle</a>
+    <div class="links">
+      <a href="#savings">Save on API costs</a>
+      <a href="#benchmark">Benchmark</a>
+      <a href="#how">How it works</a>
+      <a href="#honest">Numbers</a>
+      <a href="#moments">Moments</a>
+      <a href="#graph">Graph</a>
+      <a href="#cases">Case studies</a>
+      <a href="#story">Story</a>
+      <a href="#cost">Costs</a>
+      <a href="#terms">Terms</a>
+      <a href="#scope">Scope</a>
+      <a href="#start">Install</a>
+    </div>
+    <a class="pill" href="https://github.com/abhksinha/MemoryCastle">GitHub</a>
+  </div>
+</nav>
+
+<header class="intro" id="top">
+  <div class="wrap">
+    <p class="eyebrow">Open source · Apache-2.0 / MIT · macOS and Linux</p>
+    <h1>Memory for coding agents, written by the one who did the work.</h1>
+    <p class="lede">One <strong>6 MB Rust binary</strong>, one SQLite file, <strong>no LLM, no key, no server</strong>. Claude Code, Codex, Gemini CLI, Cursor and the rest forget everything between sessions. memorycastle keeps, per repository, what was decided, what was rejected, what was measured, and the exact lines of code it lives in. On five questions about the rushtex repository, every answer was right with and without it, and with memorycastle the same answers cost <strong>48% less</strong> on Fable, <strong>28%</strong> on Opus and <strong>25%</strong> on Sonnet, in half the turns.</p>
+    <div class="figures">
+      <div class="fig"><b>48%</b><span>lower API cost on Claude Fable 5.1, every answer right</span></div>
+      <div class="fig"><b>28%</b><span>lower on Opus 5.5</span></div>
+      <div class="fig"><b>25%</b><span>lower on Sonnet 5.5</span></div>
+      <div class="fig"><b>half</b><span>the agent turns on every model</span></div>
+      <div class="fig"><b>$292</b><span>saved per 1,000 questions on Fable</span></div>
+    </div>
+    <div class="figures">
+      <div class="fig"><b>6 MB</b><span>one binary, one SQLite file</span></div>
+      <div class="fig"><b>0</b><span>tokens to index a note: no LLM, no API key</span></div>
+      <div class="fig"><b>~600</b><span>tokens of fixed context per session</span></div>
+      <div class="fig"><b>&lt;1 ms</b><span>keyword search, local</span></div>
+      <div class="fig"><b>7</b><span>agents: Claude Code, Codex, Gemini CLI, Cursor and more</span></div>
+    </div>
+    <p class="small muted" style="margin-top:14px">How the saving happens is under <a href="#savings">Save on API costs</a>; the run behind it under <a href="#benchmark">the benchmark</a>.</p>
+<pre style="margin-top:18px">curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
+memcastle install</pre>
+    <p class="muted" style="margin:0">Two lines. The second finds every agent on the machine and wires it. Restart the agents.</p>
+  </div>
+</header>
+
+<section id="savings" class="alt">
+  <div class="wrap">
+    <h2>Cut AI coding agent API costs by up to 48%</h2>
+    <p class="sub">Claude Code, Codex, Gemini CLI and Cursor bill by the token, and most of those tokens go into rediscovering what the project already knows. memorycastle gives every coding agent a persistent memory of the repository, so it pays for the answer, not for the search. On Claude Fable 5.1 it lowered the API bill by 48%, on Opus 5.5 by 28% and on Sonnet 5.5 by 25%, with every answer right.</p>
+
+    <h3 style="margin-top:22px">Where the API bill goes</h3>
+    <p>Each turn of an agent sends its whole context back to the model. A question about code that the agent answers by searching costs a turn for every grep, every file it opens and every guess it corrects, and each turn re-reads everything before it. On a large model each of those turns is billed at a large model's price. The expensive part is rarely the answer; it is the loop that finds it.</p>
+
+    <h3 style="margin-top:26px">How persistent memory lowers it</h3>
+    <dl class="spec">
+      <dt>Decisions answered in one call</dt>
+      <dd>What the project decided, rejected and measured is written down by the agent that did the work, with the numbers. The next agent finds the note instead of re-deriving the decision from code, comments and history.</dd>
+      <dt>Exact lines, not whole files</dt>
+      <dd><code>memcastle links</code> returns where a function is defined (<code>path:start-end</code>), every caller and the notes about it. The agent reads 40 lines instead of a 1,000-line file and skips the grep-and-read rounds.</dd>
+      <dt>No repeated mistakes</dt>
+      <dd>The costliest tokens are the ones spent rebuilding something the project already tried and rejected. The memory puts that rejection in front of the agent before it starts.</dd>
+      <dt>Half the turns</dt>
+      <dd>In the benchmark the agents needed half as many turns on every model: 45 to 21 on Fable, 30 to 15 on Opus, 21 to 12 on Sonnet. Fewer turns means fewer times the context is billed.</dd>
+      <dt>No LLM of its own, no API key</dt>
+      <dd>Indexing and search run locally in a 6 MB binary with a small embedding model on the CPU. Saving a note costs 0 tokens; the only cost to the agent is about 600 tokens of fixed context per session.</dd>
+    </dl>
+
+    <h3 style="margin-top:26px">What it means in dollars</h3>
+    <div class="table">
+      <table>
+        <thead><tr><th>Per 1,000 questions</th><th>Without memorycastle</th><th>With memorycastle</th><th>Saved</th></tr></thead>
+        <tbody>
+          <tr><td>Fable 5.1</td><td>$611</td><td>$319</td><td class="x">$292 (48%)</td></tr>
+          <tr><td>Opus 5.5</td><td>$154</td><td>$110</td><td class="x">$44 (28%)</td></tr>
+          <tr><td>Sonnet 5.5</td><td>$66</td><td>$50</td><td class="x">$16 (25%)</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted">Projected from the benchmark below: the cost Claude Code reported for five questions, scaled to a thousand. A team asking its agents a few hundred questions a day about a large codebase reaches a thousand within a week.</p>
+    </div>
+
+    <h3 style="margin-top:26px">The larger the model, the larger the saving</h3>
+    <p>The memory's cost is fixed and small; what it saves is turns, and a turn costs more on a larger model. That is why the saving rose from 25% on Sonnet to 48% on Fable, and why the most expensive question in the run, $1.22 on Fable without memory, cost $0.41 with it. The saving is smallest on a short lookup that grep answers in two turns, and largest on questions with history behind them in a large repository.</p>
+  </div>
+</section>
+
+<section id="benchmark">
+  <div class="wrap">
+    <h2>Claude with and without memorycastle</h2>
+    <p class="sub">Five questions about the rushtex repository, worded unlike its notes: three ask whether to do something the project already decided against, two ask for the callers of a function. Claude Code ran headless with no user settings, memorycastle 1.0.0, 2026-10-25, two arms per model on the same repository with its journal notes on disk:</p>
+    <ul class="small">
+      <li><b>Without memorycastle</b>: the code and the notes, to grep and read.</li>
+      <li><b>With memorycastle</b>: the same files plus the plugin, its rules and the store.</li>
+    </ul>
+    <div class="figures" style="margin:26px 0">
+      <div class="fig"><b>&minus;48%</b><span>Fable 5.1 cost, $3.06 to $1.60</span></div>
+      <div class="fig"><b>&minus;28%</b><span>Opus 5.5 cost, $0.77 to $0.55</span></div>
+      <div class="fig"><b>&minus;25%</b><span>Sonnet 5.5 cost, $0.33 to $0.25</span></div>
+      <div class="fig"><b>half</b><span>the turns on every model</span></div>
+      <div class="fig"><b>30 of 30</b><span>answers right, in both arms</span></div>
+    </div>
+
+    <h3>Results by model</h3>
+    <div class="table">
+      <table>
+        <thead><tr><th>Model</th><th>Without memorycastle</th><th>With memorycastle</th><th>Cost saved</th><th>Turns</th><th>Time</th></tr></thead>
+        <tbody>
+          <tr><td>Fable 5.1</td><td>$3.056</td><td>$1.595</td><td class="x">48%</td><td>45 / 21</td><td>223 s / 168 s</td></tr>
+          <tr><td>Opus 5.5</td><td>$0.768</td><td>$0.550</td><td class="x">28%</td><td>30 / 15</td><td>125 s / 76 s</td></tr>
+          <tr><td>Sonnet 5.5</td><td>$0.331</td><td>$0.249</td><td class="x">25%</td><td>21 / 12</td><td>49 s / 49 s</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted">Cost is the dollar figure Claude Code reports for each run, five questions together. Turns and time are without / with memorycastle.</p>
+    </div>
+
+    <h3 style="margin-top:26px">Cost saved per question</h3>
+    <div class="table">
+      <table>
+        <thead><tr><th>Question</th><th>Fable 5.1</th><th>Opus 5.5</th><th>Sonnet 5.5</th></tr></thead>
+        <tbody>
+          <tr><td>n1 the profiler blames node storage: optimise it?</td><td>28%</td><td>12%</td><td>30%</td></tr>
+          <tr><td>n2 grow the font storage by doubling?</td><td>53%</td><td>16%</td><td>1%</td></tr>
+          <tr><td>n3 swap the compressor for a faster one?</td><td>67%</td><td>45%</td><td>40%</td></tr>
+          <tr><td>n4 callers of <code>find_font</code></td><td>33%</td><td>25%</td><td>33%</td></tr>
+          <tr><td>n5 callers of <code>tex_line_break</code>, and its cache</td><td>19%</td><td>35%</td><td>4%</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted">Every question was cheaper with memorycastle on every model. The saving grows with the price of the model: each turn the memory saves costs more on a larger model.</p>
+    </div>
+
+    <h3 style="margin-top:26px">How to use <code>links</code></h3>
+    <p>Run it before an edit, on the function or file about to change: <code>memcastle links render::search</code>. One call returns where the definition is (<code>path:start-end</code>), every caller with every line it calls from, what it calls, and the notes and decisions about it. Read the printed range, not the file; edit the call lines it lists; respect the decisions it quotes.</p>
+    <pre>defined: src/tripwire.rs:161-196  (fn)
+   called by: 2  check src/gate.rs:164 0.7, run src/main.rs:1185,1257 0.7; complete for direct calls, not through traits, macros or pointers
+memorycastle/journal/2026-10-22-rejected-approach-tripwire.md  An edit that brings back an approach a linked note rejected is told so
+   decision   ...</pre>
+
+    <dl class="spec" style="margin-top:22px">
+      <dt>Method</dt>
+      <dd>Claude Code in headless mode with no user settings, one run per arm and question, each in a fresh copy of the repository, every run starting with a cold prompt cache. An answer is right when it reaches the recorded decision; for n4 and n5 it must also name the call sites.</dd>
+      <dt>Scope</dt>
+      <dd>Each question is a fresh session, so the plugin's fixed context is paid on every question; in a working session it is paid once.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="how" class="alt">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">Four steps, nothing invented. The notes are the memory. Everything else is derived from them and can be rebuilt from the repository alone.</p>
+    <dl class="spec">
+      <dt>1. The agent writes a note</dt>
+      <dd>At the end of a task that changed a decision: Context, Decision, Rejected, Measured, in <code>memorycastle/journal/</code>, committed with the code. Written in the session that did the work, with the numbers still in hand.</dd>
+      <dt>2. The store indexes it</dt>
+      <dd>Split by heading, indexed for keywords with SQLite FTS5, embedded with a local EmbeddingGemma 2 model, int8, on the CPU. No API key, no network after the first download.</dd>
+      <dt>3. A question gets a paragraph and a line range</dt>
+      <dd>Keyword and meaning results are fused, judged for confidence, and reranked by what the note declares it is about. Each hit names the lines of the note that matched, each part with its own confidence, and the answer ends with <code>path:start-end</code> spans of code: the lines to read, not the files. It learns from use: a note read after a search that ranked it lower keeps the question, so the next wording finds it first.</dd>
+      <dt>4. Hooks keep it honest</dt>
+      <dd>Recall on every prompt, the right notes before every edit, a read guard, a silent read ledger, and the note asked for at the moments it is due. In Claude Code, Codex, Gemini CLI and Cursor.</dd>
+    </dl>
+
+    <h3 style="margin-top:26px">The answer: a fixed grammar, for eyes and parsers alike</h3>
+    <p>A hit line with the note's matching lines, confidence and section, then <code>label value</code> fields, a blank line, then a lettered table of code spans to read first. By default a hit is one line, the note's Decision sentence and <code>lines</code>: the note's other matching parts, each with its own confidence, so the agent reads those lines and not the whole note. On 83 title questions the Decision section was among them 76 times; the hit line alone pointed at it 20 times. <code>--sections</code> opens the one you picked.</p>
+<pre>$ memcastle search "should search stem words with the porter tokenizer"
+1. memorycastle/journal/2026-10-20-ranking-stem-prefix-not-porter.md:13-14   0.71   Rejected
+   decision   The three benchmark notes were forgotten (not
+              purged) from the real project store.
+   lines      13-14 0.71 Rejected, 9-10 0.53 Decision,
+              17 0.50 Measured
+
+read first (5 spans, 5.5 KB; sed -n 'a,bp' path):
+   a. src/fts.rs:113-119    a_plain_word_also_matches_b…  0.95
+   b. src/search.rs:506-517 stem                          0.95</pre>
+
+    <h3 style="margin-top:26px">Memory that says "check me": a note knows when its code changed</h3>
+    <p>At save, the store hashes the body of every function the note names. At search, a note whose function has since changed is labelled and ranked under one whose code still matches. Deterministic: the hash then against the hash now. The agent is told to read those lines before trusting the paragraph.</p>
+<pre>1. ...honest-savings.md:71   0.82   Open
+2. ...constant-uses.md:6     0.77   Context  code changed since: is_identifier_use</pre>
+  </div>
+</section>
+
+<section id="honest">
+  <div class="wrap">
+    <h2>A number that can go down</h2>
+    <p class="sub">The status line shows tokens saved this session. It is not a running total. Every time it draws, it is recomputed from the ledger for the whole session.</p>
+<pre>saved = bytes the printed spans stood in for
+        − bytes of those reads
+        − bytes of every lookup this session printed</pre>
+    <p>It falls when a lookup leads to no read, since the third term grows and nothing offsets it, and when a guided read is followed by reading the same file whole, which is cancelled and counted. It rises when a printed span stands in for a file the agent would have read. Idle time, saving notes and silent hooks never move it. A number that can go down is one you can believe when it goes up; if it turns negative, the tool costs more than it saves and the status line says so.</p>
+
+  </div>
+</section>
+
+<section id="moments" class="alt">
+  <div class="wrap">
+    <h2>The note happens at the moments it is due</h2>
+    <p class="sub">No human reminds the agent. The hooks do, from the edits ledger, not from reading the chat, so they cannot nag when nothing was edited.</p>
+    <dl class="spec">
+      <dt>Every prompt</dt>
+      <dd><p><strong>Happens.</strong> Recall: when the journal is confident about the topic, one line per note with its Decision sentence, each note once per session. Mid-session, once, when five files were edited or thirty minutes passed since the last note, then quiet for thirty minutes.</p><p class="muted"><strong>Why then.</strong> The session that would not have searched still sees the note; the one that searches sees nothing new.</p></dd>
+      <dt>After a commit</dt>
+      <dd><p><strong>Happens.</strong> One line with the files edited since the last note; the agent writes it or ignores it.</p><p class="muted"><strong>Why then.</strong> A task just closed and the facts are still in context.</p></dd>
+      <dt>Before compaction</dt>
+      <dd><p><strong>Happens.</strong> The agent is held once with the reason and a draft; the second attempt passes, so nothing can wedge.</p><p class="muted"><strong>Why then.</strong> The why is about to be summarised away.</p></dd>
+      <dt>At stop</dt>
+      <dd><p><strong>Happens.</strong> The same hold, once. If no decision was made, the agent says so and stops.</p><p class="muted"><strong>Why then.</strong> The turn is ending; after it, nobody writes the note.</p></dd>
+    </dl>
+    <p class="small muted" style="margin-top:14px">Claude Code through its plugin; Codex, Gemini CLI and Cursor through <code>memcastle hook</code>, wired by <code>install</code>. Copilot, OpenCode and Antigravity have no hook surface and get the instructions and the tools.</p>
+  </div>
+</section>
+
+<section id="graph">
+  <div class="wrap">
+    <h2>Where it is, who calls it, what we said about it. One call.</h2>
+    <p class="sub">Every save reads the note for the files and symbols it names in backticks and keeps them as edges. Every checkout gets a code index: definitions with their end line, imports and call edges by name, built by scanning lines, with no parser, no model and no LLM.</p>
+    <p>Languages: Rust, Kotlin, Java, Python, TypeScript and JavaScript, Go, Swift, Ruby, PHP, C# and C/C++. C is read by its own grammar and finds 98% of what <code>ctags</code> finds on six real C and C++ trees; Go, Java, TypeScript and Python find 99% to 100% of the functions and types their own parsers find. <code>links</code> answers from both at once, and from the code alone when no note exists yet.</p>
+    <dl class="spec" style="margin-top:16px">
+      <dt>To edit a function</dt>
+      <dd>
+        <p><strong>Run</strong> <code>memcastle links upsert_snippet</code></p>
+<pre>defined: src/install.rs:116-120  (fn)
+   called by: 6  install_section src/install.rs:248 0.9, snippet_added_refreshed_and_left_alone src/install.rs:714 0.9 +4 more
+   calls: 1  upsert_section</pre>
+        <p><strong>Read it as.</strong> Read those five lines, not the 760-line file. The callers are what you will break; the tests are named so you know which ones to run. The number after a caller is how likely that call reaches this definition, measured on history: when a signature changed, the share of call sites the same commit updated. 1.0 for <code>self.f(</code> or a bare call in the same file, 0.9 for a name defined once, down to 0.2; under 0.3 a call is counted, not listed.</p>
+      </dd>
+      <dt>To know what was decided about the code at a line</dt>
+      <dd>
+        <p><strong>Run</strong> <code>memcastle links src/install.rs --at 236</code></p>
+<pre>at: install_section (fn) src/install.rs:246-266 holds line 254
+memorycastle/journal/2026-10-20-fixed-cost-and-rare-identifiers.md  Every repo file gets the short section ...
+   decision   `install_repo` writes the short section into `AGENTS.md` too, not only `CLAUDE.md` and `GEMINI.md`.
+   lines      9-11 Decision</pre>
+        <p><strong>Read it as.</strong> The function holding that line, then the notes, the first two with their Decision sentence and every one with <code>lines</code>: the sections that name it, so you read lines 9 to 11 and not the note. A function longer than 150 lines is narrowed to the block holding the line.</p>
+      </dd>
+      <dt>The exact lines to read before changing a signature</dt>
+      <dd>
+        <p><strong>Run</strong> <code>memcastle links narrow_span --context</code></p>
+<pre>defined: src/code.rs:888-958  (fn)
+   called by: 2  narrows_a_wide_function_to_the_arm_holding_the_line src/code.rs:989 0.9, run src/main.rs:1360 0.7
+   calls: 3  ext_of, span_end, strip_strings_and_comments
+   read: src/limits.rs:125-125  SPAN_WIDE  uses constant
+   read: src/code.rs:986-995  narrows_a_wide_function_to_the_arm_holding_the_line  calls narrow_span 0.9
+   read: src/main.rs:1357-1363  run  calls narrow_span 0.7</pre>
+        <p><strong>Read it as.</strong> The definition span, its scored callers, the constants its body uses, and one <code>read:</code> span per call site with its confidence. Read those lines and you have seen every call. A method name defined on several types is split by the receiver: <code>self.e.nodes.store(</code> goes to <code>Nodes::store</code> because a field is declared <code>nodes: Nodes</code>. <code>--all</code> lists every caller and call site, uncapped; <code>--json</code> gives the same callers with their scores to a script.</p>
+      </dd>
+      <dt>A file no note has mentioned</dt>
+      <dd>
+        <p><strong>Run</strong> <code>memcastle links src/draft.rs</code></p>
+        <p><strong>You get</strong> what it defines, who imports it, who uses it. Three lines, from the code index.</p>
+        <p><strong>Read it as.</strong> The graph works on day one of a repo with an empty journal. Notes add the why on top.</p>
+      </dd>
+    </dl>
+
+    <h3 style="margin-top:26px">Why it helps, and what it does not do</h3>
+    <dl class="spec">
+      <dt>Helps: reading less</dt>
+      <dd>A definition is 5 to 70 lines; the file around it is 700 to 1,300. The ledger on this repo: 24 reads guided by a span read 50 KB of files that total 956 KB.</dd>
+      <dt>Helps: knowing before breaking</dt>
+      <dd>Callers come with the definition, so a signature change is a list, not a search. Twice in one day an answer disagreed with what the agent believed; both times the answer was right and a bug was found.</dd>
+      <dt>Helps: names you do not have</dt>
+      <dd>A grep needs the exact identifier. <code>links</code> takes a file and a line, or a symbol, and the notes about it come without any text match, because the save made the edge.</dd>
+      <dt>Helps: change detection</dt>
+      <dd>A note stores the hash of each definition it names; when the body changes, search labels the note <code>code changed since</code> and ranks it under one whose code did not move.</dd>
+      <dt>Does not: resolve dispatch</dt>
+      <dd>A call through a trait, a macro or a dynamic dispatch is not resolved. Edges are by name. For an exact call graph use a language server; this is the 2 ms answer that is right often enough to read first.</dd>
+      <dt>Does not: infer</dt>
+      <dd>No edge is guessed from similarity. A file is linked to a note because the note named it. The HTML view in <code>memorycastle/graph/</code> draws exactly the rows in the TSVs.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="cases" class="alt">
+  <div class="wrap">
+    <h2>Case studies: one working session, recorded as it happened</h2>
+    <p class="sub">On 2026-10-25, with release 0.11.52 just installed, the agent that builds memorycastle used it on three real code bases: a private messaging app (930 files of Rust, Kotlin and TypeScript), rushtex (a TeX engine in Rust) and memorycastle itself. Below are the commands it ran, the output it got, the byte counts, and what it would have taken without the tool. The two cases where the tool fell short are included.</p>
+    <dl class="spec">
+      <dt>1. Who calls this method, and whose method is it?</dt>
+      <dd>
+        <p><strong>Ran</strong> <code>memcastle links BapCodec::encode_hybrid_auth_proof</code> in the messaging app</p>
+<pre>defined: crates/dcp-core/src/bap.rs:376-391  (fn in BapCodec)
+   called by: 5  hybrid_proof_is_exact_bounded_and_versioned crates/dcp-core/src/bap.rs:639 0.7,
+                 create_hybrid_auth_proof crates/mobile-core/src/bap_auth_client.rs:151 0.7,
+                 create_hybrid_auth_proof_frame crates/mobile-core/src/bap_auth_client.rs:186 0.7, +2 more
+   calls: 1  reserve_frame</pre>
+        <p><strong>Result.</strong> 617 bytes: the span to read, the type that owns the method, every caller named by the function it sits in, and what it calls. A grep for the same name returned 732 bytes of matching lines, and the reader still had to work out which function each line belongs to. The caller list matched grep's call sites one for one.</p>
+      </dd>
+      <dt>2. The agent guessed the name wrong</dt>
+      <dd>
+        <p><strong>Ran</strong> <code>memcastle links encode_hybrid_proof</code></p>
+<pre>no notes link to encode_hybrid_proof
+   no definition named encode_hybrid_proof; nearest by its words: encode_hybrid_auth_proof crates/dcp-core/src/bap.rs:377-391 fn, ...</pre>
+        <p><strong>Result.</strong> 272 bytes and the right name on the first line. A grep for the guessed name finds nothing and leaves the agent to guess again. The suggestion is printed only when the guessed name's words all appear in the real one, so a wild guess gets silence, not a wrong lead.</p>
+      </dd>
+      <dt>3. One name, ten definitions</dt>
+      <dd>
+        <p><strong>Ran</strong> <code>memcastle links verify</code> in the messaging app</p>
+<pre>defined: crates/call-control/src/auth.rs:41-62  (fn in TokenAuthenticator)
+defined: crates/call-control/src/reconnect_grant.rs:72-128  (fn in ReconnectGrantIssuer)
+defined: crates/call-crypto/src/authenticated_handshake.rs:135-151  (fn)
+defined: crates/dcp-pq-fips204/src/mldsa.rs:342-405  (fn)
+...</pre>
+        <p><strong>Result.</strong> Each definition carries the type it belongs to, so <code>TokenAuthenticator::verify</code> and <code>ReconnectGrantIssuer::verify</code> read apart at a glance, and <code>links TokenAuthenticator::verify</code> prints only that one. Across names with two or more definitions, a qualified lookup now prints exactly one definition 86% of the time on the messaging app and 98% on rushtex, up from 58% on both.</p>
+      </dd>
+      <dt>4. A plain grep, answered before it ran</dt>
+      <dd>
+        <p><strong>Ran</strong> <code>grep -rn skip_generics src</code> in memorycastle</p>
+<pre>memorycastle answered this search with `links skip_generics` (once; the same search runs if you retry it):
+defined: src/code.rs:2146-2166  (fn)
+   called by: 1  owners src/code.rs:2107 0.9; complete for direct calls, not through traits, macros or pointers</pre>
+        <p><strong>Result.</strong> The hook saw a search for one name the code defines and returned the definition and its only caller instead. It fires once per name per session; a second identical grep runs normally. Replayed over 14,410 past greps it fired on 0.8% of them, about seven in eight genuine name lookups.</p>
+      </dd>
+      <dt>5. Editing a file with history</dt>
+      <dd>
+        <p><strong>Happened</strong> on the first edit of <code>src/db.rs</code>, with no command typed</p>
+<pre>memorycastle: src/db.rs; what is known about it (read the ranges that matter):
+memorycastle/journal/2026-10-25-method-owner.md  Each method knows its owner type ...
+   decision   Schema v29: `code_defs.owner`, filled at index time by `code::owners` ...</pre>
+        <p><strong>Result.</strong> The decision the edit was about to touch arrived with the edit, in two lines. After the commit, the same hooks pointed out that the session's note did not list two of the files changed for it; the note was corrected before the session moved on.</p>
+      </dd>
+      <dt>6. Using it found a bug in it</dt>
+      <dd>
+        <p><strong>Happened</strong> on the first session start after upgrading to 0.11.51: <code>table code_defs has no column named owner</code></p>
+        <p><strong>Result.</strong> Several memorycastle processes start together at session start, and the schema upgrade ran without a lock, so one process undid part of another's upgrade. Release 0.11.52 runs every upgrade under the database's write lock and repairs a store that 0.11.51 left in that state. Eight processes started at once, three times, upgraded cleanly. The fix shipped the same hour.</p>
+      </dd>
+      <dt>7. Where it fell short: a very common name</dt>
+      <dd>
+        <p><code>links verify</code> printed 3.6 KB for its ten definitions, most of it the same "+51 by name only" count repeated under each. The definitions and owners are the useful part. <strong>Fixed in 1.0.0:</strong> the counts and the "complete for direct calls" note are said once after the definitions; the same lookup is 2.7 KB (&minus;26%).</p>
+      </dd>
+      <dt>8. Where it fell short: a question no note answers</dt>
+      <dd>
+        <p><code>memcastle search "why does BAP use a hybrid Ed25519 and ML-DSA proof"</code> ranked first, at 1.00, a bug-tracker line that names both algorithms but records no decision. No note in the messaging app explains that choice, and the honest answer is "nothing written down". A verbatim identifier counts as proof of relevance, which is what makes exact-name searches dependable, and here it lifted a mention over an absence. <strong>Changed in 1.0.0:</strong> such a hit now reads <code>1.00 ... name match, by meaning 0.40</code>, so the 1.00 is visibly a name, not an answer. A line saying "no note records a decision" was built and measured, and not shipped: on 182 gold questions that do have a recorded answer it fired on 51 (28%), and a narrower version on 15 (8%), while missing this very case. Word overlap cannot tell a note that mentions a topic from one that decides it.</p>
+      </dd>
+      <dt>Verdict</dt>
+      <dd>For navigating code, finding a definition, its owner, its callers and the notes about it, the tool answered in one call what otherwise takes a grep and a reading pass, and it recovered from wrong names. For decisions it is exactly as good as the notes behind it; where none exists, it should say so more plainly. Case 7 is fixed and case 8 is labelled; telling "mentions" from "decides" remains open.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="story">
+  <div class="wrap">
+    <h2>A week on a large project: Mira, a payments monorepo, three agents</h2>
+    <p class="sub">A made-up team, a real tool: every command and number below is what memorycastle does today. Mira's company has one big repository with 4,000 files, nine people, and AI coding agents that forget everything when a session ends.</p>
+    <dl class="spec">
+      <dt>How it started</dt>
+      <dd>
+        <p>Mira reads about memorycastle: a memory for AI coding agents. An agent writes down what it decided and why at the end of each task, and the next agent, on any machine, finds that note before it repeats the work. Fewer wrong turns, fewer tokens. What convinces her: it is one small Rust program, it uses Google's EmbeddingGemma 2 model to understand meaning, it runs fully offline once installed, it needs no account and no API key, and it uses a fraction of the memory of the alternatives. She tries it on her own laptop:</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
+memcastle install</pre>
+        <p>The second command finds Claude Code, Codex and Cursor on her machine and connects each one. Inside the company repository it reads the 4,000 files and learns where every function is, in four seconds. It also reads her last month of agent chat logs, so the savings counter starts with a history instead of zero. There are no notes yet; her status line says <code>0 notes</code>.</p>
+      </dd>
+      <dt>Monday afternoon</dt>
+      <dd>Mira asks Claude to move "settlement retries" from a timed job to a queue. Forty minutes in, five files have changed, and memorycastle quietly tells Claude it owes a note. Claude writes it in the repository: the queue was chosen because retries must survive a deploy; a Redis stream was tried and dropped because it could not keep one customer's events in order; the slow-request number before and after. The note is a plain Markdown file. It is committed with the code, like any other file.</dd>
+      <dt>Tuesday</dt>
+      <dd>Dev, a teammate, pulls the repository and opens Codex. He asks it to "make settlement retries faster by batching". Before Codex answers, memorycastle shows it one line: Mira's note, with the sentence about the Redis stream that was rejected. Codex reads the forty lines of code the note points to and proposes batching inside the queue instead of adding a second stream. Nobody told Codex about Monday. The note did.</dd>
+      <dt>Wednesday</dt>
+      <dd>Priya edits a 2,400-line file that eleven notes mention. As her agent starts the edit, memorycastle finds the one function she is changing and shows only the two notes about that function, with the 180 lines it lives in. Her agent reads those, not the whole file. When it tries to read the whole file anyway, memorycastle stops it once and gives it the exact lines to read instead. Her status line that evening: <code>~41k (58%) this session</code>, tokens not spent.</dd>
+      <dt>Thursday</dt>
+      <dd>Someone rewrites that same function. The next time a search returns Priya's note, it is marked <code>code changed since: post_batch</code> and ranked below notes whose code is still the same. Her agent reads the new code before trusting the old note, finds the rule still holds, and writes a one-line note saying it checked. Mira's note about retries is untouched, because its code did not change.</dd>
+      <dt>Friday</dt>
+      <dd>A long session runs out of room, and the agent is about to compress its own memory of the conversation. memorycastle holds it once and asks for the note first, with a draft already filled in from the files it edited. The agent writes the decision and the numbers while it still remembers them, saves, and carries on. The status line shows the week: <code>~310k (66%) last 7 sessions</code>. On Friday that number fell by 3k while an agent searched four times for something nobody had written down. The team sees that too, and someone writes the missing note.</dd>
+      <dt>What never happened</dt>
+      <dd>Nobody set up a server, pasted a key, uploaded a chat log, or explained a graph. Nine people pulled a folder of Markdown files, and their agents stopped making the same decision twice. On each laptop the memory is one file under <code>~/.local/share/</code>, rebuilt from the repository if it is ever deleted.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="cost" class="alt">
+  <div class="wrap">
+    <h2>What it costs to run</h2>
+    <p class="sub">Measured on an M5 MacBook Air, release build. The rule behind every number: do less, allocate less, move less, measure.</p>
+    <div class="figures" style="margin:0 0 22px">
+      <div class="fig"><b>6 MB</b><span>binary</span></div>
+      <div class="fig"><b>&lt;1 ms</b><span>keyword search, 5 MB resident</span></div>
+      <div class="fig"><b>90 ms</b><span>meaning search, warm</span></div>
+      <div class="fig"><b>3 ms</b><span>vector scan over 700 notes, 3,619 chunks</span></div>
+    </div>
+    <dl class="spec">
+      <dt>Binary</dt>
+      <dd>Rust, no runtime to install. Model and ONNX runtime download once, 390 MB.</dd>
+      <dt>Keyword search</dt>
+      <dd>Never loads the model.</dd>
+      <dt>Meaning search</dt>
+      <dd>230 ms cold. 274 MB while the model is loaded, released after five minutes idle.</dd>
+      <dt>700 notes, 3,619 chunks</dt>
+      <dd>19 MB on disk. A bit-packed prefilter keeps the scan linear and small.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="terms">
+  <div class="wrap">
+    <h2>The words on this page</h2>
+    <p class="sub">Short definitions of every term the tables use, in the order you meet them.</p>
+    <dl class="spec">
+      <dt>Turn</dt>
+      <dd>One call to the model: the agent sends its context, the model answers or asks for a tool. Every turn bills the context again, so fewer turns is a smaller API bill.</dd>
+      <dt>Prompt cache</dt>
+      <dd>Context the provider has seen recently is billed at a fraction of the input price; context seen for the first time is written to the cache at a higher price. The benchmark started every run with a cold cache so neither side was helped.</dd>
+      <dt>Note</dt>
+      <dd>One Markdown file in <code>memorycastle/journal/</code>, written by an agent or a person at the end of a task: a title, author and date, the files it is about, and sections for Context, Decision, Rejected, Measured and Open. The notes are the memory; everything else is derived from them.</dd>
+      <dt>Journal</dt>
+      <dd>All the notes of one repository. "Project 1, 48 notes" is a journal of 48 files.</dd>
+      <dt>Chunk</dt>
+      <dd>A piece of a note the index works on: one section, split further at about 60 words. A hit points at a chunk and prints its line number.</dd>
+      <dt>Keyword search</dt>
+      <dd>BM25 over the chunks through SQLite FTS5. No model is loaded; under 3 ms from a 9 MB process. Used alone when an identifier from the question is found verbatim.</dd>
+      <dt>Meaning search</dt>
+      <dd>The question and every chunk as vectors from a local embedding model (EmbeddingGemma 2, 300M parameters, int8); ranked by cosine similarity, fused with BM25. 52 ms warm, 300 MB while the model is loaded.</dd>
+      <dt>Confidence</dt>
+      <dd>A number from 0 to 1 printed on every hit: the model's cosine rescaled between a floor and a ceiling set on a gold set, reduced when the question's rare words are absent from the chunk. Under 0.30 the hit is dropped and the answer is "no relevant note". An identifier found verbatim is 1.0.</dd>
+      <dt>Gold set</dt>
+      <dd>A private list of real questions about a journal with the note that answers each, plus questions whose right answer is nothing. Every retrieval number on this page is scored against one.</dd>
+      <dt>Superseded note</dt>
+      <dd>A note replaced by a later one, declared by the newer note's <code>Supersedes:</code> line. It is kept, labelled and ranked below its replacement, never edited or deleted.</dd>
+      <dt>Read spans</dt>
+      <dd>The <code>path:start-end</code> lines after every answer: the definitions the question or the top notes name, re-found by their anchor line if the file has changed since indexing. The agent reads those lines, not the file.</dd>
+      <dt>Ingest</dt>
+      <dd>Building the index from the notes: hash, split, FTS5, one embedding per chunk. Re-index: the same for one edited note, with unchanged chunks carried over.</dd>
+    </dl>
+  </div>
+</section>
+
+<section id="scope" class="alt">
+  <div class="wrap">
+    <h2>One repo, one memory</h2>
+    <p class="sub">Every call works out the project from the current directory: the git root, and the remote normalised to <code>host/owner/repo</code>. A fresh clone on another machine is the same project; a worktree is the same as its main checkout. Each query binds that project before ranking, so a search in one repo can never return another repo's note.</p>
+    <dl class="spec">
+      <dt>Sister repos</dt>
+      <dd><p>Declare a group once per repo with <code>memcastle project group &lt;name&gt;</code>; then <code>search --related</code> includes the siblings, labelled and down-weighted so the home repo wins ties.</p><p class="muted">Without a group, <code>--related</code> searches nothing and says how to declare one. Isolation stays the gate.</p></dd>
+      <dt>Repos without a remote</dt>
+      <dd><p>The project is keyed by the directory path, so moving the directory starts a new project. Add a remote and it binds to that instead.</p><p class="muted">With a remote, a move or a second clone changes nothing.</p></dd>
+      <dt>Teammates</dt>
+      <dd><p>They get the notes by pulling the repo. Their first <code>memcastle install</code> on a machine wires the agents; inside the repo it indexes the notes.</p><p class="muted">No server, no account, no sync.</p></dd>
+      <dt>What is never searched</dt>
+      <dd><p>There is no "everything I know". A question about another repo is answered in that repo or through a declared group.</p><p class="muted">The isolation is a test in the suite, not a setting.</p></dd>
+    </dl>
+  </div>
+</section>
+
+<section id="start">
+  <div class="wrap">
+    <h2>Start</h2>
+    <p class="sub">Two lines install it; the rest are the commands you will use first.</p>
+<pre>curl -fsSL https://raw.githubusercontent.com/abhksinha/MemoryCastle/main/scripts/get.sh | sh
+memcastle install                 # every agent on this machine, from any directory
+cd your-repo &amp;&amp; memcastle install # also this repo: journal, code index, past transcripts
+memcastle search "why did we pick int8"
+memcastle links src/store.rs
+memcastle guide                   # the instructions an agent follows
+memcastle uninstall --purge       # the reverse, notes stay</pre>
+    <dl class="spec" style="margin-top:16px">
+      <dt>Prerequisites</dt>
+      <dd>macOS Apple silicon or Linux x86_64 (prebuilt), otherwise Rust 1.85 and cargo.</dd>
+      <dt>Model</dt>
+      <dd>EmbeddingGemma 2, downloaded once with a pinned checksum. Everything lands under <code>~/.local/</code>.</dd>
+      <dt>Codex</dt>
+      <dd>Codex asks you to trust the hooks once with <code>/hooks</code>.</dd>
+    </dl>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>memorycastle · Apache-2.0 / MIT</span>
+    <a href="https://github.com/abhksinha/MemoryCastle">github.com/abhksinha/MemoryCastle</a>
+    <a href="https://github.com/abhksinha/MemoryCastle/blob/main/docs/GUIDE.md">Agent guide</a>
+  </div>
+</footer>
+
+</body>
+</html>

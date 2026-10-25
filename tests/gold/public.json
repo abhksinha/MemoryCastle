@@ -1,0 +1,364 @@
+{
+ "questions": [
+  {
+   "project": "tidepool",
+   "question": "how big are WAL segments before rotation",
+   "answer": "memorycastle/journal/2026-01-01-wal-segment-size.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "why do we batch fsync calls",
+   "answer": "memorycastle/journal/2026-01-01-fsync-group-commit.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "why leveled compaction instead of size tiered",
+   "answer": "memorycastle/journal/2026-01-01-compaction-leveled.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how many bits per key do the bloom filters use",
+   "answer": "memorycastle/journal/2026-01-01-bloom-bits-per-key.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how is the block cache structured",
+   "answer": "memorycastle/journal/2026-01-01-block-cache-lru.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how are keys length prefixed",
+   "answer": "memorycastle/journal/2026-01-01-key-encoding-varint.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "which checksum do blocks use",
+   "answer": "memorycastle/journal/2026-01-01-checksum-crc32c.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do reads avoid seeing newer writes",
+   "answer": "memorycastle/journal/2026-01-01-snapshot-isolation.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "when is the memtable flushed",
+   "answer": "memorycastle/journal/2026-01-01-memtable-skiplist.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how does replication work",
+   "answer": "memorycastle/journal/2026-01-01-replication-raft.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "when are tombstones removed",
+   "answer": "memorycastle/journal/2026-01-01-tombstone-gc.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "why is compaction rate limited",
+   "answer": "memorycastle/journal/2026-01-01-rate-limit-compaction.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how fast is a backup",
+   "answer": "memorycastle/journal/2026-01-01-backup-hardlinks.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do keys with a ttl expire",
+   "answer": "memorycastle/journal/2026-01-01-ttl-expiry.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "which compression do blocks use",
+   "answer": "memorycastle/journal/2026-01-01-compression-lz4.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "what happens when level 0 has too many tables",
+   "answer": "memorycastle/journal/2026-01-01-write-stall.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "why do range deletes not write a tombstone per key",
+   "answer": "memorycastle/journal/2026-01-01-range-delete.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "is windows supported",
+   "answer": "memorycastle/journal/2026-01-01-windows-support.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "what happens to writes on shutdown",
+   "answer": "memorycastle/journal/2026-01-01-shutdown-drain.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do clients authenticate to the server",
+   "answer": "memorycastle/journal/2026-01-01-auth-tokens.md",
+   "kind": "original"
+  },
+  {
+   "project": "tidepool",
+   "question": "when does the log file roll over to a new one",
+   "answer": "memorycastle/journal/2026-01-01-wal-segment-size.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why are disk syncs grouped across writers",
+   "answer": "memorycastle/journal/2026-01-01-fsync-group-commit.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "what false positive rate do we accept for the filters",
+   "answer": "memorycastle/journal/2026-01-01-bloom-bits-per-key.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why not one global lock around the cache",
+   "answer": "memorycastle/journal/2026-01-01-block-cache-lru.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do we detect corrupted data on disk",
+   "answer": "memorycastle/journal/2026-01-01-checksum-crc32c.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "can a long scan block writers",
+   "answer": "memorycastle/journal/2026-01-01-snapshot-isolation.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why did we not write our own consensus",
+   "answer": "memorycastle/journal/2026-01-01-replication-raft.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why do deleted keys not come back after compaction",
+   "answer": "memorycastle/journal/2026-01-01-tombstone-gc.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "does background merging hurt read latency",
+   "answer": "memorycastle/journal/2026-01-01-rate-limit-compaction.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do counters avoid read modify write conflicts",
+   "answer": "memorycastle/journal/2026-01-01-merge-operator.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why not zstd for tables",
+   "answer": "memorycastle/journal/2026-01-01-compression-lz4.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "what stops too many open files errors",
+   "answer": "memorycastle/journal/2026-01-01-open-file-limit.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do callers tell corruption from a missing key",
+   "answer": "memorycastle/journal/2026-01-01-error-types.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do we find bugs that unit tests miss",
+   "answer": "memorycastle/journal/2026-01-01-test-fuzz.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "does compaction pollute the page cache",
+   "answer": "memorycastle/journal/2026-01-01-direct-io.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "can users plug in their own key ordering",
+   "answer": "memorycastle/journal/2026-01-01-key-comparator.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "what protocol do remote clients use",
+   "answer": "memorycastle/journal/2026-01-01-server-grpc.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "what happens if a background thread crashes",
+   "answer": "memorycastle/journal/2026-01-01-panic-policy.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "why is the config file toml",
+   "answer": "memorycastle/journal/2026-01-01-config-toml.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do scripts get machine readable output from the cli",
+   "answer": "memorycastle/journal/2026-01-01-cli-output-json.md",
+   "kind": "reworded"
+  },
+  {
+   "project": "tidepool",
+   "question": "WalSegment::rotate",
+   "answer": "memorycastle/journal/2026-01-01-wal-segment-size.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "GroupCommit::flush",
+   "answer": "memorycastle/journal/2026-01-01-fsync-group-commit.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "Level::target_bytes",
+   "answer": "memorycastle/journal/2026-01-01-compaction-leveled.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "encode_key",
+   "answer": "memorycastle/journal/2026-01-01-key-encoding-varint.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "Memtable::should_flush",
+   "answer": "memorycastle/journal/2026-01-01-memtable-skiplist.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "TableIter::next",
+   "answer": "memorycastle/journal/2026-01-01-iterator-prefetch.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "COMPACTION_RATE",
+   "answer": "memorycastle/journal/2026-01-01-rate-limit-compaction.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "FORMAT_VERSION",
+   "answer": "memorycastle/journal/2026-01-01-table-format-version.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "Ttl::is_expired",
+   "answer": "memorycastle/journal/2026-01-01-ttl-expiry.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "MergeOperator::merge",
+   "answer": "memorycastle/journal/2026-01-01-merge-operator.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "TableHandles",
+   "answer": "memorycastle/journal/2026-01-01-open-file-limit.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "VERSION_GRACE",
+   "answer": "memorycastle/journal/2026-01-01-version-gc.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "Db::delete_range",
+   "answer": "memorycastle/journal/2026-01-01-range-delete.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "compare_keys",
+   "answer": "memorycastle/journal/2026-01-01-key-comparator.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "BlockCache",
+   "answer": "memorycastle/journal/2026-01-01-block-cache-lru.md",
+   "kind": "identifier"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do we deploy to kubernetes",
+   "answer": "",
+   "kind": "absent"
+  },
+  {
+   "project": "tidepool",
+   "question": "what font does the website use",
+   "answer": "",
+   "kind": "absent"
+  },
+  {
+   "project": "tidepool",
+   "question": "how are user passwords hashed in the mobile app",
+   "answer": "",
+   "kind": "absent"
+  },
+  {
+   "project": "tidepool",
+   "question": "which css framework does the dashboard use",
+   "answer": "",
+   "kind": "absent"
+  },
+  {
+   "project": "tidepool",
+   "question": "how do we translate the ui into french",
+   "answer": "",
+   "kind": "absent"
+  }
+ ]
+}
