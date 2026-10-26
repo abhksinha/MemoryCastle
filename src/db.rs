@@ -546,7 +546,7 @@ fn migrate_from(conn: &Connection, version: i64) -> Result<()> {
     if version < 31 {
         // v31: a file's header comment (`code::header`), so a script no note
         // names is found by what its first lines say it does. Filled as
-        // `CODE_VERSION` 26 reindexes every file.
+        // `CODE_VERSION` 27 reindexes every file.
         let has_head: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('code_files') WHERE name = 'head')", [], |r| r.get(0))?;
         if !has_head {
             conn.execute_batch("ALTER TABLE code_files ADD COLUMN head TEXT NOT NULL DEFAULT ''; ALTER TABLE code_files ADD COLUMN head_end INTEGER NOT NULL DEFAULT 0;")?;

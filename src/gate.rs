@@ -149,7 +149,9 @@ pub fn top_confidence(out: &str) -> Option<f32> {
 /// or what the code index knows about the file.
 fn informative(out: &str) -> bool {
     let out = out.trim();
-    !out.is_empty() && (!out.starts_with("no notes link to") || out.lines().count() > 1)
+    // Notes already shown this session alone are nothing new.
+    let new = out.lines().filter(|l| !l.trim_start().starts_with("shown earlier this session:") && !l.trim_start().starts_with('+')).count();
+    !out.is_empty() && new > 0 && (!out.starts_with("no notes link to") || out.lines().count() > 1)
 }
 
 /// What a Claude Code PreToolUse event says about an edit.
@@ -592,6 +594,7 @@ mod tests {
     fn links_answer_with_facts_is_informative() {
         assert!(!informative("no notes link to README.md"));
         assert!(informative("no notes link to src/a.rs\n   defines: fn a:1-3"));
+        assert!(!informative("   shown earlier this session: a.md\n   +4 more notes name src/a.rs"));
         assert!(informative("memorycastle/journal/x.md  Title  2026-10-20  (abhi+claude)"));
     }
 }

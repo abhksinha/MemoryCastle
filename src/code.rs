@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "26";
+pub const CODE_VERSION: &str = "27";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -144,7 +144,7 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
     for (path, text) in &changed {
         tx.execute("DELETE FROM code_files WHERE project_id = ?1 AND path = ?2", params![project_id, path])?;
         let (_, hash, size, mtime) = hashes.iter().find(|(p, ..)| p == path).unwrap();
-        let head = header(text);
+        let head = header(path, text);
         tx.execute(
             "INSERT INTO code_files(project_id, path, hash, lang, size, mtime, head, head_end) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![project_id, path, hash, ext_of(path), size, mtime, head.0, head.1],
@@ -280,11 +280,14 @@ pub fn jni_target(name: &str) -> Option<(String, String)> {
 }
 
 /// A file's header comment: the first comment block, after a shebang and
-/// blank lines, in any of `#`, `//`, `//!`, `--`, `%`, `;` or a `/* */` or
-/// `"""` block, up to `limits::CODE_FIND_DOC_BYTES`, with the line it
+/// blank lines: `#` lines in a script, Python or Ruby (in C a file starts
+/// `#include`, in Rust `#[derive]`), `//`, `///`, `//!` lines elsewhere, or a
+/// `/* */` or Python docstring block, up to `limits::CODE_FIND_DOC_BYTES`, with the line it
 /// ends on. A script says what it does there (`# Every blocker of the
 /// native job per document`), and no definition holds it.
-pub fn header(text: &str) -> (String, u32) {
+pub fn header(path: &str, text: &str) -> (String, u32) {
+    let hash = matches!(ext_of(path), "sh" | "bash" | "py" | "rb");
+    let prefixes: &[&str] = if hash { &["#"] } else { &["//!", "///", "//"] };
     let mut out = String::new();
     let mut end = 0u32;
     let mut block: Option<&str> = None;
@@ -306,7 +309,7 @@ pub fn header(text: &str) -> (String, u32) {
                 continue;
             }
             break;
-        } else if let Some(r) = l.strip_prefix("/*").or_else(|| l.strip_prefix("\"\"\"")).or_else(|| l.strip_prefix("'''")) {
+        } else if let Some(r) = l.strip_prefix("/*").filter(|_| !hash).or_else(|| l.strip_prefix("\"\"\"").filter(|_| hash)).or_else(|| l.strip_prefix("'''").filter(|_| hash)) {
             let close = if l.starts_with("/*") { "*/" } else if l.starts_with("'''") { "'''" } else { "\"\"\"" };
             match r.find(close) {
                 Some(k) => &r[..k],
@@ -315,7 +318,7 @@ pub fn header(text: &str) -> (String, u32) {
                     r
                 }
             }
-        } else if let Some(r) = ["//!", "///", "//", "#", "--", "%", ";;", ";"].iter().find_map(|p| l.strip_prefix(p)) {
+        } else if let Some(r) = prefixes.iter().find_map(|p| l.strip_prefix(p)) {
             if r.starts_with('!') || r.contains("-*-") {
                 continue;
             }
@@ -2255,12 +2258,15 @@ mod call_edge_tests {
     #[test]
     fn header_is_the_first_comment_block() {
         let sh = "#!/bin/sh\n# Every blocker per document,\n# ranked.\nexport LC_ALL=C\n";
-        assert_eq!(super::header(sh), ("Every blocker per document, ranked.".to_string(), 3));
+        assert_eq!(super::header("a.sh", sh), ("Every blocker per document, ranked.".to_string(), 3));
         let rs = "//! The edit gate.\n//! Once per file.\n\nuse x;\n";
-        assert_eq!(super::header(rs), ("The edit gate. Once per file.".to_string(), 2));
+        assert_eq!(super::header("a.rs", rs), ("The edit gate. Once per file.".to_string(), 2));
         let py = "\"\"\"Fetch the corpus\nonce.\"\"\"\nimport os\n";
-        assert_eq!(super::header(py), ("Fetch the corpus once.".to_string(), 2));
-        assert_eq!(super::header("fn main() {}\n").0, "");
+        assert_eq!(super::header("a.py", py), ("Fetch the corpus once.".to_string(), 2));
+        assert_eq!(super::header("a.rs", "fn main() {}\n").0, "");
+        assert_eq!(super::header("a.c", "#include <x.h>\n").0, "");
+        assert_eq!(super::header("a.rs", "#[cfg(test)]\nmod t;\n").0, "");
+        assert_eq!(super::header("a.c", "/* zlib: the deflate stream */\n#include <x.h>\n").0, "zlib: the deflate stream");
     }
 
     use super::*;
