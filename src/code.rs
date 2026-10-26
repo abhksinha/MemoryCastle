@@ -1166,6 +1166,16 @@ pub fn defs_named(conn: &Connection, project_id: i64, name: &str) -> Result<Vec<
         })
     })?;
     let defs: Vec<Def> = rows.collect::<rusqlite::Result<_>>()?;
+    // `crates/server/src/mobile_auth.rs::refresh`, `mobile_auth.rs::refresh`,
+    // `crates/server::refresh`: a path qualifier keeps the definitions in
+    // that file or under that directory (four crates define `refresh`).
+    if let Some((q, _)) = name.rsplit_once("::") {
+        let q = q.trim_start_matches("./").trim_end_matches('/');
+        let in_path = |d: &Def| d.path == q || d.path.ends_with(&format!("/{q}")) || d.path.starts_with(&format!("{q}/"));
+        if (q.contains('/') || q.contains('.')) && defs.iter().any(in_path) {
+            return Ok(defs.into_iter().filter(|d| in_path(d)).collect());
+        }
+    }
     // `Context::search`, `spans::context`, `self.nodes.store`: the qualifier
     // names a file stem or a type defined in the file. Keep those when any
     // match; else every definition, as before.
@@ -2384,6 +2394,12 @@ pub fn find(conn: &Connection, project_id: i64, question: &str, k: usize) -> Res
 /// Whether a links target is a file: a path, or a dotted name whose tail
 /// is not a definition (`store.rs`, not `MediaBridge.encrypt`).
 pub fn is_file_target(conn: &Connection, project_id: i64, target: &str) -> Result<bool> {
+    // `path/file.rs::name` is a definition in that file.
+    if let Some((_, name)) = target.rsplit_once("::") {
+        if target.contains('/') && !name.contains('/') && !name.contains('.') {
+            return Ok(false);
+        }
+    }
     if target.contains('/') {
         return Ok(true);
     }
@@ -2411,6 +2427,29 @@ pub fn nearest_line(conn: &Connection, project_id: i64, target: &str) -> Result<
         })
         .take(crate::limits::CODE_FIND_K)
         .collect();
+    // One word (`encaps`) is under `find`'s two-word minimum: the
+    // definitions whose name holds it as a whole word (`encaps_internal`),
+    // functions first, shortest names first. Codex guessed `links encaps`
+    // and was told nothing was near, then listed files.
+    let hits = if hits.is_empty() && want.len() == 1 && want[0].len() >= 4 {
+        let w = &want[0];
+        let mut stmt = conn.prepare_cached("SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND name LIKE ?2 AND kind != 'variant' LIMIT 400")?;
+        let mut v: Vec<(Def, usize)> = stmt
+            .query_map(params![project_id, format!("%{w}%")], |r| {
+                let kind: String = r.get(2)?;
+                Ok(Def { path: r.get(0)?, name: r.get(1)?, kind: kind_str(&kind), line: r.get::<_, i64>(3)? as u32, end: r.get::<_, i64>(4)? as u32, anchor: r.get(5)? })
+            })?
+            .filter_map(|d| d.ok())
+            .filter(|d| ident_words(&d.name).iter().any(|x| x == w))
+            .map(|d| (d, 1))
+            .collect();
+        v.sort_by_key(|(d, _)| (d.kind != "fn", d.name.len(), d.path.clone()));
+        v.dedup_by(|a, b| a.0.name == b.0.name && a.0.path == b.0.path);
+        v.truncate(crate::limits::CODE_FIND_K);
+        v
+    } else {
+        hits
+    };
     // Said even with nothing near: "no notes" alone reads as "found, unnoted".
     if hits.is_empty() {
         return Ok(Some(format!("no definition named {target} in the code index")));

@@ -182,6 +182,17 @@ pub const SEARCH_CODE_SPANS: usize = 4;
 pub const SEARCH_FILES_SHOWN: usize = 4;
 /// Ranked `read:` lines printed after search hits: the spans to read first.
 pub const READ_SPANS: usize = 5;
+
+/// With the model run, a verbatim identifier proves a hit (confidence 1.0)
+/// only when the model and the words judge it at least this. On four gold
+/// sets (182 answerable, 44 absent) floors of 0.10, 0.20 and 0.30 found the
+/// same 140 and answered the same 3 absent questions as no floor.
+pub const IDENT_MIN_JUDGED: f32 = 0.15;
+
+/// A note naming more files than this is broad (a tracker, a plan): its
+/// symbols give read-first spans and `code` rows only when their name shares
+/// a word with the question. 13 of 490 notes in the store (2026-10-26).
+pub const BROAD_NOTE_FILES: usize = 25;
 /// When the best span scores at least `SPAN_STRONG` (a definition the
 /// question or a top note names), spans under `SPAN_WEAK` (name-contains
 /// guesses at 0.5) are dropped: measured, 5 of 9 guided reads were followed

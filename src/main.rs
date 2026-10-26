@@ -13,6 +13,7 @@ before edit | function holding a line, its notes | memcastle links <file> --at <
 find code | where defined, callers, callees, notes | memcastle links <symbol>
 change signature | one span per call site, and constants | memcastle links <symbol> --context
 every caller | also under 0.3; every call site with --context | memcastle links <symbol> --all
+one of many | the definition in that file or directory | memcastle links crates/server/src/auth.rs::refresh
 json | notes, definitions, scored callers, call sites | memcastle --json links <symbol> --context
 new file | its notes, or what it defines and who uses it | memcastle links <file>
 history | how a decision changed | memcastle history <note.md>
@@ -602,6 +603,9 @@ fn run(cli: Cli) -> Result<()> {
             }
             if hits.is_empty() {
                 println!("{}", memorycastle::render::empty_line(&ex));
+                if let Some(p) = &ctx.project {
+                    print!("{}", memorycastle::render::code_fallback(&ctx.conn, p.id, &query)?);
+                }
             }
             let repo_root = ctx.repo.as_ref().map(|r| r.root.clone());
             let r = memorycastle::render::search(&ctx.conn, &hits, &read_spans, &memorycastle::render::Options { query: &query, sections: sections || whole, whole, brief, explain, abs, repo_root: repo_root.as_deref() })?;
@@ -1659,12 +1663,20 @@ fn run(cli: Cli) -> Result<()> {
             };
             // A lookup is what the edit gate asks for: the files it answered
             // about need no gate this session.
-            let looked: Vec<String> = match (&at_def, kind) {
+            let mut looked: Vec<String> = match (&at_def, kind) {
                 (Some(d), _) => vec![d.path.clone()],
                 (None, graph::Kind::File) => memorycastle::code::paths_ending_with(&ctx.conn, pid, &target)?,
                 (None, graph::Kind::Symbol) => defs.iter().map(|d| d.path.clone()).collect(),
                 _ => Vec::new(),
             };
+            // A file the code index does not hold (`combined3.toml`, a
+            // script) is still a file the agent looked up: without it the
+            // next write to it was gated as never looked at.
+            if looked.is_empty() && kind == graph::Kind::File {
+                if let Some(rel) = ctx.repo.as_ref().and_then(|r| repo_relative(&r.root, &target)) {
+                    looked.push(rel);
+                }
+            }
             memorycastle::gate::mark(&ctx.conn, pid, &looked)?;
             memorycastle::gate::mark_lookup(&ctx.conn, pid, &looked)?;
             // With no note, the code index still answers: what the file
@@ -1899,6 +1911,15 @@ fn run(cli: Cli) -> Result<()> {
         Cmd::Init { .. } | Cmd::Mcp => unreachable!(),
     }
     Ok(())
+}
+
+/// `target` as a path to an existing file under `root` (absolute, relative
+/// to the working directory, or to the root), repo-relative.
+fn repo_relative(root: &std::path::Path, target: &str) -> Option<String> {
+    let t = std::path::Path::new(target);
+    let cands = if t.is_absolute() { vec![t.to_path_buf()] } else { vec![std::env::current_dir().ok()?.join(t), root.join(t)] };
+    let root = root.canonicalize().ok()?;
+    cands.into_iter().filter_map(|c| c.canonicalize().ok()).find(|c| c.is_file()).and_then(|c| c.strip_prefix(&root).ok().map(|r| r.to_string_lossy().into_owned()))
 }
 
 fn parse_duration(s: &str) -> Result<Duration> {

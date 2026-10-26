@@ -4,12 +4,13 @@
 //! edit is stopped once with it and the retry passes. A per-session record (`meta` key
 //! `gate:<session>`, one path per line, `trip:` entries for tripwires shown) holds
 //! the files already looked up: the gate adds to it, and so does any
-//! `links` call on a file or symbol. Compaction clears it (`gate --reset`),
-//! since the agent loses track of what it looked up with the summary.
+//! `links` call on a file or symbol. Compaction demotes it (`gate --reset`):
+//! the agent lost the notes with the summary, so the next write to a file
+//! looked up before gets them again, as context, not a block.
 //!
 //! A write that creates a file runs a search on its path instead (`links`
-//! has nothing to say yet): shown as context, and a block when the top hit is
-//! at least `GATE_SEARCH_BLOCK` (when blocking is on).
+//! has nothing to say yet), shown as context when the top hit is at least
+//! `GATE_SEARCH_BLOCK`; never a block.
 
 use crate::{db, limits, store, Result};
 use rusqlite::Connection;
@@ -71,11 +72,21 @@ pub fn edited_unlooked(conn: &Connection, project_id: i64, sid: &str) -> Result<
     Ok(v)
 }
 
-/// Forgets this session's record (after compaction).
+/// After compaction: every file looked up becomes `was:<path>`, so its next
+/// write gets the lookup again (the summary dropped the notes) as context,
+/// never a block: the agent had looked, and a blocked command is sent again
+/// whole (8 resent commands in one field session, some 100-line scripts).
+/// `trip:` entries stay: a rejected approach is quoted once per session.
 pub fn reset(conn: &Connection, project_id: i64) -> Result<()> {
     let Some(sid) = store::current_session(conn, project_id)? else { return Ok(()) };
-    conn.execute("DELETE FROM meta WHERE key = ?1", [key(&sid)])?;
-    Ok(())
+    let have = seen(conn, project_id)?;
+    let mut v: Vec<String> = have
+        .iter()
+        .map(|e| if e.starts_with("trip:") || e.starts_with("was:") || e.starts_with("dir:") { e.clone() } else { format!("was:{e}") })
+        .collect();
+    v.sort();
+    v.dedup();
+    db::meta_set(conn, &key(&sid), &v.join("\n"))
 }
 
 /// The edit gate's mode, `block`, `context` or `off`: `MEMORYCASTLE_GATE`
@@ -176,6 +187,8 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     }
     let have = seen(conn, project_id)?;
     let first_file = !have.contains(rel);
+    // Looked up before a compaction: the lookup again, as context.
+    let looked_before = first_file && have.contains(&format!("was:{rel}"));
     mark(conn, project_id, &[rel.to_string()])?;
     let at_s = at.map(|a| a.to_string());
     let mut block = Vec::new();
@@ -193,7 +206,7 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
             out = run(root, &args);
         }
         if informative(&out) {
-            block.push(out);
+            if looked_before { context.push(out) } else { block.push(out) }
         }
     } else if exists {
         // Looked up already: only the notes about the definition being
@@ -240,8 +253,10 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         let out = run(root, &["search", rel, "-k", &k]);
         // Under `GATE_SEARCH_BLOCK` nothing: a new path's words matched
         // unrelated notes at 0.46 to 0.57 (`src/zz.rs` got `SPAN_WIDE`).
+        // Context only, never a block: a new file has no notes, and the
+        // search on its path is a hint about the area, not a lookup missed.
         if top_confidence(&out).is_some_and(|top| top >= limits::GATE_SEARCH_BLOCK) {
-            block.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
+            context.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
         }
     }
     cap_lines(&mut block, rel, at);

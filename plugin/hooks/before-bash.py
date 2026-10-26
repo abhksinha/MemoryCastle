@@ -115,10 +115,30 @@ def written(text, base):
     return [absolute(p, base) for p in seen]
 
 
+def looked_up(text):
+    """Targets of `memcastle links <target>` in this command: the lookup
+    runs before the write, so its file needs no gate (the hook runs before
+    the whole command, and blocked `links a && <write>` though it held one)."""
+    out = []
+    for seg in re.split(r"&&|\|\||[;|\n]", split_heredocs(text)[0]):
+        try:
+            words = shlex.split(seg, comments=True)
+        except ValueError:
+            continue
+        if len(words) > 2 and os.path.basename(words[0]) in ("memcastle", "memorycastle") and words[1] == "links" and not words[2].startswith("-"):
+            out.append(words[2].lstrip("./"))
+    return out
+
+
+LOOKED = looked_up(cmd)
+
+
 def gate(paths):
     blocks, context = [], []
     for p in paths:
         a = p
+        if any(t and (a.endswith("/" + t) or a == t) for t in LOOKED):
+            continue
         d = os.path.dirname(a)
         while d and not os.path.isdir(d):
             d = os.path.dirname(d)

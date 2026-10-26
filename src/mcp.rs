@@ -212,7 +212,11 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             // same tokens whichever way the agent reaches the store.
             let root = ctx.repo.as_ref().map(|r| r.root.clone());
             let r = crate::render::search(&ctx.conn, &hits, &read, &crate::render::Options { query, sections: sections || whole, whole, brief, explain: false, abs: true, repo_root: root.as_deref() })?;
-            let text = if hits.is_empty() { crate::render::empty_line(&explain) } else { r.text.clone() };
+            let text = match (&ctx.project, hits.is_empty()) {
+                (Some(p), true) => format!("{}\n{}", crate::render::empty_line(&explain), crate::render::code_fallback(&ctx.conn, p.id, query)?),
+                (None, true) => crate::render::empty_line(&explain),
+                _ => r.text.clone(),
+            };
             if let Some(p) = &ctx.project {
                 crate::render::record(&ctx.conn, p.id, &r)?;
                 crate::learned::record_search(&ctx.conn, p.id, query, &also, &r.notes, &explain)?;

@@ -57,6 +57,23 @@ pub fn note_defs(defs: Vec<Def>, note_files: &[&String]) -> Vec<Def> {
     Vec::new()
 }
 
+/// A note naming more than `limits::BROAD_NOTE_FILES` files (a bug tracker,
+/// a plan) is about many things: its symbols give a span only when their
+/// name shares a word with the question. The messaging app's `app-bugs.md`
+/// names 64 files, and every search printed the same unrelated spans from it.
+pub fn is_broad(note_files: &[&String]) -> bool {
+    note_files.len() > crate::limits::BROAD_NOTE_FILES
+}
+
+/// The question's content words, stemmed, four letters or more.
+pub fn question_words(query: &str) -> Vec<String> {
+    query
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|w| w.len() >= 4 && !crate::search::STOPWORDS.contains(&w.to_ascii_lowercase().as_str()))
+        .map(|w| crate::search::stem(&w.to_ascii_lowercase()).to_string())
+        .collect()
+}
+
 /// A definition short enough to read first; a wider one (a 311-line
 /// `search`) is what `links <name>` narrows, not a line to read.
 fn readable(d: &Def) -> bool {
@@ -110,16 +127,13 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
     // A note names many symbols; the ones whose name shares a word with the
     // question come first ("gate" picks `distinctive_terms` over the note's
     // other constants), the rest keep the note's order.
-    let q_words: Vec<String> = query
-        .split(|c: char| !c.is_alphanumeric() && c != '_')
-        .filter(|w| w.len() >= 4 && !crate::search::STOPWORDS.contains(&w.to_ascii_lowercase().as_str()))
-        .map(|w| crate::search::stem(&w.to_ascii_lowercase()).to_string())
-        .collect();
+    let q_words = question_words(query);
     let links = graph::links_of(conn, &note_rank)?;
     for (i, id) in note_rank.iter().enumerate().take(crate::limits::READ_SPANS) {
         let w = 0.9 * (1.0 - i as f32 * 0.15).max(0.3);
         if let Some(l) = links.get(id) {
             let note_files: Vec<&String> = l.iter().filter(|(k, _)| *k == graph::Kind::File).map(|(_, f)| f).collect();
+            let broad = is_broad(&note_files);
             for (k, sym) in l {
                 if *k != graph::Kind::Symbol {
                     continue;
@@ -129,6 +143,9 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
                     continue;
                 }
                 let shares = q_words.iter().any(|q| lower.contains(q.as_str()));
+                if broad && !shares {
+                    continue;
+                }
                 let (w, why) = if shares { (w + 0.05, format!("named by note #{}, name matches question", i + 1)) } else { (w, format!("named by note #{}", i + 1)) };
                 for d in note_defs(code::defs_named(conn, project_id, sym)?, &note_files).into_iter().filter(readable).take(2) {
                     push(d, w, why.clone(), &mut cands);

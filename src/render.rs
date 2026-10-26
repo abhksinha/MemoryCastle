@@ -196,9 +196,15 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
             // Where the code this note names lives now.
             if let Some(l) = note_links.get(&h.note_id) {
                 let mut rows: Vec<(String, String)> = Vec::new();
+                let files: Vec<&String> = l.iter().filter(|(k, _)| *k == graph::Kind::File).map(|(_, f)| f).collect();
+                let broad = crate::spans::is_broad(&files);
+                let q_words = if broad { crate::spans::question_words(o.query) } else { Vec::new() };
                 for (_, sym) in l.iter().filter(|(k, _)| *k == graph::Kind::Symbol) {
-                    let files: Vec<&String> = l.iter().filter(|(k, _)| *k == graph::Kind::File).map(|(_, f)| f).collect();
                     if crate::spans::is_note_file(sym, &files) {
+                        continue;
+                    }
+                    let lower = sym.rsplit("::").next().unwrap_or(sym).rsplit('.').next().unwrap_or(sym).to_ascii_lowercase();
+                    if broad && !q_words.iter().any(|q| lower.contains(q.as_str())) {
                         continue;
                     }
                     for d in crate::spans::note_defs(code::defs_named(conn, h.project_id, sym)?, &files).iter().take(2) {
@@ -378,6 +384,40 @@ pub fn empty_line(ex: &crate::search::Explain) -> String {
     } else {
         "no results".to_string()
     }
+}
+
+/// Under "no relevant note": the definitions the question describes, from
+/// the code index (`code::find`), labelled as code so they never read as
+/// notes. Empty when nothing matches two of the question's words. A search
+/// about call measurement found no note while two telemetry scripts existed.
+pub fn code_fallback(conn: &Connection, project_id: i64, query: &str) -> Result<String> {
+    let mut out = String::new();
+    // Files whose path holds at least two of the question's words
+    // (`scripts/monitor_call_telemetry.py` for "call telemetry"), most first.
+    let terms: Vec<String> = code::find_terms(query).iter().map(|t| crate::search::stem(t).to_string()).collect();
+    if terms.len() >= crate::limits::CODE_FIND_MIN_WORDS {
+        let mut stmt = conn.prepare_cached("SELECT path FROM code_files WHERE project_id = ?1")?;
+        let mut files: Vec<(usize, String)> = stmt
+            .query_map([project_id], |r| r.get::<_, String>(0))?
+            .filter_map(|p| p.ok())
+            .filter_map(|p| {
+                let words: Vec<String> = p.split(['/', '.', '-']).flat_map(code::ident_words).collect();
+                let n = terms.iter().filter(|t| words.iter().any(|w| w.starts_with(t.as_str()))).count();
+                (n >= crate::limits::CODE_FIND_MIN_WORDS).then_some((n, p))
+            })
+            .collect();
+        files.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.len().cmp(&b.1.len())));
+        if !files.is_empty() {
+            let list: Vec<&str> = files.iter().take(crate::limits::CODE_FIND_K).map(|(_, p)| p.as_str()).collect();
+            out.push_str(&format!("files named like it (index, not notes): {}\n", list.join(", ")));
+        }
+    }
+    let hits = code::find(conn, project_id, query, crate::limits::CODE_FIND_K)?;
+    if !hits.is_empty() {
+        let list: Vec<String> = hits.iter().map(|(d, _)| format!("{} {}:{}-{} {}", d.name, d.path, d.line, d.end, d.kind)).collect();
+        out.push_str(&format!("in the code (index, not notes): {}\n", list.join(", ")));
+    }
+    Ok(out)
 }
 
 /// `YYYY-MM-DD` from a Unix timestamp (Howard Hinnant's civil-from-days).

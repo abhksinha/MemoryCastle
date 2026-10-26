@@ -900,6 +900,22 @@ fn code_is_found_by_what_its_comment_and_name_say() {
     let l = code::nearest_line(&conn, p.id, "reserve_wire").unwrap().unwrap_or_default();
     assert!(l.contains("reserve_outbound_wire src/kem.rs:1"), "{l}");
     assert!(code::nearest_line(&conn, p.id, "src/kem.rs").unwrap().is_none(), "a path is not a guessed name");
+    // One guessed word finds the definition whose name holds it whole.
+    std::fs::write(root.join("src/kem.rs"), "pub fn encaps_internal() {}\npub fn encapsulate() {}\n").unwrap();
+    std::fs::create_dir_all(root.join("server/src")).unwrap();
+    std::fs::write(root.join("server/src/auth.rs"), "pub fn refresh() {}\n").unwrap();
+    std::fs::write(root.join("src/app.rs"), "pub fn refresh() {}\n").unwrap();
+    code::refresh(&mut conn, p.id, &root).unwrap();
+    let l = code::nearest_line(&conn, p.id, "encaps").unwrap().unwrap_or_default();
+    assert!(l.contains("encaps_internal src/kem.rs:1") && !l.contains("encapsulate "), "{l}");
+    // A path qualifier picks the definition in that file or directory.
+    let at = |q: &str| code::defs_named(&conn, p.id, q).unwrap().into_iter().map(|d| d.path).collect::<Vec<_>>();
+    assert_eq!(at("refresh").len(), 2);
+    assert_eq!(at("server/src/auth.rs::refresh"), vec!["server/src/auth.rs"]);
+    assert_eq!(at("auth.rs::refresh"), vec!["server/src/auth.rs"]);
+    assert_eq!(at("server/src::refresh"), vec!["server/src/auth.rs"]);
+    assert!(!code::is_file_target(&conn, p.id, "server/src/auth.rs::refresh").unwrap());
+    assert!(code::is_file_target(&conn, p.id, "server/src/auth.rs").unwrap());
     std::fs::remove_dir_all(&root).ok();
 }
 

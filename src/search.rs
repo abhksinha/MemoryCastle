@@ -456,6 +456,11 @@ pub fn search(
         if let Some(c) = learned_cov.get(&h.chunk_id) {
             t.judged = t.judged.max(*c);
         }
+        // A verbatim name proves nothing the model calls off topic: a
+        // question on image-engine cache layout put a connectivity note at
+        // 1.00 by a shared name with the model at 0.07.
+        let ident_hit = ident_hit && (!run_model || t.judged >= crate::limits::IDENT_MIN_JUDGED);
+        t.identifier = ident_hit;
         t.confidence = if ident_hit { 1.0 } else { t.judged };
         h.trace = t;
     }
