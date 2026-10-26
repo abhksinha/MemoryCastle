@@ -257,6 +257,19 @@ fn is_primitive_type(name: &str) -> bool {
     matches!(name, "u8" | "u16" | "u32" | "u64" | "u128" | "usize" | "i8" | "i16" | "i32" | "i64" | "i128" | "isize" | "f32" | "f64" | "bool" | "char" | "str")
 }
 
+/// Whether a note's code baselines were ever recorded (a store from before
+/// `note_code`, or a note saved without a checkout, has none).
+pub fn has_note_code(conn: &Connection, project_id: i64, note_path: &str) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT 1 FROM note_code c JOIN notes n ON n.id = c.note_id WHERE n.project_id = ?1 AND n.path = ?2 LIMIT 1",
+            params![project_id, note_path],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 /// Records the body hash of every definition a note names (its `Symbol`
 /// links, up to two definitions each), so a later search can tell whether
 /// the code the note describes has changed. Needs the checkout; without a

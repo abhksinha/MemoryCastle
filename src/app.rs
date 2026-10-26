@@ -206,14 +206,19 @@ impl Context {
                 eprintln!("memorycastle: {rel}: header filled ({})", filled.lines().nth(1).unwrap_or("").trim());
                 content = filled;
             }
-            match store::save_note(&mut self.conn, &project, &rel, &content, &SaveOptions { source, force })? {
-                SaveOutcome::Added => { added += 1; changed_rel.push(rel.clone()) }
-                SaveOutcome::Updated => { updated += 1; changed_rel.push(rel.clone()) }
-                SaveOutcome::Unchanged => unchanged += 1,
-            }
+            let changed = match store::save_note(&mut self.conn, &project, &rel, &content, &SaveOptions { source, force })? {
+                SaveOutcome::Added => { added += 1; changed_rel.push(rel.clone()); true }
+                SaveOutcome::Updated => { updated += 1; changed_rel.push(rel.clone()); true }
+                SaveOutcome::Unchanged => { unchanged += 1; false }
+            };
             // What the named code looks like now, so a later search can say
-            // whether it changed since this note was written.
-            crate::graph::refresh_note_code(&self.conn, project.id, &root, &rel)?;
+            // whether it changed since this note was written. Only when the
+            // note was written: refreshing an unchanged note at every `sync`
+            // moved its baseline to today's code (no change could ever show)
+            // and took 5 s per session start on a 46-note journal.
+            if changed || force || !crate::graph::has_note_code(&self.conn, project.id, &rel)? {
+                crate::graph::refresh_note_code(&self.conn, project.id, &root, &rel)?;
+            }
             if changed_rel.last() == Some(&rel) && crate::chunk::dated(&content).is_some() {
                 let missing = crate::draft::unnamed(&self.conn, project.id, &root, &rel, &content)?;
                 if !missing.is_empty() {
@@ -243,7 +248,7 @@ impl Context {
             return Err(err!("{rel_path}: still the draft skeleton; state the decision in the title and fill the sections"));
         }
         let outcome = store::save_note(&mut self.conn, &project, rel_path, content, &SaveOptions { source: "agent", force })?;
-        if let Some(r) = self.repo.as_ref().map(|r| r.root.clone()) {
+        if let Some(r) = self.repo.as_ref().map(|r| r.root.clone()).filter(|_| force || outcome != SaveOutcome::Unchanged || !crate::graph::has_note_code(&self.conn, project.id, rel_path).unwrap_or(false)) {
             crate::graph::refresh_note_code(&self.conn, project.id, &r, rel_path)?;
         }
         let embedded = if keyword_only || !cfg!(feature = "ort") { 0 } else { self.embed_or_defer(project.id)? };
