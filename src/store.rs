@@ -1388,3 +1388,59 @@ mod lint_tests {
         assert!(w.iter().any(|m| m.contains("split it into notes")), "{w:?}");
     }
 }
+
+/// One unresolved item from a note's `## Open` section.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OpenItem {
+    pub path: String,
+    pub line: u32,
+    pub text: String,
+    pub dated: i64,
+}
+
+/// The items of the `## Open` sections of live notes (not superseded, not
+/// forgotten), newest note first; only `ids` when given. An item is a
+/// top-level bullet or numbered line, or a paragraph, with its wrapped
+/// lines joined; a ticked box (`[x]`) is done and left out. A superseded
+/// note's items are not listed: its replacement says what is still open.
+pub fn open_items(conn: &Connection, project_id: i64, ids: Option<&[i64]>) -> Result<Vec<OpenItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, COALESCE(dated, saved_at) FROM notes WHERE project_id = ?1 AND deleted_at IS NULL AND superseded_by IS NULL
+         AND EXISTS (SELECT 1 FROM sections s WHERE s.note_id = notes.id AND s.name = 'Open') ORDER BY COALESCE(dated, saved_at) DESC, path",
+    )?;
+    let notes: Vec<(i64, String, i64)> = stmt.query_map([project_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+    let mut out = Vec::new();
+    for (id, path, dated) in notes {
+        if ids.is_some_and(|v| !v.contains(&id)) {
+            continue;
+        }
+        let mut prev_blank = true;
+        let mut open = false;
+        for (line, l) in section_lines(conn, id, "Open")? {
+            let t = l.trim();
+            let starts = !l.starts_with([' ', '\t']) && !t.is_empty() && !t.starts_with('#') && !t.starts_with('|');
+            let bullet = t.strip_prefix("- ").or_else(|| t.strip_prefix("* ")).or_else(|| {
+                let d = t.find(|c: char| !c.is_ascii_digit()).unwrap_or(0);
+                if d > 0 { t[d..].strip_prefix(". ").or_else(|| t[d..].strip_prefix(") ")) } else { None }
+            });
+            if starts && (bullet.is_some() || prev_blank) {
+                let text = bullet.unwrap_or(t).trim();
+                // Ticked boxes are done.
+                if !text.starts_with("[x]") && !text.starts_with("[X]") {
+                    out.push(OpenItem { path: path.clone(), line, text: text.trim_start_matches("[ ]").trim().to_string(), dated });
+                    open = true;
+                } else {
+                    open = false;
+                }
+            } else if open && !t.is_empty() {
+                // A wrapped line continues the item.
+                if let Some(it) = out.last_mut() {
+                    it.text.push(' ');
+                    it.text.push_str(t);
+                }
+            }
+            prev_blank = t.is_empty();
+        }
+    }
+    Ok(out)
+}

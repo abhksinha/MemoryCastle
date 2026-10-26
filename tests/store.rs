@@ -954,3 +954,16 @@ fn gate_mode_is_per_project_and_unlooked_edits_are_counted() {
     db::meta_set(&conn, "looked:s1:src/a.rs", "1").unwrap();
     assert_eq!(memorycastle::gate::edited_unlooked(&conn, p.id, "s1").unwrap(), vec!["src/b.rs".to_string()]);
 }
+
+#[test]
+fn open_lists_unresolved_items_of_live_notes() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "openitems", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-01-a.md", "# A\nFiles: `src/a.rs`\n\n## Decision\nKept.\n\n## Open\n- port `split`\n  its tag belongs to the equation\n- [x] done already\n\nA prose item that\nwraps.\n");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-02-old.md", "# Old\n\n## Open\n- stale item\n");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-03-new.md", "# New\nSupersedes: 2026-10-02-old.md\n\n## Decision\nReplaced.\n");
+    let items = store::open_items(&conn, p.id, None).unwrap();
+    let texts: Vec<&str> = items.iter().map(|i| i.text.as_str()).collect();
+    assert_eq!(texts, ["port `split` its tag belongs to the equation", "A prose item that wraps."]);
+    assert_eq!(items[0].line, 8);
+}

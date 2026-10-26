@@ -307,6 +307,10 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             if input.source.as_deref() == Some("compact") {
                 run(&["gate", "--reset"], None);
                 lines.push(format!("memorycastle routine (context was compacted; the edit gate starts over):\n{}", ROUTINE));
+                let (resume, _, _) = run(&["open", "--resume"], None);
+                if !resume.is_empty() {
+                    lines.push(format!("memorycastle: {resume}"));
+                }
             }
             let (owed, _, _) = run(&["owed"], None);
             if owed.starts_with("note owed") {
@@ -326,7 +330,7 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             }
             let (owed, _, _) = run(&["owed", "--remind"], None);
             if !owed.is_empty() {
-                out.push(format!("memorycastle: {owed}. Before going further, write the journal note for the decision so far (memcastle draft gives the skeleton; memcastle save <note>), or carry on if no decision was made yet."));
+                out.push(format!("memorycastle: {owed}. Before going further, write the journal note for the decision so far (memcastle draft gives the skeleton; memcastle save <note>; or edit the earlier note this work continues and save it), or carry on if no decision was made yet."));
             }
             if out.is_empty() { Reply::Nothing } else { Reply::Context(out.join("\n")) }
         }
@@ -403,14 +407,14 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             if owed.is_empty() {
                 Reply::Nothing
             } else {
-                Reply::Context(format!("memorycastle: {owed}. If this commit closed a task that changed a decision, measured something or rejected an approach, write the journal note now (memcastle draft writes the skeleton) and save it; otherwise ignore."))
+                Reply::Context(format!("memorycastle: {owed}. If this commit closed a task that changed a decision, measured something or rejected an approach, write the journal note now (memcastle draft writes the skeleton, or edit the earlier note this work continues) and save it; otherwise ignore."))
             }
         }
         "pre-compact" => {
             let (draft, _, _) = run(&["draft"], None);
             let (_, reason, rc) = run(&["owed", "--once", "compact"], None);
             if rc == 2 {
-                Reply::Block(format!("memorycastle: {reason}. Context is about to be compacted: write the journal note now, while the decision and the numbers are still in context. Draft at {draft}: set the title to the decision, fill Decision, Rejected and Measured, then run: memcastle save {draft}. Compaction continues on the next attempt."))
+                Reply::Block(format!("memorycastle: {reason}. Context is about to be compacted: write the journal note now, while the decision and the numbers are still in context. Draft at {draft}: set the title to the decision, fill Decision, Rejected and Measured, then run: memcastle save {draft}; when the work continues an earlier note, edit and save that note instead. Compaction continues on the next attempt."))
             } else {
                 Reply::Nothing
             }
@@ -422,7 +426,7 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
                 // Nothing owed, but the saved note's Files: line misses edited files.
                 Reply::Block(format!("memorycastle: {reason}. If those edits belong to no decision, stop again and say so."))
             } else if rc == 2 {
-                Reply::Block(format!("memorycastle: {reason}. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at {draft}: set the title to the decision, fill the sections, then: memcastle save {draft}. If no decision was made, stop again and say so."))
+                Reply::Block(format!("memorycastle: {reason}. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at {draft}: set the title to the decision, fill the sections, then: memcastle save {draft}; when the work continues an earlier note, edit and save that note instead. If no decision was made, stop again and say so."))
             } else {
                 // After every turn, the savings line the Claude status bar shows.
                 let (line, _, _) = run(&["status", "--line"], None);

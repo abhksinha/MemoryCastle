@@ -421,3 +421,16 @@ pub const CODE_FIND_K: usize = 3;
 pub const CODE_FIND_MIN_WORDS: usize = 2;
 /// Bytes of the comment above a definition kept in its find words.
 pub const CODE_FIND_DOC_BYTES: usize = 400;
+
+/// `memcastle open`: items listed without `--all`, and characters of each
+/// item's first line printed (the rest is at its `path:line`).
+pub const OPEN_ITEMS: usize = 30;
+pub const OPEN_ITEM_CHARS: usize = 160;
+/// Open items of the session's last note printed after a compaction.
+pub const RESUME_OPEN_ITEMS: usize = 5;
+
+/// A file's header comment (`code::header`) gives a read-first span when it
+/// holds this many of the question's words (and half of them): at 2, 3 of 5
+/// absent gold questions got one; the no-note fallback asks
+/// `CODE_FIND_MIN_WORDS`.
+pub const HEADER_SPAN_MIN_WORDS: usize = 3;

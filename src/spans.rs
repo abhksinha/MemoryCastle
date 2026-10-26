@@ -191,12 +191,23 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
         }
     }
 
+    // 5. a file whose header comment says what the question asks (a
+    //    script no note names: `native_gaps_census.sh` for blockers per
+    //    document); the header itself is the span. Three words: at two,
+    //    absent questions got one ("connection, pool" in `db.rs`).
+    for (path, end, got) in code::headers_matching(conn, project_id, &q_words, crate::limits::HEADER_SPAN_MIN_WORDS)?.into_iter().take(2) {
+        let d = Def { name: path.rsplit('/').next().unwrap_or(&path).to_string(), path, kind: "header", line: 1, end: end.max(1), anchor: String::new() };
+        // More of the question's words first, never above a note's symbols.
+        let score = (crate::limits::SPAN_WEAK + 0.01 * got.len().saturating_sub(2) as f32).min(0.6);
+        push(d, score, format!("header says {}", got.join(", ")), &mut cands);
+    }
+
     // re-anchor, size, sort: score desc, then shorter first
     let mut out = Vec::new();
     let mut file_cache: HashMap<String, Vec<usize>> = HashMap::new();
     for (d, score, why) in cands {
         let span = match root {
-            Some(r) if d.kind != "use" && d.kind != "range" => code::current_span(conn, project_id, r, &d)?,
+            Some(r) if d.kind != "use" && d.kind != "range" && d.kind != "header" => code::current_span(conn, project_id, r, &d)?,
             _ => Some((d.line, d.end)),
         };
         let Some((a, b)) = span else { continue };

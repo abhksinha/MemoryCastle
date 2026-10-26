@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Source extensions indexed. Everything else is a file node only if a note names it.
-pub const CODE_EXTS: &[&str] = &["rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "inl", "ipp", "tpp", "cu", "cuh", "swift", "rb", "php", "cs"];
+pub const CODE_EXTS: &[&str] = &["rs", "kt", "kts", "java", "py", "ts", "tsx", "js", "jsx", "mjs", "go", "c", "h", "cc", "cpp", "cxx", "hpp", "hh", "hxx", "inl", "ipp", "tpp", "cu", "cuh", "swift", "rb", "php", "cs", "sh", "bash"];
 /// Largest source file read.
 pub const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// Most files indexed per checkout.
@@ -30,7 +30,7 @@ pub const MAX_MENTION_USERS: usize = 100;
 /// Literals and self-references that a keyword scan can mistake for names.
 pub const NAME_STOPLIST: &[&str] = &["true", "false", "null", "nil", "None", "self", "this", "super", "Self"];
 /// Bump when the scanners change; stores indexed by an older scanner are rebuilt once.
-pub const CODE_VERSION: &str = "25";
+pub const CODE_VERSION: &str = "26";
 /// Callees stored per definition. Printing is bounded by `CONTEXT_ITEMS`;
 /// storage must not be, or a dispatcher's later callees lose their caller
 /// edge (`run` in `main.rs` passed 64 and `narrow_span` showed no caller).
@@ -144,9 +144,10 @@ pub fn index(conn: &mut Connection, project_id: i64, root: &Path) -> Result<Stat
     for (path, text) in &changed {
         tx.execute("DELETE FROM code_files WHERE project_id = ?1 AND path = ?2", params![project_id, path])?;
         let (_, hash, size, mtime) = hashes.iter().find(|(p, ..)| p == path).unwrap();
+        let head = header(text);
         tx.execute(
-            "INSERT INTO code_files(project_id, path, hash, lang, size, mtime) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![project_id, path, hash, ext_of(path), size, mtime],
+            "INSERT INTO code_files(project_id, path, hash, lang, size, mtime, head, head_end) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![project_id, path, hash, ext_of(path), size, mtime, head.0, head.1],
         )?;
         let mut ins = tx.prepare_cached("INSERT INTO code_defs(project_id, path, name, kind, line, end_line, anchor, name_words, words, owner) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)")?;
         let lines: Vec<&str> = text.lines().collect();
@@ -276,6 +277,94 @@ pub fn jni_target(name: &str) -> Option<(String, String)> {
     }
     let method = parts.pop()?;
     Some((parts.join("/"), method))
+}
+
+/// A file's header comment: the first comment block, after a shebang and
+/// blank lines, in any of `#`, `//`, `//!`, `--`, `%`, `;` or a `/* */` or
+/// `"""` block, up to `limits::CODE_FIND_DOC_BYTES`, with the line it
+/// ends on. A script says what it does there (`# Every blocker of the
+/// native job per document`), and no definition holds it.
+pub fn header(text: &str) -> (String, u32) {
+    let mut out = String::new();
+    let mut end = 0u32;
+    let mut block: Option<&str> = None;
+    for (i, raw) in text.lines().enumerate().take(60) {
+        let l = raw.trim();
+        if i == 0 && l.starts_with("#!") {
+            continue;
+        }
+        let body = if let Some(close) = block {
+            match l.find(close) {
+                Some(k) => {
+                    block = None;
+                    &l[..k]
+                }
+                None => l,
+            }
+        } else if l.is_empty() {
+            if out.is_empty() {
+                continue;
+            }
+            break;
+        } else if let Some(r) = l.strip_prefix("/*").or_else(|| l.strip_prefix("\"\"\"")).or_else(|| l.strip_prefix("'''")) {
+            let close = if l.starts_with("/*") { "*/" } else if l.starts_with("'''") { "'''" } else { "\"\"\"" };
+            match r.find(close) {
+                Some(k) => &r[..k],
+                None => {
+                    block = Some(close);
+                    r
+                }
+            }
+        } else if let Some(r) = ["//!", "///", "//", "#", "--", "%", ";;", ";"].iter().find_map(|p| l.strip_prefix(p)) {
+            if r.starts_with('!') || r.contains("-*-") {
+                continue;
+            }
+            r
+        } else {
+            break;
+        };
+        let body = body.trim_start_matches(['*', '%', '#', '/', ' ']).trim();
+        if !body.is_empty() {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(body);
+        }
+        end = i as u32 + 1;
+        if out.len() >= crate::limits::CODE_FIND_DOC_BYTES {
+            break;
+        }
+    }
+    let mut cut = out.len().min(crate::limits::CODE_FIND_DOC_BYTES);
+    while !out.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    out.truncate(cut);
+    (out, end)
+}
+
+/// Files whose header comment holds at least `min` of the question's
+/// stemmed words, generic ones left out, and half of them, most words first: `(path,
+/// header end line, words matched)`.
+pub fn headers_matching(conn: &Connection, project_id: i64, words: &[String], min: usize) -> Result<Vec<(String, u32, Vec<String>)>> {
+    // Quantifiers and verbs ("every", "check") say nothing about a file.
+    let words: Vec<&String> = words.iter().filter(|w| !crate::search::is_generic(w)).collect();
+    let need = min.max(words.len().div_ceil(2));
+    if words.len() < min {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare_cached("SELECT path, head, head_end FROM code_files WHERE project_id = ?1 AND head != ''")?;
+    let mut out: Vec<(String, u32, Vec<String>)> = stmt
+        .query_map([project_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?)))?
+        .filter_map(|r| r.ok())
+        .filter_map(|(p, h, e)| {
+            let hw: Vec<String> = h.split(|c: char| !c.is_alphanumeric() && c != '_').flat_map(ident_words).collect();
+            let got: Vec<String> = words.iter().filter(|q| hw.iter().any(|w| w.starts_with(q.as_str()))).map(|q| q.to_string()).collect();
+            (got.len() >= need).then_some((p, e, got))
+        })
+        .collect();
+    out.sort_by(|a, b| b.2.len().cmp(&a.2.len()).then(a.0.len().cmp(&b.0.len())));
+    Ok(out)
 }
 
 pub(crate) fn ext_of(path: &str) -> &str {
@@ -520,6 +609,9 @@ fn keyword_applies(ext: &str, kw: &str) -> bool {
     match ext {
         "py" => matches!(kw, "def" | "class"),
         "rb" => matches!(kw, "def" | "class" | "module"),
+        // A script is indexed for its header and its `function`s; `fn` or
+        // `class` in a command line is not a definition.
+        "sh" | "bash" => kw == "function",
         _ => kw != "module",
     }
 }
@@ -1450,6 +1542,7 @@ fn lang_family(path: &str) -> &'static str {
         "swift" => "swift",
         "cs" => "cs",
         "php" => "php",
+        "sh" | "bash" => "sh",
         _ => "",
     }
 }
@@ -2159,6 +2252,17 @@ pub fn call_lines(conn: &Connection, project_id: i64, d: &Def, with_callers: boo
 
 #[cfg(test)]
 mod call_edge_tests {
+    #[test]
+    fn header_is_the_first_comment_block() {
+        let sh = "#!/bin/sh\n# Every blocker per document,\n# ranked.\nexport LC_ALL=C\n";
+        assert_eq!(super::header(sh), ("Every blocker per document, ranked.".to_string(), 3));
+        let rs = "//! The edit gate.\n//! Once per file.\n\nuse x;\n";
+        assert_eq!(super::header(rs), ("The edit gate. Once per file.".to_string(), 2));
+        let py = "\"\"\"Fetch the corpus\nonce.\"\"\"\nimport os\n";
+        assert_eq!(super::header(py), ("Fetch the corpus once.".to_string(), 2));
+        assert_eq!(super::header("fn main() {}\n").0, "");
+    }
+
     use super::*;
     #[test]
     fn calls_are_name_in_call_shape_inside_a_function() {

@@ -27,6 +27,7 @@ one of many | the definition in that file or directory | `memcastle links crates
 json | notes, definitions, scored callers, call sites | `memcastle --json links <symbol> --context`
 new file | its notes, or what it defines and who uses it | `memcastle links <file>`
 history | how a decision changed | `memcastle history <note.md>`
+open | what earlier notes left unresolved, newest first | `memcastle open [file|symbol]`
 save | index a note | `memcastle save <note.md>` or `memcastle save --changed`
 owed | is a note owed, and a skeleton for it | `memcastle owed`, `memcastle draft`
 status | this session's lookups, edits, savings | `memcastle status`
@@ -89,7 +90,7 @@ write | do not write
 a decision changed, or made among alternatives | a routine edit or a refactor with no choice
 an approach rejected, tried or reasoned out | what `CLAUDE.md`, `AGENTS.md` or the README holds
 a measurement or baseline | code, file layout, git history, transcripts, tool output, secrets
-a user preference or working rule | a second file for the same day and topic: append instead
+a user preference or working rule | a second note on work an earlier note covers: edit that one
 
 ## Note shape
 
@@ -120,7 +121,7 @@ What remains, questions for the user.
 - title states the decision; it is embedded with every chunk
 - files and functions in backticks: they become links, so `links <name>` finds the note
 - numbers under `## Measured`
-- never edit an old note to change a decision: write a new one with `Supersedes:`
+- edit an earlier note to add to it (a measurement, an Open item closed, a correction, a missed file), then `save` it again; to reverse its decision, write a new note with `Supersedes:` and leave the old one as it was
 - write `Author:` and `Date:`, or leave them out and `save` fills them; `save` also marks the note a `Supersedes:` names, and names edited files and changed functions the note leaves out; commit the note with the code
 
 ## MCP

@@ -28,5 +28,7 @@ Run `memcastle init` to see the full rules; the short form:
 - At the end of a task that changed a decision, measured something, or
   rejected an approach: write `memorycastle/journal/YYYY-MM-DD-<topic>.md`
   with Author, Files, Decision, Rejected, Measured, Open; then
-  `memcastle save --changed`. Never edit or delete an old note; supersede it.
+  `memcastle save --changed`. When the work continues an earlier note,
+  edit that note instead and save it again; to reverse its decision, write
+  a new note with `Supersedes:`. Never delete a note.
 - `memcastle status` shows savings as a percentage of bytes not read.

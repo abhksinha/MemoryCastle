@@ -21,7 +21,7 @@ if [ "$rc" -eq 2 ] && [ -z "$draft" ]; then
   exit 2
 fi
 if [ "$rc" -eq 2 ]; then
-  printf 'memorycastle: %s. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at %s: set the title to the decision, fill the sections, then: memcastle save %s. If no decision was made, stop again and say so.\n' "$reason" "$draft" "$draft" >&2
+  printf 'memorycastle: %s. Before stopping, write the journal note if this task changed a decision, measured something or rejected an approach. Draft at %s: set the title to the decision, fill the sections, then: memcastle save %s; when the work continues an earlier note, edit and save that note instead. If no decision was made, stop again and say so.\n' "$reason" "$draft" "$draft" >&2
   exit 2
 fi
 # Shown to the user, not the agent: code files edited with no links of the

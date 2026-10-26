@@ -35,6 +35,9 @@ if [ "$source" = "compact" ]; then
 1. Before editing a file or function, and for any question about code (callers, definitions): memcastle links <file|symbol>, not search; read only the printed range.
 2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --sections.
 3. After a task that decided, rejected or measured something: write memorycastle/journal/<date>-<topic>.md, then memcastle save it."
+  # Where the session's last note left the work: its Open items.
+  resume=$(memcastle open --resume 2>/dev/null)
+  [ -n "$resume" ] && echo "memorycastle: $resume"
 fi
 # After a compaction the draft written by pre-compact.sh is the one thing
 # the summary must not lose; after a fresh start it is last session's debt.

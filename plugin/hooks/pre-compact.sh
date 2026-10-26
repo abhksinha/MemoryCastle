@@ -12,7 +12,7 @@ sid=$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\
 draft=$(memcastle draft 2>/dev/null)
 reason=$(memcastle owed --once compact 2>&1 >/dev/null); rc=$?
 if [ "$rc" -eq 2 ]; then
-  printf 'memorycastle: %s. Context is about to be compacted: write the journal note now, while the decision and the numbers are still in context. Draft at %s: set the title to the decision, fill Decision, Rejected and Measured, then run: memcastle save %s. Compaction continues on the next attempt.\n' "$reason" "$draft" "$draft" >&2
+  printf 'memorycastle: %s. Context is about to be compacted: write the journal note now, while the decision and the numbers are still in context. Draft at %s: set the title to the decision, fill Decision, Rejected and Measured, then run: memcastle save %s; when the work continues an earlier note, edit and save that note instead. Compaction continues on the next attempt.\n' "$reason" "$draft" "$draft" >&2
   exit 2
 fi
 exit 0

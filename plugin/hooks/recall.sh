@@ -18,5 +18,5 @@ out=$(printf '%s' "$prompt" | memcastle recall 2>/dev/null)
 # Mid-session: a note is owed and enough has been edited (see limits.rs);
 # said once, then not for the cooldown.
 owed=$(memcastle owed --remind 2>/dev/null)
-[ -n "$owed" ] && printf 'memorycastle: %s. Before going further, write the journal note for the decision so far (memcastle draft gives the skeleton; memcastle save <note>), or carry on if no decision was made yet.\n' "$owed"
+[ -n "$owed" ] && printf 'memorycastle: %s. Before going further, write the journal note for the decision so far (memcastle draft gives the skeleton; memcastle save <note>; or edit the earlier note this work continues and save it), or carry on if no decision was made yet.\n' "$owed"
 exit 0

@@ -424,6 +424,17 @@ enum Cmd {
         #[arg(long)]
         all: bool,
     },
+    /// The unresolved items of every live note's Open section, newest first; with a file or symbol, only the notes about it.
+    Open {
+        /// A file or symbol; omitted, every note in the project.
+        target: Option<String>,
+        /// Every item, not only the newest 30.
+        #[arg(long)]
+        all: bool,
+        /// The open items of the last note with any that this session saved (the compaction hook prints it).
+        #[arg(long, hide = true)]
+        resume: bool,
+    },
     /// The supersede chain through a note, oldest first.
     History {
         /// Note path, e.g. memorycastle/journal/2026-10-18-topic.md
@@ -1804,7 +1815,22 @@ fn run(cli: Cli) -> Result<()> {
                 // names; a line in one no note names, or outside any, lists
                 // the first few like a plain file lookup: 21 notes otherwise.
                 let cap = if kind == graph::Kind::File { memorycastle::limits::LINKS_NOTES } else { notes.len() };
-                for (i, n) in notes.iter().take(cap).enumerate() {
+                // A hook's lookup (`--once`) names a note it already printed
+                // this session in one line: the same trackers came back under
+                // every file edited (one RushTex session printed `progress.md`
+                // 54 times). Compaction clears the record with the gate's.
+                let sid = store::current_session(&ctx.conn, pid)?;
+                let shown_before = match &sid {
+                    Some(s) if once => memorycastle::gate::notes_shown(&ctx.conn, s)?,
+                    _ => std::collections::HashSet::new(),
+                };
+                let mut again = Vec::new();
+                let mut i = 0usize;
+                for n in notes.iter().take(cap) {
+                    if shown_before.contains(&n.id) {
+                        again.push(n.path.rsplit('/').next().unwrap_or(&n.path).to_string());
+                        continue;
+                    }
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
                     let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
@@ -1818,6 +1844,13 @@ fn run(cli: Cli) -> Result<()> {
                         store::record_note_spans(&ctx.conn, pid, n.id, &n.path, &ranges)?;
                     }
                     stood += store::note_bytes(&ctx.conn, n.id)?;
+                    i += 1;
+                }
+                if !again.is_empty() {
+                    out.push_str(&format!("   shown earlier this session: {}\n", again.join(", ")));
+                }
+                if let Some(s) = &sid {
+                    memorycastle::gate::mark_notes_shown(&ctx.conn, s, notes.iter().take(cap).map(|n| n.id))?;
                 }
                 if notes.len() > cap {
                     out.push_str(&format!("   +{} more notes name {target}; `links {target} --at <line>` shows the ones about that definition\n", notes.len() - cap));
@@ -1851,6 +1884,62 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 print!("{out}");
                 store::record_usage(&ctx.conn, pid, "links", out.len(), stood)?;
+            }
+        }
+        Cmd::Open { target, all, resume } => {
+            let pid = ctx.require_project()?.id;
+            if resume {
+                // After a compaction: where the last note left the work, so the
+                // summary's account of it is checked against what was written.
+                let Some(since) = store::session_started(&ctx.conn, pid)? else { return Ok(()) };
+                let last: Option<(i64, String, String)> = ctx
+                    .conn
+                    .query_row(
+                        "SELECT id, path, title FROM notes WHERE project_id = ?1 AND deleted_at IS NULL AND superseded_by IS NULL AND saved_at >= ?2
+                         AND EXISTS (SELECT 1 FROM sections s WHERE s.note_id = notes.id AND s.name = 'Open') ORDER BY saved_at DESC LIMIT 1",
+                        rusqlite::params![pid, since],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
+                    .map(Some)
+                    .or_else(|e| if matches!(e, rusqlite::Error::QueryReturnedNoRows) { Ok(None) } else { Err(e) })?;
+                let Some((id, path, title)) = last else { return Ok(()) };
+                let items = store::open_items(&ctx.conn, pid, Some(&[id]))?;
+                if !items.is_empty() {
+                    println!("this session's last note with open items: {path}  {title}");
+                    for it in items.iter().take(memorycastle::limits::RESUME_OPEN_ITEMS) {
+                        let text: String = it.text.chars().take(memorycastle::limits::OPEN_ITEM_CHARS).collect();
+                        println!("   {}:{}  {text}", it.path, it.line);
+                    }
+                }
+                return Ok(());
+            }
+            graph::ensure_links(&mut ctx.conn, pid)?;
+            let ids: Option<Vec<i64>> = match &target {
+                Some(t) => {
+                    let kind = if memorycastle::code::is_file_target(&ctx.conn, pid, t)? { graph::Kind::File } else { graph::Kind::Symbol };
+                    let mut v: Vec<i64> = graph::notes_for(&ctx.conn, pid, kind, t)?.into_iter().map(|n| n.id).collect();
+                    if v.is_empty() && kind == graph::Kind::File {
+                        v = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, t)?.into_iter().map(|n| n.id).collect();
+                    }
+                    Some(v)
+                }
+                None => None,
+            };
+            let items = store::open_items(&ctx.conn, pid, ids.as_deref())?;
+            let shown = if all { items.len() } else { items.len().min(memorycastle::limits::OPEN_ITEMS) };
+            if cli.json {
+                println!("{}", serde_json::to_string(&items[..shown])?);
+            } else if items.is_empty() {
+                println!("no open items{}", target.as_ref().map(|t| format!(" in notes about {t}")).unwrap_or_default());
+            } else {
+                for it in &items[..shown] {
+                    let text: String = it.text.chars().take(memorycastle::limits::OPEN_ITEM_CHARS).collect();
+                    let cut = if it.text.chars().count() > memorycastle::limits::OPEN_ITEM_CHARS { "…" } else { "" };
+                    println!("{}:{}  {}  {text}{cut}", it.path, it.line, fmt_date(it.dated));
+                }
+                if items.len() > shown {
+                    println!("+{} more (--all); an item is closed by a later note that supersedes this one", items.len() - shown);
+                }
             }
         }
         Cmd::History { note } => {

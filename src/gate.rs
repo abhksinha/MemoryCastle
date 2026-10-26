@@ -6,7 +6,9 @@
 //! the files already looked up: the gate adds to it, and so does any
 //! `links` call on a file or symbol. Compaction demotes it (`gate --reset`):
 //! the agent lost the notes with the summary, so the next write to a file
-//! looked up before gets them again, as context, not a block.
+//! looked up before gets them again, as context, not a block. The notes a
+//! hook's lookup printed (`gatenotes:<session>`) are named in one line when
+//! another file's lookup would print them again; compaction clears that too.
 //!
 //! A write that creates a file runs a search on its path instead (`links`
 //! has nothing to say yet), shown as context when the top hit is at least
@@ -86,7 +88,34 @@ pub fn reset(conn: &Connection, project_id: i64) -> Result<()> {
         .collect();
     v.sort();
     v.dedup();
+    // The summary dropped the notes too: print them in full again.
+    db::meta_set(conn, &notes_key(&sid), "")?;
     db::meta_set(conn, &key(&sid), &v.join("\n"))
+}
+
+fn notes_key(session: &str) -> String {
+    format!("gatenotes:{session}")
+}
+
+/// Notes a hook's `links --once` printed in this session, by id.
+pub fn notes_shown(conn: &Connection, session: &str) -> Result<HashSet<i64>> {
+    Ok(db::meta_get(conn, &notes_key(session))?.unwrap_or_default().split(',').filter_map(|x| x.parse().ok()).collect())
+}
+
+/// Adds notes to the session's printed set.
+pub fn mark_notes_shown(conn: &Connection, session: &str, ids: impl Iterator<Item = i64>) -> Result<()> {
+    if db::is_readonly(conn) {
+        return Ok(());
+    }
+    let mut have = notes_shown(conn, session)?;
+    let before = have.len();
+    have.extend(ids);
+    if have.len() == before {
+        return Ok(());
+    }
+    let mut v: Vec<i64> = have.into_iter().collect();
+    v.sort_unstable();
+    db::meta_set(conn, &notes_key(session), &v.iter().map(i64::to_string).collect::<Vec<_>>().join(","))
 }
 
 /// The edit gate's mode, `block`, `context` or `off`: `MEMORYCASTLE_GATE`

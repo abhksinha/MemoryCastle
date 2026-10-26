@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 30;
+pub const SCHEMA_VERSION: i64 = 31;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -541,6 +541,15 @@ fn migrate_from(conn: &Connection, version: i64) -> Result<()> {
             conn.execute_batch("INSERT INTO code_defs_fts(code_defs_fts) VALUES ('rebuild');")?;
         } else {
             conn.execute_batch("DELETE FROM code_files; DELETE FROM meta WHERE key LIKE 'code_version:%';")?;
+        }
+    }
+    if version < 31 {
+        // v31: a file's header comment (`code::header`), so a script no note
+        // names is found by what its first lines say it does. Filled as
+        // `CODE_VERSION` 26 reindexes every file.
+        let has_head: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('code_files') WHERE name = 'head')", [], |r| r.get(0))?;
+        if !has_head {
+            conn.execute_batch("ALTER TABLE code_files ADD COLUMN head TEXT NOT NULL DEFAULT ''; ALTER TABLE code_files ADD COLUMN head_end INTEGER NOT NULL DEFAULT 0;")?;
         }
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

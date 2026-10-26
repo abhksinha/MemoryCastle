@@ -392,8 +392,9 @@ pub fn empty_line(ex: &crate::search::Explain) -> String {
 /// about call measurement found no note while two telemetry scripts existed.
 pub fn code_fallback(conn: &Connection, project_id: i64, query: &str) -> Result<String> {
     let mut out = String::new();
-    // Files whose path holds at least two of the question's words
-    // (`scripts/monitor_call_telemetry.py` for "call telemetry"), most first.
+    // Files whose path or header comment holds at least two of the
+    // question's words (`scripts/monitor_call_telemetry.py` for "call
+    // telemetry"), most first.
     let terms: Vec<String> = code::find_terms(query).iter().map(|t| crate::search::stem(t).to_string()).collect();
     if terms.len() >= crate::limits::CODE_FIND_MIN_WORDS {
         let mut stmt = conn.prepare_cached("SELECT path FROM code_files WHERE project_id = ?1")?;
@@ -406,10 +407,16 @@ pub fn code_fallback(conn: &Connection, project_id: i64, query: &str) -> Result<
                 (n >= crate::limits::CODE_FIND_MIN_WORDS).then_some((n, p))
             })
             .collect();
+        // Or whose header comment says it (a script's first lines).
+        for (p, _, got) in code::headers_matching(conn, project_id, &crate::spans::question_words(query), crate::limits::CODE_FIND_MIN_WORDS)? {
+            if !files.iter().any(|(_, f)| *f == p) {
+                files.push((got.len(), p));
+            }
+        }
         files.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.len().cmp(&b.1.len())));
         if !files.is_empty() {
             let list: Vec<&str> = files.iter().take(crate::limits::CODE_FIND_K).map(|(_, p)| p.as_str()).collect();
-            out.push_str(&format!("files named like it (index, not notes): {}\n", list.join(", ")));
+            out.push_str(&format!("files named or headed like it (index, not notes): {}\n", list.join(", ")));
         }
     }
     let hits = code::find(conn, project_id, query, crate::limits::CODE_FIND_K)?;

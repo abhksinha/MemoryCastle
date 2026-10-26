@@ -805,6 +805,11 @@ pub fn has_any_word(text: &str, terms: &[String]) -> bool {
     terms.iter().any(|t| words.has(t))
 }
 
+/// True for an everyday word (`GENERIC_WORDS`), stemmed or not.
+pub fn is_generic(w: &str) -> bool {
+    GENERIC_WORDS.iter().any(|g| *g == w || stem(g) == w)
+}
+
 /// Everyday words that are rare in a small store without being distinctive:
 /// a question's verbs and quantifiers. Never counted as rare.
 const GENERIC_WORDS: &[&str] = &[
