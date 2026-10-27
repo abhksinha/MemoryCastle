@@ -445,12 +445,11 @@ pub const JUDGE_NOTES: usize = 12;
 /// at 39%, 2.6 notes. Before an edit a missed note costs more than an extra
 /// one, so 0.6 (2026-10-27-jev-links-for-task-and-gate.md).
 pub const JUDGE_CUT: f32 = 0.6;
-/// The cut when the edit gate asks (task plus the edit in the state). On the
-/// same 36 edits: 0.6 showed 35 of 38 relevant notes at 48% precision,
-/// silent on 4 of 6 edits no note bears on; 0.7 showed 34 at 62%, silent on
-/// 6 of 6 (held-out half 17 of 19 at 68%, 4 of 4). Subquestions inside the
-/// score and a structured must-read noul cut noise no better than this
-/// (2026-10-27-judge-gate-cut.md).
+/// The cut when the edit gate asks (task plus the edit in the state). With the
+/// structured master (`judge::body`), 36 edits: 0.6 showed 33 of 38 relevant
+/// notes at 56% precision, silent on 5 of 6 edits no note bears on; 0.7
+/// showed 31 at 65%, 6 of 6. Chosen on the tune half (15 of 19 both, 50% to
+/// 60%); the test half lost 2 of 19 for it (2026-10-27-judge-structured-master.md).
 pub const JUDGE_GATE_CUT: f32 = 0.7;
 /// The judge call gives up after this and `links` prints its usual list:
 /// p50 was 530 ms and p95 about 640 ms.
@@ -461,6 +460,11 @@ pub const JUDGE_TIMEOUT_MS: u64 = 2000;
 /// the task in the state: 6 of 7 caught, no false alarm in the other 29;
 /// at 0.5, 3 false alarms; the name-based tripwire caught 0.
 pub const JUDGE_REJECTED: f32 = 0.6;
+/// A kept note whose "the task changes or reverses what Note k decided, or
+/// retries what it rejected" is at least this prints that as its reason. On
+/// 36 tasks a yes was right 73% (task only) and 83% (with the edit); the other
+/// considerations said yes to most notes (27% to 45%) and are not printed.
+pub const JUDGE_REVERSES: f32 = 0.5;
 /// Characters of the last prompt kept per session as the gate's task.
 pub const JUDGE_TASK_CHARS: usize = 1500;
 /// Characters of each side of an edit sent to the judge.

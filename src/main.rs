@@ -1747,6 +1747,7 @@ fn run(cli: Cli) -> Result<()> {
             let judge_edit = memorycastle::judge::edit_from_env();
             let mut judged: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
             let mut judged_rejected: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
+            let mut judged_reverses: std::collections::HashSet<i64> = std::collections::HashSet::new();
             let mut judge_model: Option<(String, usize)> = None;
             if let Some(task) = for_task.as_deref() {
                 let cand: Vec<graph::NoteRef> = notes.iter().filter(|n| n.superseded_by.is_none()).take(memorycastle::limits::JUDGE_NOTES).cloned().collect();
@@ -1778,6 +1779,7 @@ fn run(cli: Cli) -> Result<()> {
                             kept.sort_by(|a, b| rej(b.1).ge(&memorycastle::limits::JUDGE_REJECTED).cmp(&rej(a.1).ge(&memorycastle::limits::JUDGE_REJECTED)).then(b.0.total_cmp(&a.0)).then(a.1.cmp(&b.1)));
                             judged = kept.iter().map(|&(s, i)| (cand[i].id, s)).collect();
                             judged_rejected = kept.iter().filter(|&&(_, i)| rej(i) >= memorycastle::limits::JUDGE_REJECTED).map(|&(_, i)| (cand[i].id, rej(i))).collect();
+                            judged_reverses = kept.iter().filter(|&&(_, i)| v.reverses.get(i).copied().unwrap_or(0.0) >= memorycastle::limits::JUDGE_REVERSES).map(|&(_, i)| cand[i].id).collect();
                             notes = kept.iter().map(|&(_, i)| cand[i].clone()).collect();
                             decisions = notes.len();
                             judge_model = Some((v.model, cand.len()));
@@ -1919,7 +1921,9 @@ fn run(cli: Cli) -> Result<()> {
                     let via = if successor { format!("  ({})", n.via) } else if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
                     if let (Some(sc), Some((m, _))) = (judged.get(&n.id), &judge_model) {
-                        out.push_str(&format!("   judge      {sc:.2} for this task ({m})\n"));
+                        // The one consideration precise enough to print as the reason.
+                        let why = if judged_reverses.contains(&n.id) && !judged_rejected.contains_key(&n.id) { ": the task changes or retries what it decided" } else { "" };
+                        out.push_str(&format!("   judge      {sc:.2} for this task ({m}){why}\n"));
                     }
                     if let Some(p) = judged_rejected.get(&n.id) {
                         // The Rejected bullet sharing most words with the task and the

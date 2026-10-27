@@ -6,7 +6,7 @@
 //! `TYPESAFE_API_KEY`. Any error, a missing key or a timeout returns `Err`
 //! and the caller prints what it prints without a judge. The gate uses it
 //! only after `memcastle project judge on`. Questions and rubric are those
-//! measured in `examples/eval_links_judge.py`, word for word.
+//! measured in `examples/eval_links_judge.py` (`request`), word for word.
 
 use crate::error::Result;
 use rusqlite::Connection;
@@ -23,10 +23,12 @@ const RUBRIC: [&str; 5] = [
     "Must read: the task changes or reverses what this note decided, or retries what it rejected.",
 ];
 
-/// The judge's scores, one per note in order; with an edit, the probability
-/// per note that the edit brings back what it rejected; the model that answered.
+/// The judge's scores, one per note in order; per note the probability that
+/// the task changes or retries what it decided or rejected; with an edit, the
+/// probability that the edit brings back what it rejected; the model that answered.
 pub struct Verdict {
     pub scores: Vec<f32>,
+    pub reverses: Vec<f32>,
     pub rejected: Vec<f32>,
     pub model: String,
 }
@@ -90,8 +92,38 @@ fn clip(s: &str) -> String {
     s.chars().take(crate::limits::JUDGE_EDIT_CHARS).collect()
 }
 
-/// The request body: the state as measured, one score question per note and,
-/// with an edit, one rejected-approach question per note.
+/// What the master question weighs for Note `k`, each a precise yes/no: the
+/// first ones raise its score, the last two lower it. With an edit, also
+/// whether the edit brings back what the note rejected.
+fn considerations(k: usize, edit: bool) -> (Vec<String>, Vec<String>) {
+    let mut raises = vec![
+        format!("Note {k} decides, rejects or measures something about the exact code this task changes: the same function, constant or behaviour, not only the same file."),
+        format!("Note {k} states a decision, limit or measured number that the change must stay within."),
+        reverses(k),
+    ];
+    if edit {
+        raises.push(brings_back(k));
+    }
+    let lowers = vec![
+        format!("Note {k} shares only names, files or words with the task; what it decides is about something else."),
+        format!("Note {k} is history or context only: the change would be written the same way without reading it."),
+    ];
+    (raises, lowers)
+}
+
+fn reverses(k: usize) -> String {
+    format!("The task changes or reverses what Note {k} decided, or retries something Note {k} rejected.")
+}
+
+fn brings_back(k: usize) -> String {
+    format!("The edit brings back an approach that Note {k}'s Rejected section ruled out.")
+}
+
+/// The request body, one call: per note a master score whose structured
+/// instructions carry the considerations to weigh (Jev judges every question
+/// in isolation, so the master cannot read other questions' answers; the
+/// considerations travel inside it), `v` the reverses-it noul printed as the
+/// reason, and with an edit `r` the brings-back-a-rejected-approach noul.
 pub fn body(model: &str, symbol: &str, task: &str, notes: &[(String, String)], edit: Option<&EditText>) -> serde_json::Value {
     use serde_json::{json, Map};
     let head = match edit {
@@ -109,15 +141,19 @@ pub fn body(model: &str, symbol: &str, task: &str, notes: &[(String, String)], e
     for (i, (path, text)) in notes.iter().enumerate() {
         let k = i + 1;
         state.push(format!("Note {k} ({path}):\n{}", text.trim()));
+        let (raises, lowers) = considerations(k, edit.is_some());
+        let with_edit = if edit.is_some() { " with this edit" } else { "" };
         questions.insert(
             format!("m{k}"),
-            json!({"type": "score", "instructions": format!("How much does Note {k} matter for doing this task?"), "criteria": RUBRIC}),
+            json!({"type": "score", "criteria": RUBRIC, "instructions": {
+                "question": format!("How much does Note {k} matter for doing this task{with_edit}?"),
+                "weigh": {"raises": raises, "lowers": lowers},
+                "reply": format!("Weigh each of these about Note {k}, then answer with the one level that fits the balance."),
+            }}),
         );
+        questions.insert(format!("v{k}"), json!({"type": "noul", "instructions": reverses(k)}));
         if edit.is_some() {
-            questions.insert(
-                format!("r{k}"),
-                json!({"type": "noul", "instructions": format!("The edit brings back an approach that Note {k}'s Rejected section ruled out.")}),
-            );
+            questions.insert(format!("r{k}"), json!({"type": "noul", "instructions": brings_back(k)}));
         }
     }
     json!({"model": model, "state": state.join("\n\n"), "questions": questions})
@@ -153,8 +189,9 @@ pub fn score(symbol: &str, task: &str, notes: &[(String, String)], edit: Option<
         .map(|k| get(format!("m{k}"), "score").map(|s| s / 4.0))
         .collect::<Option<Vec<f32>>>()
         .ok_or_else(|| crate::err!("judge: a note was not scored"))?;
+    let reverses = (1..=notes.len()).map(|k| get(format!("v{k}"), "noul").unwrap_or(0.0)).collect();
     let rejected = if edit.is_some() { (1..=notes.len()).map(|k| get(format!("r{k}"), "noul").unwrap_or(0.0)).collect() } else { Vec::new() };
-    Ok(Verdict { scores, rejected, model: v.get("model").and_then(Value::as_str).unwrap_or("").to_string() })
+    Ok(Verdict { scores, reverses, rejected, model: v.get("model").and_then(Value::as_str).unwrap_or("").to_string() })
 }
 
 #[cfg(not(feature = "judge"))]
@@ -172,10 +209,15 @@ mod tests {
         let b = body("jev-latest", "search::merge_queries", "order by RRF", &notes, None);
         assert_eq!(b["state"], "Task on `search::merge_queries`: order by RRF\n\nNote 1 (memorycastle/journal/a.md):\n# A\n\n## Decision\nX.");
         assert_eq!(b["questions"]["m1"]["criteria"][4], RUBRIC[4]);
+        assert_eq!(b["questions"]["m1"]["instructions"]["question"], "How much does Note 1 matter for doing this task?");
+        assert_eq!(b["questions"]["m1"]["instructions"]["weigh"]["raises"].as_array().unwrap().len(), 3);
+        assert_eq!(b["questions"]["v1"]["instructions"], "The task changes or reverses what Note 1 decided, or retries something Note 1 rejected.");
         assert!(b["questions"].get("r1").is_none());
         let e = EditText { file: "src/limits.rs".into(), line: Some(55), old: "0.36".into(), new: "0.40".into() };
         let b = body("jev-latest", "x", "raise the floor", &notes, Some(&e));
         assert!(b["state"].as_str().unwrap().starts_with("Task: raise the floor\nThe edit, to src/limits.rs (line 55):\n--- old\n0.36\n+++ new\n0.40\n\nNote 1"));
         assert_eq!(b["questions"]["r1"]["instructions"], "The edit brings back an approach that Note 1's Rejected section ruled out.");
+        assert_eq!(b["questions"]["m1"]["instructions"]["weigh"]["raises"][3], b["questions"]["r1"]["instructions"]);
+        assert_eq!(b["questions"]["m1"]["instructions"]["question"], "How much does Note 1 matter for doing this task with this edit?");
     }
 }
