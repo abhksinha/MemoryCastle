@@ -14,3 +14,4 @@ docs/BENCHMARKS.md
 docs/gold.example.json
 examples/
 scripts/publish.sh
+.env

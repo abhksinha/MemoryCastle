@@ -539,7 +539,11 @@ pub fn search(
     }
     let before = hits.len();
     ex.floor = if run_model { crate::limits::MIN_CONFIDENCE_MODEL } else { MIN_CONFIDENCE };
-    hits.retain(|h| h.trace.confidence >= ex.floor);
+    // `MEMORYCASTLE_NO_FLOOR=1` keeps every hit: for measuring a judge over
+    // the candidates the floor drops (`examples/eval_judge.py`).
+    if std::env::var_os("MEMORYCASTLE_NO_FLOOR").is_none() {
+        hits.retain(|h| h.trace.confidence >= ex.floor);
+    }
     ex.dropped = before - hits.len();
     // The same fact in a tracker entry and a dated note: keep one, the dated
     // one when both are present (it carries the context the tracker lacks).
