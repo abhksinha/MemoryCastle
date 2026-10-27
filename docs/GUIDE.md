@@ -23,6 +23,7 @@ before edit | function holding a line, its notes | `memcastle links <file> --at 
 find code | where defined, callers, callees, notes | `memcastle links <symbol>`
 change signature | one span per call site, and constants | `memcastle links <symbol> --context`
 every caller | also under 0.3; every call site with `--context` | `memcastle links <symbol> --all`
+task | only the notes that matter for a change (sends them to Jev) | `memcastle links <symbol> --for "<task>"`
 one of many | the definition in that file or directory | `memcastle links crates/server/src/auth.rs::refresh`
 json | notes, definitions, scored callers, call sites | `memcastle --json links <symbol> --context`
 new file | its notes, or what it defines and who uses it | `memcastle links <file>`

@@ -25,6 +25,7 @@ pub mod fts;
 pub mod gate;
 pub mod graph;
 pub mod hook;
+pub mod judge;
 pub mod importlog;
 pub mod install;
 pub mod learned;

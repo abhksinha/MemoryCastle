@@ -34,8 +34,10 @@ ureq = { version = "3", optional = true }
 tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
 
 [features]
-default = ["ort"]
+default = ["ort", "judge"]
 ort = ["dep:ort", "dep:ureq"]
+# `links --for`: TypeSafe AI's Jev judges notes against a task (`src/judge.rs`).
+judge = ["dep:ureq"]
 
 [profile.release]
 opt-level = 3

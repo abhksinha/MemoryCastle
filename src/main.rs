@@ -13,6 +13,7 @@ before edit | function holding a line, its notes | memcastle links <file> --at <
 find code | where defined, callers, callees, notes | memcastle links <symbol>
 change signature | one span per call site, and constants | memcastle links <symbol> --context
 every caller | also under 0.3; every call site with --context | memcastle links <symbol> --all
+task | only the notes that matter for a change (sends them to Jev) | memcastle links <symbol> --for '<task>'
 one of many | the definition in that file or directory | memcastle links crates/server/src/auth.rs::refresh
 json | notes, definitions, scored callers, call sites | memcastle --json links <symbol> --context
 new file | its notes, or what it defines and who uses it | memcastle links <file>
@@ -423,6 +424,9 @@ enum Cmd {
         /// Every caller and callee, callers under 0.3 listed too, and with --context every call site.
         #[arg(long)]
         all: bool,
+        /// The task at hand: a judge (TypeSafe AI's Jev, key in TYPESAFE_API_KEY) scores each note for it and only the notes that matter print, best first. Sends the task and the notes' text to api.typesafe.ai; without a key or on any error the usual list prints.
+        #[arg(long = "for", value_name = "TASK")]
+        for_task: Option<String>,
     },
     /// The unresolved items of every live note's Open section, newest first; with a file or symbol, only the notes about it.
     Open {
@@ -1569,7 +1573,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("gates passed");
             }
         }
-        Cmd::Links { target, at, context, once, all } => {
+        Cmd::Links { target, at, context, once, all, for_task } => {
             let pid = ctx.require_project()?.id;
             // A line inside a file: the enclosing definition is the unit the
             // agent is editing, so notes about it come first and the file's
@@ -1709,6 +1713,38 @@ fn run(cli: Cli) -> Result<()> {
             } else {
                 None
             };
+            // `--for <task>`: the judge keeps the notes that matter for the
+            // task, best first; the code facts are never judged. Superseded
+            // notes are left out (their successors are in the list).
+            let mut judged: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
+            let mut judge_model: Option<(String, usize)> = None;
+            if let Some(task) = for_task.as_deref() {
+                let cand: Vec<graph::NoteRef> = notes.iter().filter(|n| n.superseded_by.is_none()).take(memorycastle::limits::JUDGE_NOTES).cloned().collect();
+                if !cand.is_empty() {
+                    let mut texts = Vec::with_capacity(cand.len());
+                    for n in &cand {
+                        texts.push((n.path.clone(), ctx.conn.query_row("SELECT content FROM notes WHERE id = ?1", [n.id], |r| r.get::<_, String>(0))?));
+                    }
+                    match memorycastle::judge::score(&target, task, &texts) {
+                        Ok(v) => {
+                            // Once per session: this is a network call with the notes' text.
+                            let sid = store::current_session(&ctx.conn, pid)?.unwrap_or_default();
+                            let key = format!("judge_notice:{sid}");
+                            if memorycastle::db::meta_get(&ctx.conn, &key)?.is_none() {
+                                eprintln!("memorycastle: judge: the task and {} notes' text sent to api.typesafe.ai ({})", cand.len(), v.model);
+                                memorycastle::db::meta_set(&ctx.conn, &key, "1")?;
+                            }
+                            let mut kept: Vec<(f32, usize)> = v.scores.iter().copied().enumerate().filter(|(_, s)| *s >= memorycastle::limits::JUDGE_CUT).map(|(i, s)| (s, i)).collect();
+                            kept.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+                            judged = kept.iter().map(|&(s, i)| (cand[i].id, s)).collect();
+                            notes = kept.iter().map(|&(_, i)| cand[i].clone()).collect();
+                            decisions = notes.len();
+                            judge_model = Some((v.model, cand.len()));
+                        }
+                        Err(e) => eprintln!("memorycastle: {e}; notes listed without the judge"),
+                    }
+                }
+            }
             if cli.json {
                 // Callers and callees per definition, every one with its score.
                 let mut calls = Vec::with_capacity(defs.len());
@@ -1728,7 +1764,7 @@ fn run(cli: Cli) -> Result<()> {
                     _ => Vec::new(),
                 };
                 println!("{}", serde_json::json!({"notes": notes, "definitions": defs, "calls": calls, "context": sites, "code": facts}));
-            } else if notes.is_empty() && defs.is_empty() {
+            } else if notes.is_empty() && defs.is_empty() && judge_model.is_none() {
                 println!("no notes link to {target}");
                 for f in &facts {
                     println!("   {f}");
@@ -1815,7 +1851,10 @@ fn run(cli: Cli) -> Result<()> {
                 // Every note only when `--at` narrowed to a definition a note
                 // names; a line in one no note names, or outside any, lists
                 // the first few like a plain file lookup: 21 notes otherwise.
-                let cap = if kind == graph::Kind::File { memorycastle::limits::LINKS_NOTES } else { notes.len() };
+                let cap = if kind == graph::Kind::File && judge_model.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
+                if let (Some((m, n)), true) = (&judge_model, notes.is_empty()) {
+                    out.push_str(&format!("no note bears on this task (judge {m}, {n} notes judged)\n"));
+                }
                 // A hook's lookup (`--once`) names a note it already printed
                 // this session in one line: the same trackers came back under
                 // every file edited (one RushTex session printed `progress.md`
@@ -1838,6 +1877,9 @@ fn run(cli: Cli) -> Result<()> {
                     let successor = n.via.starts_with("replaces ");
                     let via = if successor { format!("  ({})", n.via) } else if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
+                    if let (Some(sc), Some((m, _))) = (judged.get(&n.id), &judge_model) {
+                        out.push_str(&format!("   judge      {sc:.2} for this task ({m})\n"));
+                    }
                     if (i < decisions || successor) && n.superseded_by.is_none() {
                         if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {
                             out.push_str(&format!("   decision   {d}\n"));

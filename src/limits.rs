@@ -434,3 +434,17 @@ pub const RESUME_OPEN_ITEMS: usize = 5;
 /// absent gold questions got one; the no-note fallback asks
 /// `CODE_FIND_MIN_WORDS`.
 pub const HEADER_SPAN_MIN_WORDS: usize = 3;
+
+/// `links <symbol> --for "<task>"`: notes sent to the judge (TypeSafe AI's
+/// Jev), newest first after successors. On 36 labelled tasks 1 of 38 relevant
+/// notes sat beyond 12; each note costs about 1.5k input tokens.
+pub const JUDGE_NOTES: usize = 12;
+/// A note prints when the judge's score (0 to 4, read as score / 4) reaches
+/// this. On 36 tasks: 0.7 kept 34 of 38 relevant notes at 52% precision,
+/// 1.8 notes per task, silent on 4 of 6 tasks no note bears on; 0.6 kept 36
+/// at 39%, 2.6 notes. Before an edit a missed note costs more than an extra
+/// one, so 0.6 (2026-10-27-jev-links-for-task-and-gate.md).
+pub const JUDGE_CUT: f32 = 0.6;
+/// The judge call gives up after this and `links` prints its usual list:
+/// p50 was 530 ms and p95 about 640 ms.
+pub const JUDGE_TIMEOUT_MS: u64 = 2000;
