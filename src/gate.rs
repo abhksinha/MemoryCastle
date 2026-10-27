@@ -150,8 +150,21 @@ pub fn top_confidence(out: &str) -> Option<f32> {
 fn informative(out: &str) -> bool {
     let out = out.trim();
     // Notes already shown this session alone are nothing new.
-    let new = out.lines().filter(|l| !l.trim_start().starts_with("shown earlier this session:") && !l.trim_start().starts_with('+')).count();
+    // "No note bears on this task" and "N notes .. left out" say only that
+    // something was not shown.
+    let new = out
+        .lines()
+        .map(str::trim_start)
+        .filter(|l| !l.starts_with("shown earlier this session:") && !l.starts_with('+') && !l.starts_with("no note bears on this task") && !l.contains("that do not match the task left out"))
+        .count();
     !out.is_empty() && new > 0 && (!out.starts_with("no notes link to") || out.lines().count() > 1)
+}
+
+/// True when a `links` answer lists a note (a line starting with its path).
+/// Only that earns a block: code-index facts alone go as context, since a
+/// block with nothing recorded to read was resent for nothing.
+fn lists_notes(out: &str) -> bool {
+    out.lines().any(|l| !l.starts_with(' ') && l.split_whitespace().next().is_some_and(|w| w.ends_with(".md")))
 }
 
 /// What a Claude Code PreToolUse event says about an edit.
@@ -272,7 +285,7 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
             out = run_with(root, &args, judge_edit.as_deref());
         }
         if informative(&out) {
-            if looked_before { context.push(out) } else { block.push(out) }
+            if looked_before || !lists_notes(&out) { context.push(out) } else { block.push(out) }
         }
     } else if exists {
         // Looked up already: only the notes about the definition being
@@ -639,5 +652,9 @@ mod tests {
         assert!(informative("no notes link to src/a.rs\n   defines: fn a:1-3"));
         assert!(!informative("   shown earlier this session: a.md\n   +4 more notes name src/a.rs"));
         assert!(informative("memorycastle/journal/x.md  Title  2026-10-20  (abhi+claude)"));
+        assert!(!informative("no note bears on this task (judge j, 4 notes judged)"));
+        assert!(!informative("3 notes about src/a.rs that do not match the task left out (links src/a.rs lists them)"));
+        assert!(lists_notes("defines: fn a:1-3\nmemorycastle/journal/x.md  Title  2026-10-20  (abhi+claude)"));
+        assert!(!lists_notes("no notes link to src/a.rs\n   defines: fn a:1-3"));
     }
 }

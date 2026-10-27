@@ -988,3 +988,86 @@ fn open_lists_unresolved_items_of_live_notes() {
     assert_eq!(texts, ["port `split` its tag belongs to the equation", "A prose item that wraps."]);
     assert_eq!(items[0].line, 8);
 }
+
+#[test]
+fn reader_ranks_words_held_together_over_one_shared_word() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "journal/2026-10-27-guard.md", "# Drive restore\nFiles: src/drive.rs\n## Decision\nThe drive overwrite guard refuses an upload older than the remote copy.");
+    save(&mut conn, &p, "journal/2026-10-27-queue.md", "# Upload queue\nFiles: src/queue.rs\n## Decision\nUploads retry three times with backoff; the queue drains on shutdown.");
+    for i in 0..10 {
+        save(&mut conn, &p, &format!("journal/2026-10-2{i}-filler.md"), &format!("# Filler {i}\n## Decision\nUnrelated note number {i} about logging and metrics."));
+    }
+    let s = Scope::single(p.id);
+    let hits = search(&conn, &s, "drive overwrite guard on upload", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap().0;
+    assert_eq!(hits[0].path, "journal/2026-10-27-guard.md");
+    assert!(hits[0].trace.reader > 0.7, "{}", hits[0].trace.reader);
+    // "upload" alone, a fifth of the question's weight: read far lower and
+    // ranked under the answer (the cut itself runs only with the model).
+    let queue = hits.iter().position(|h| h.path == "journal/2026-10-27-queue.md");
+    assert!(queue.is_none_or(|i| i > 0 && hits[i].trace.reader < 0.6 * hits[0].trace.reader));
+}
+
+#[test]
+fn a_file_an_earlier_note_names_is_not_asked_of_the_next() {
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "w", None);
+    let root = std::env::temp_dir().join(format!("mc-cover-{}", std::process::id()));
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("CLAUDE.md"), "# x\n").unwrap();
+    std::fs::write(root.join("src/policy.rs"), "fn p() {}\n").unwrap();
+    store::set_session(&conn, p.id, "s1", Some("claude")).unwrap();
+    store::record_edit(&conn, p.id, &root, "CLAUDE.md").unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    save(&mut conn, &p, "memorycastle/journal/2026-10-27-reader.md", "# Reader\nDate: 2026-10-27\nFiles: `CLAUDE.md`\n\n## Decision\nbecause");
+    // One more edit for the reader note after it was saved, then a note on
+    // another decision: the edit is the reader note's, not this one's.
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    store::record_edit(&conn, p.id, &root, "CLAUDE.md").unwrap();
+    store::record_edit(&conn, p.id, &root, "src/policy.rs").unwrap();
+    let missing = store::files_missing_from_note(&conn, p.id, "memorycastle/journal/2026-10-27-policy.md", "# Policy\nFiles: `src/search.rs`\n").unwrap();
+    assert_eq!(missing, vec!["src/policy.rs".to_string()], "CLAUDE.md is named by the reader note of this session");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_settled_search_rewards_the_policy_for_the_note_read() {
+    std::env::set_var("MEMORYCASTLE_RL_LEARN", "1");
+    let mut conn = db::open_memory().unwrap();
+    let a = project(&conn, "a", None);
+    let def = HashEmbedder::space_def(64);
+    let space = embed::ensure_space(&conn, &def).unwrap();
+    let mut e = HashEmbedder { dims: def.dims };
+    save(&mut conn, &a, "journal/2026-10-18-fallback.md", "# Fallback\n## Decision\nA document with a local style file runs whole on the engine.");
+    save(&mut conn, &a, "journal/2026-10-18-fonts.md", "# Fonts\n## Decision\nFont metrics load once per run.");
+    store::embed_missing(&mut conn, &space, &mut e, Some(a.id)).unwrap();
+    let note = |path: &str| -> i64 { conn.query_row("SELECT id FROM notes WHERE path = ?1", [path], |r| r.get(0)).unwrap() };
+    let (fallback, fonts) = (note("journal/2026-10-18-fallback.md"), note("journal/2026-10-18-fonts.md"));
+    let q = "local style file on the engine";
+    let opts = SearchOptions { k: 5, mode: Mode::Meaning, working: Vec::new() };
+    let (hits, ex) = search(&conn, &Scope::single(a.id), q, &opts, ModelSource::Warm(&mut e)).unwrap();
+    assert!(!ex.policy.is_empty(), "the model ran, so the policy scored candidates");
+    assert!(hits.iter().all(|h| h.trace.policy >= memorycastle::policy::tau() || h.trace.learned > 0.0));
+    // Log it as an agent search printing both notes; the agent then read the
+    // one ranked second.
+    let printed: Vec<i64> = vec![fonts, fallback];
+    let t = memorycastle::sys::now() - 2 * memorycastle::limits::LEARN_WINDOW_SECS;
+    conn.execute("UPDATE notes SET saved_at = ?1", [t - 5000]).unwrap();
+    let mut x = [0.5f32; memorycastle::policy::NF];
+    x[13] = 2.0;
+    let policy = serde_json::to_string(&vec![(fonts, x.to_vec()), (fallback, x.to_vec())]).unwrap();
+    conn.execute(
+        "INSERT INTO searches(at, project_id, session, query, printed, space_id, vec, policy) VALUES (?1, ?2, 's1', ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![t, a.id, q, printed.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(","), space.id, ex.qvec.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>(), policy],
+    )
+    .unwrap();
+    conn.execute("INSERT INTO served_notes(at, project_id, note_id, mode, session) VALUES (?1, ?2, ?3, 'read', 's1')", rusqlite::params![t + 30, a.id, fallback]).unwrap();
+    let before = memorycastle::policy::load(&conn, a.id).unwrap();
+    assert_eq!(before.n, 0);
+    memorycastle::learned::derive(&conn, a.id).unwrap();
+    let after = memorycastle::policy::load(&conn, a.id).unwrap();
+    assert_eq!(after.n, 2, "both shown notes are rewards");
+    assert!(after.q.iter().zip(&before.q).all(|(a, b)| a >= b));
+    memorycastle::policy::reset(&conn, a.id).unwrap();
+    assert_eq!(memorycastle::policy::load(&conn, a.id).unwrap().n, 0);
+}

@@ -174,6 +174,11 @@ enum Cmd {
         #[command(subcommand)]
         cmd: Option<LearnedCmd>,
     },
+    /// The calibrated show-or-hide policy learned from what agents read after a search; --reset returns to the shipped prior.
+    Policy {
+        #[arg(long)]
+        reset: bool,
+    },
     /// Remove a note and everything derived from it.
     Forget {
         /// Note path or id. Omit with --project-all to clear a whole project.
@@ -652,6 +657,28 @@ fn run(cli: Cli) -> Result<()> {
                 memorycastle::learned::record_search(&ctx.conn, p.id, &query, &also, &r.notes, &ex)?;
             }
         }
+        Cmd::Policy { reset } => {
+            let pid = ctx.require_project()?.id;
+            if reset {
+                memorycastle::policy::reset(&ctx.conn, pid)?;
+                println!("policy reset to the shipped prior");
+            }
+            memorycastle::learned::derive(&ctx.conn, pid)?;
+            let post = memorycastle::policy::load(&ctx.conn, pid)?;
+            let prior = memorycastle::policy::Posterior::prior();
+            println!(
+                "policy: {} (bar p {:.2}), {}; learned from {} shown notes in this project",
+                if memorycastle::policy::enabled() { "on" } else { "off (MEMORYCASTLE_RL=0)" },
+                memorycastle::policy::tau(),
+                if memorycastle::policy::learning() { "learning from reads and exploring" } else { "fixed weights (MEMORYCASTLE_RL_LEARN=1 learns)" },
+                post.n
+            );
+            let names = ["confidence", "cosine", "model ran", "coverage", "reading", "graph", "bm25 rank", "vector rank", "decision chunk", "decision part", "parts", "superseded", "files named", "rank", "confidence vs best", "reading vs best", "log rank", "bias"];
+            println!("   {:18} {:>8} {:>8} {:>8}", "weight", "prior", "now", "sd");
+            for (i, n) in names.iter().enumerate() {
+                println!("   {:18} {:>8.3} {:>8.3} {:>8.3}", n, prior.m[i], post.m[i], 1.0 / post.q[i].sqrt());
+            }
+        }
         Cmd::Learned { cmd } => {
             let pid = ctx.require_project()?.id;
             match cmd {
@@ -972,6 +999,7 @@ fn run(cli: Cli) -> Result<()> {
                 return Ok(());
             }
             let Some(pid) = ctx.project.as_ref().map(|p| p.id) else { return Ok(()) };
+            ctx.explore = false;
             let (hits, _) = ctx.search(&text, &ScopeFlags::default(), &SearchOptions { k: memorycastle::limits::RECALL_MAX_NOTES * 2, mode: Mode::Auto, working: Vec::new() })?;
             let sid = store::current_session(&ctx.conn, pid)?;
             let now = memorycastle::sys::now();
@@ -1837,11 +1865,17 @@ fn run(cli: Cli) -> Result<()> {
                         }
                     }
                     let before = notes.len();
-                    let mut ranked: Vec<(f32, graph::NoteRef)> = notes.into_iter().filter(|n| n.superseded_by.is_none()).filter_map(|n| conf.get(&n.path).map(|&c| (c, n))).collect();
-                    ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
-                    notes = ranked.into_iter().map(|(_, n)| n).collect();
-                    decisions = decisions.min(notes.len());
-                    task_left_out = Some(before - notes.len());
+                    let mut ranked: Vec<(f32, graph::NoteRef)> = notes.iter().filter(|n| n.superseded_by.is_none()).filter_map(|n| conf.get(&n.path).map(|&c| (c, n.clone()))).collect();
+                    // Nothing matched (a prompt like "yes, do it" matches no
+                    // note): the file's notes as a plain lookup lists them.
+                    // "No note matches the task" alone blocked the edit gate
+                    // with nothing to read (2026-10-27-gate-and-search-field-fixes.md).
+                    if !ranked.is_empty() {
+                        ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+                        notes = ranked.into_iter().map(|(_, n)| n).collect();
+                        decisions = decisions.min(notes.len());
+                        task_left_out = Some(before - notes.len());
+                    }
                 }
             }
             if cli.json {
@@ -1955,11 +1989,7 @@ fn run(cli: Cli) -> Result<()> {
                     out.push_str(&format!("no note bears on this task (judge {m}, {n} notes judged)\n"));
                 }
                 if let Some(n) = task_left_out.filter(|&n| n > 0) {
-                    if notes.is_empty() {
-                        out.push_str(&format!("no note about {target} matches the task ({n} left out; links {target} lists them)\n"));
-                    } else {
-                        out.push_str(&format!("{n} notes about {target} that do not match the task left out (links {target} lists them)\n"));
-                    }
+                    out.push_str(&format!("{n} notes about {target} that do not match the task left out (links {target} lists them)\n"));
                 }
                 // A hook's lookup (`--once`) names a note it already printed
                 // this session in one line: the same trackers came back under

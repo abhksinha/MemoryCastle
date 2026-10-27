@@ -351,17 +351,27 @@ pub fn header(path: &str, text: &str) -> (String, u32) {
 /// header end line, words matched)`.
 pub fn headers_matching(conn: &Connection, project_id: i64, words: &[String], min: usize) -> Result<Vec<(String, u32, Vec<String>)>> {
     // Quantifiers and verbs ("every", "check") say nothing about a file.
-    let words: Vec<&String> = words.iter().filter(|w| !crate::search::is_generic(w)).collect();
-    let need = min.max(words.len().div_ceil(2));
+    let mut words: Vec<&String> = words.iter().filter(|w| !crate::search::is_generic(w)).collect();
+    words.dedup();
     if words.len() < min {
         return Ok(Vec::new());
     }
     let mut stmt = conn.prepare_cached("SELECT path, head, head_end FROM code_files WHERE project_id = ?1 AND head != ''")?;
-    let mut out: Vec<(String, u32, Vec<String>)> = stmt
+    let heads: Vec<(String, u32, Vec<String>)> = stmt
         .query_map([project_id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, u32>(2)?)))?
         .filter_map(|r| r.ok())
-        .filter_map(|(p, h, e)| {
-            let hw: Vec<String> = h.split(|c: char| !c.is_alphanumeric() && c != '_').flat_map(ident_words).collect();
+        .map(|(p, h, e)| (p, e, h.split(|c: char| !c.is_alphanumeric() && c != '_').flat_map(ident_words).collect()))
+        .collect();
+    // A word in many headers (the project's own name) tells no file apart.
+    let most = ((heads.len() as f32 * crate::limits::HEADER_WORD_MAX_SHARE).ceil() as usize).max(2);
+    words.retain(|q| heads.iter().filter(|(_, _, hw)| hw.iter().any(|w| w.starts_with(q.as_str()))).count() <= most);
+    let need = min.max(words.len().div_ceil(2));
+    if words.len() < min {
+        return Ok(Vec::new());
+    }
+    let mut out: Vec<(String, u32, Vec<String>)> = heads
+        .into_iter()
+        .filter_map(|(p, e, hw)| {
             let got: Vec<String> = words.iter().filter(|q| hw.iter().any(|w| w.starts_with(q.as_str()))).map(|q| q.to_string()).collect();
             (got.len() >= need).then_some((p, e, got))
         })

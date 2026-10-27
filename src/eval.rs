@@ -64,6 +64,17 @@ pub struct Report {
     /// `eval --compare` can show which questions moved.
     #[serde(default)]
     pub ranks: Vec<(String, Option<usize>)>,
+    /// Answerable questions: mean count of other notes among the first five
+    /// notes returned (what a default `search` prints besides the answer).
+    #[serde(default)]
+    pub noise_at_5: f64,
+    /// The policy's calibration on the notes returned: expected calibration
+    /// error over ten bins of p (0 when the policy did not run), and how many
+    /// notes it covers.
+    #[serde(default)]
+    pub policy_ece: f64,
+    #[serde(default)]
+    pub policy_notes: usize,
 }
 
 pub fn load_gold(path: &std::path::Path) -> Result<GoldSet> {
@@ -81,6 +92,8 @@ pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mod
     let mut misses: Vec<(String, String, Vec<String>)> = Vec::new();
     let mut times: Vec<f64> = Vec::with_capacity(gold.questions.len());
     let mut skipped = 0;
+    let mut noise: Vec<usize> = Vec::new();
+    let mut calib: Vec<(f32, bool)> = Vec::new();
     // Per question, the right note's best cosine and the best cosine of any
     // other note returned: evidence for what confidence can and cannot mean.
     let mut right: Vec<f32> = Vec::new();
@@ -123,6 +136,20 @@ pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mod
             }
             continue;
         }
+        let mut noted: Vec<i64> = Vec::new();
+        for h in &hits {
+            if h.trace.policy > 0.0 && !noted.contains(&h.note_id) {
+                noted.push(h.note_id);
+                calib.push((h.trace.policy, h.path == q.answer));
+            }
+        }
+        let mut first5: Vec<&str> = Vec::new();
+        for h in &hits {
+            if first5.len() < 5 && !first5.contains(&h.path.as_str()) {
+                first5.push(&h.path);
+            }
+        }
+        noise.push(first5.iter().filter(|p| **p != q.answer).count());
         for h in &hits {
             if !seen.contains(&h.path.as_str()) {
                 seen.push(&h.path);
@@ -166,7 +193,26 @@ pub fn run(conn: &Connection, gold: &GoldSet, memory: &mut dyn Memory, mode: Mod
         absent,
         absent_answered,
         ranks: per,
+        noise_at_5: noise.iter().sum::<usize>() as f64 / noise.len().max(1) as f64,
+        policy_ece: ece(&calib),
+        policy_notes: calib.len(),
     })
+}
+
+/// Expected calibration error: per tenth of p, the gap between the mean p
+/// and the share that was the answer, weighted by the bin's size.
+fn ece(v: &[(f32, bool)]) -> f64 {
+    if v.is_empty() {
+        return 0.0;
+    }
+    let mut bins = [(0.0f64, 0.0f64, 0usize); 10];
+    for &(p, y) in v {
+        let b = ((p * 10.0) as usize).min(9);
+        bins[b].0 += f64::from(p);
+        bins[b].1 += f64::from(u8::from(y));
+        bins[b].2 += 1;
+    }
+    bins.iter().filter(|b| b.2 > 0).map(|b| (b.0 / b.2 as f64 - b.1 / b.2 as f64).abs() * b.2 as f64).sum::<f64>() / v.len() as f64
 }
 
 fn quantiles(v: &[f32], ps: &[f64]) -> Vec<f32> {

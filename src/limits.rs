@@ -434,6 +434,16 @@ pub const RESUME_OPEN_ITEMS: usize = 5;
 /// absent gold questions got one; the no-note fallback asks
 /// `CODE_FIND_MIN_WORDS`.
 pub const HEADER_SPAN_MIN_WORDS: usize = 3;
+/// A question word in more than this share of a project's file headers (or
+/// more than two headers in a small tree) matches nothing there: the
+/// messaging app's name sits in 32 of its 340 headers and had a header
+/// span on any question naming the app.
+pub const HEADER_WORD_MAX_SHARE: f32 = 0.05;
+/// A read-first guess by name (`spans::ranked` step 4) only for a question
+/// word inside at most this many definition names: "reader" is in 29 of the
+/// messaging app's names and the app's own name in 225, and the two shortest
+/// were printed as if they were the answer.
+pub const NAME_GUESS_MAX_DEFS: usize = 3;
 
 /// `links <symbol> --for "<task>"`: notes sent to the judge (TypeSafe AI's
 /// Jev), newest first after successors. On 36 labelled tasks 1 of 38 relevant
@@ -472,3 +482,29 @@ pub const TASK_RANK_K: usize = 60;
 pub const JUDGE_TASK_CHARS: usize = 1500;
 /// Characters of each side of an edit sent to the judge.
 pub const JUDGE_EDIT_CHARS: usize = 4000;
+
+/// The reader (`reader.rs`): a chunk's score is IDF coverage times
+/// `READER_TIGHT_BASE + (1 - READER_TIGHT_BASE) * tightness`; the fused score
+/// is multiplied by `READER_SCORE_BASE + reading`; a note reading under
+/// `READER_CUT` of the best note's is dropped when the best reads at least
+/// `READER_MIN_BEST`, unless the model put it at `READER_KEEP_CONF` or more.
+pub const READER_TIGHT_BASE: f32 = 0.5;
+pub const READER_SCORE_BASE: f32 = 0.5;
+pub const READER_CUT: f32 = 0.6;
+pub const READER_KEEP_CONF: f32 = 0.75;
+pub const READER_MIN_BEST: f32 = 0.3;
+pub const READER_KEEP_GAP: f32 = 0.2;
+
+/// The calibrated policy (`policy.rs`): a note is shown when its p(useful)
+/// reaches `POLICY_TAU`; candidates are the notes among the first
+/// `POLICY_CANDIDATE_CHUNKS` chunks before the floor, as in the replay that
+/// fitted the prior; the shipped prior's precision is scaled by
+/// `POLICY_PRIOR_SCALE`, worth about a tenth of its 2,707 examples, so a
+/// project's own rewards move it.
+pub const POLICY_TAU: f32 = 0.03;
+pub const POLICY_CANDIDATE_CHUNKS: usize = 15;
+pub const POLICY_PRIOR_SCALE: f32 = 0.1;
+/// Exploration draws in one search of `POLICY_EXPLORE_ONE_IN`: a draw alone
+/// lifted a near-bar note in 5 of 20 runs of one question, and this work
+/// began from a report of noise; with the gate about one in twenty.
+pub const POLICY_EXPLORE_ONE_IN: u32 = 5;

@@ -72,9 +72,10 @@ pub fn record_search(conn: &Connection, project_id: i64, query: &str, also: &[St
     let session = crate::store::current_session(conn, project_id)?;
     let printed: Vec<String> = printed.iter().map(|i| i.to_string()).collect();
     let vec = (!ex.qvec.is_empty()).then(|| to_bytes(&ex.qvec));
+    let policy = if ex.policy.is_empty() { String::new() } else { serde_json::to_string(&ex.policy.iter().map(|(id, x)| (id, x.to_vec())).collect::<Vec<_>>())? };
     conn.execute(
-        "INSERT INTO searches(at, project_id, session, query, also, printed, space_id, vec) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![crate::sys::now(), project_id, session, query, also.join("\n"), printed.join(","), ex.space_id, vec],
+        "INSERT INTO searches(at, project_id, session, query, also, printed, space_id, vec, policy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![crate::sys::now(), project_id, session, query, also.join("\n"), printed.join(","), ex.space_id, vec, policy],
     )?;
     Ok(())
 }
@@ -106,11 +107,11 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     }
     let now = crate::sys::now();
     let mut pending = conn.prepare_cached(
-        "SELECT id, at, session, query, printed, space_id, vec FROM searches WHERE project_id = ?1 AND done = 0 AND at <= ?2",
+        "SELECT id, at, session, query, printed, space_id, vec, policy FROM searches WHERE project_id = ?1 AND done = 0 AND at <= ?2",
     )?;
-    type Row = (i64, i64, Option<String>, String, String, Option<i64>, Option<Vec<u8>>);
+    type Row = (i64, i64, Option<String>, String, String, Option<i64>, Option<Vec<u8>>, String);
     let rows: Vec<Row> = pending
-        .query_map(params![project_id, now - OPEN_MIN_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)))?
+        .query_map(params![project_id, now - OPEN_MIN_SECS], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)))?
         .collect::<rusqlite::Result<_>>()?;
     let mut opened = conn.prepare_cached(
         "SELECT note_id, at FROM served_notes WHERE project_id = ?1 AND session = ?2 AND mode = 'read' AND at >= ?3 AND at <= ?4 ORDER BY at LIMIT 1",
@@ -129,7 +130,7 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
     )?;
     let cover = Coverage::load(conn, project_id)?;
     let mut learned = 0;
-    for (id, at, session, query, printed, space_id, vec) in rows {
+    for (id, at, session, query, printed, space_id, vec, policy) in rows {
         // A search whose window is still open is settled by its first note
         // read, which no later read changes, so it is learned at once and the
         // agent's next wording in the same task benefits; without one it waits.
@@ -183,6 +184,22 @@ pub fn derive(conn: &Connection, project_id: i64) -> Result<usize> {
                 (note, "code")
             }
         };
+        // The policy's reward: the credited note 1, every other note shown 0;
+        // the credited note counts even when it was a candidate kept under
+        // the bar (a read the search did not show is the strongest signal).
+        // Not from a code read: it credits the best-ranked note covering the
+        // file, so it rewards the ranking the policy already made (rushtex's
+        // 38 code credits took its gold top 3 from 0.936 to 0.872 in replay).
+        if !policy.is_empty() && kind != "code" {
+            if let Ok(cands) = serde_json::from_str::<Vec<(i64, Vec<f32>)>>(&policy) {
+                let shown: Vec<(i64, [f32; crate::policy::NF])> = cands
+                    .into_iter()
+                    .filter(|(n, _)| printed.contains(n) || *n == note)
+                    .filter_map(|(n, x)| <[f32; crate::policy::NF]>::try_from(x).ok().map(|x| (n, x)))
+                    .collect();
+                crate::policy::learn(conn, project_id, &shown, note)?;
+            }
+        }
         let span = code.iter().find(|(path, a, b)| *a > 0 && cover.covering(path, *a, *b).0.contains(&note)).cloned();
         add_with_span(conn, project_id, note, &query, &vec, space_id, kind, span.as_ref())?;
         learned += 1;

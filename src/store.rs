@@ -990,7 +990,20 @@ pub fn edited_for_note(conn: &Connection, project_id: i64, rel_path: &str) -> Re
 }
 
 pub fn files_missing_from_note(conn: &Connection, project_id: i64, rel_path: &str, content: &str) -> Result<Vec<String>> {
-    let declared: Vec<String> = crate::graph::extract("", content).into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v).collect();
+    let mut declared: Vec<String> = crate::graph::extract("", content).into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v).collect();
+    // A file another note of this session names is that note's: an edit made
+    // after it was saved and before an unchanged re-save (which keeps the old
+    // save time) was put on the next note, which decided nothing about it
+    // (`CLAUDE.md`, named by the reader note, asked of the policy note).
+    let started = session_started(conn, project_id)?.unwrap_or(i64::MAX);
+    let ids: Vec<i64> = {
+        let mut stmt = conn.prepare_cached("SELECT id FROM notes WHERE project_id = ?1 AND path != ?2 AND saved_at >= ?3 AND deleted_at IS NULL")?;
+        let rows = stmt.query_map(params![project_id, rel_path, started], |r| r.get(0))?;
+        rows.collect::<rusqlite::Result<_>>()?
+    };
+    for l in crate::graph::links_of(conn, &ids)?.into_values() {
+        declared.extend(l.into_iter().filter(|(k, _)| *k == crate::graph::Kind::File).map(|(_, v)| v));
+    }
     let (_, edited) = edited_for_note(conn, project_id, rel_path)?;
     Ok(edited
         .into_iter()

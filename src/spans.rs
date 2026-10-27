@@ -71,7 +71,14 @@ pub fn question_words(query: &str) -> Vec<String> {
         .split(|c: char| !c.is_alphanumeric() && c != '_')
         .filter(|w| w.len() >= 4 && !crate::search::STOPWORDS.contains(&w.to_ascii_lowercase().as_str()))
         .map(|w| crate::search::stem(&w.to_ascii_lowercase()).to_string())
-        .collect()
+        .fold(Vec::new(), |mut v, w| {
+            // Once each: "memory" three times in a question counted three
+            // words toward a header's bar.
+            if !v.contains(&w) {
+                v.push(w);
+            }
+            v
+        })
 }
 
 /// A definition short enough to read first; a wider one (a 311-line
@@ -178,13 +185,21 @@ pub fn ranked(conn: &Connection, project_id: i64, root: Option<&Path>, query: &s
     // 4. a definition whose name contains a content word of the question
     {
         let mut stmt = conn.prepare_cached(
-            "SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND lower(name) LIKE ?2 ORDER BY end_line - line LIMIT 2",
+            "SELECT path, name, kind, line, end_line, anchor FROM code_defs WHERE project_id = ?1 AND lower(name) LIKE ?2 ORDER BY end_line - line LIMIT ?3",
         )?;
+        let mut done = Vec::new();
         for w in query.split(|c: char| !c.is_alphanumeric() && c != '_').filter(|w| w.len() >= 5).map(str::to_ascii_lowercase) {
-            if crate::search::STOPWORDS.contains(&w.as_str()) {
+            if crate::search::STOPWORDS.contains(&w.as_str()) || done.contains(&w) {
                 continue;
             }
-            let rows: Vec<Def> = stmt.query_map(params![project_id, format!("%{w}%")], row_def)?.collect::<rusqlite::Result<_>>()?;
+            done.push(w.clone());
+            // A word in many names guesses nothing: no row rather than the
+            // two shortest of many.
+            let most = crate::limits::NAME_GUESS_MAX_DEFS;
+            let rows: Vec<Def> = stmt.query_map(params![project_id, format!("%{w}%"), most as i64 + 1], row_def)?.collect::<rusqlite::Result<_>>()?;
+            if rows.len() > most {
+                continue;
+            }
             for d in rows {
                 push(d, 0.5, format!("name matches '{w}'"), &mut cands);
             }

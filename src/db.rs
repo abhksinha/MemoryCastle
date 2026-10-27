@@ -8,7 +8,7 @@ use crate::{sys, Result};
 use rusqlite::Connection;
 use std::path::{Path, PathBuf};
 
-pub const SCHEMA_VERSION: i64 = 31;
+pub const SCHEMA_VERSION: i64 = 32;
 
 pub fn db_path() -> PathBuf {
     sys::data_dir().join("memory.db")
@@ -550,6 +550,14 @@ fn migrate_from(conn: &Connection, version: i64) -> Result<()> {
         let has_head: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('code_files') WHERE name = 'head')", [], |r| r.get(0))?;
         if !has_head {
             conn.execute_batch("ALTER TABLE code_files ADD COLUMN head TEXT NOT NULL DEFAULT ''; ALTER TABLE code_files ADD COLUMN head_end INTEGER NOT NULL DEFAULT 0;")?;
+        }
+    }
+    if version < 32 {
+        // v32: the policy's candidates per logged search (`policy.rs`), so a
+        // settled search rewards what was shown.
+        let has: bool = conn.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('searches') WHERE name = 'policy')", [], |r| r.get(0))?;
+        if !has {
+            conn.execute_batch("ALTER TABLE searches ADD COLUMN policy TEXT NOT NULL DEFAULT '';")?;
         }
     }
     conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;

@@ -54,6 +54,8 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
     let mut n = 0;
     let mut served: Vec<(String, u32, u32, u32)> = Vec::new();
     let mut overflow = false;
+    // The question's words with their weight, per project, for `matched`.
+    let mut reader_terms: HashMap<i64, Vec<crate::reader::Term>> = HashMap::new();
     let note_links = if o.sections {
         let mut ids: Vec<i64> = hits.iter().map(|h| h.note_id).collect();
         ids.sort_unstable();
@@ -91,6 +93,8 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         // A 1.00 that only a verbatim name earned says so: a tracker line
         // naming both algorithms is a mention, not the decision asked for.
         let named = if h.trace.identifier && h.trace.judged + 0.05 < h.trace.confidence { format!("  name match, by meaning {:.2}", h.trace.judged) } else { String::new() };
+        // Shown by exploration: under the policy's bar, so its outcome teaches it.
+        let named = if h.trace.explore { format!("{named}  explore: under the bar (p {:.3}), shown to learn from", h.trace.policy) } else { named };
         block.push_str(&format!("{n}. {}:{range}   {:.2}   {section}{when}{proj}{sup}{named}\n", h.path, h.trace.confidence));
         // The note's other scored parts, so the agent reads those lines and
         // not the whole note.
@@ -108,6 +112,22 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
             String::new()
         };
         if o.brief {
+            // A hit outside Decision gets the sentence that matched first:
+            // a 0.98 hit in Open showed only an unrelated Decision sentence,
+            // and the agent took the hit for wrong.
+            // Only when no Decision part matched: then the sentence under
+            // the hit may be about something else (measured: on every hit
+            // outside Decision, 15% to 23% more bytes on three gold sets).
+            let decision_matched = h.parts.iter().any(|p| p.section.to_ascii_lowercase().starts_with("decision") && p.confidence >= crate::limits::MIN_CONFIDENCE);
+            if !section.to_ascii_lowercase().starts_with("decision") && !decision_matched {
+                if let std::collections::hash_map::Entry::Vacant(e) = reader_terms.entry(h.project_id) {
+                    e.insert(crate::reader::terms(conn, &crate::project::Scope::single(h.project_id), o.query)?);
+                }
+                let m = brief_match(&h.text, o.query, &reader_terms[&h.project_id]);
+                if !m.is_empty() {
+                    block.push_str(&field("matched", &m));
+                }
+            }
             if let Some(d) = crate::store::decision_sentence(conn, h.note_id)? {
                 block.push_str(&field("decision", &d));
             }
@@ -126,13 +146,15 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
         block.push_str(&lines_field);
         if o.explain {
             block.push_str(&field("trace", &format!(
-                "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  working {:.2}  cosine {}  coverage {:.2}{}{}",
+                "bm25 rank {}  vec rank {}  score {:.4}  weight {:.1}  graph {:.1}  working {:.2}  reader {:.2}  policy {:.2}  cosine {}  coverage {:.2}{}{}",
                 h.trace.bm25_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.vec_rank.map(|r| r.to_string()).unwrap_or_else(|| "-".into()),
                 h.trace.score,
                 h.trace.weight,
                 h.trace.graph,
                 h.trace.working,
+                h.trace.reader,
+                h.trace.policy,
                 h.trace.cosine.map(|c| format!("{c:.3}")).unwrap_or_else(|| "-".into()),
                 h.trace.coverage,
                 if h.trace.via > 0 { format!("  via also {}", h.trace.via) } else { String::new() },
@@ -292,6 +314,29 @@ pub const VALUE_COL: usize = 3 + LABEL_WIDTH + 1;
 /// the terminal reads it. A line with no space before the limit is kept.
 pub const WRAP_COLS: usize = 92;
 
+/// The sentence of a hit's chunk the reader scores best (the question's rare
+/// words, close together), on one line, cut at a word under
+/// `RECALL_DECISION_CHARS`. With no word of the question read, the chunk's
+/// most query-dense passage (`search::focus`).
+fn brief_match(text: &str, query: &str, terms: &[crate::reader::Term]) -> String {
+    let best = text
+        .split_inclusive(['.', '\n'])
+        .map(|s| (crate::reader::read(s, terms).score, s))
+        .filter(|(sc, s)| *sc > 0.0 && s.trim().len() > 3)
+        .fold(None::<(f32, &str)>, |acc, x| if acc.is_none_or(|a| x.0 > a.0) { Some(x) } else { acc });
+    let s = match best {
+        Some((_, s)) => s.to_string(),
+        None => crate::search::focus(text, query, crate::limits::RECALL_DECISION_CHARS).0,
+    };
+    let s: String = s.lines().map(|l| l.trim().trim_start_matches('#').trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+    if s.len() <= crate::limits::RECALL_DECISION_CHARS {
+        return s;
+    }
+    let end = s.char_indices().map(|(i, _)| i).take_while(|&i| i < crate::limits::RECALL_DECISION_CHARS).last().unwrap_or(0);
+    let end = s[..end].rfind(' ').unwrap_or(end);
+    format!("{} ...", s[..end].trim_end())
+}
+
 fn field(label: &str, value: &str) -> String {
     let mut out = String::new();
     let mut first = true;
@@ -379,7 +424,9 @@ pub fn tidy_files(files: &[String]) -> Vec<String> {
 
 /// The "no results" line for an empty hit list.
 pub fn empty_line(ex: &crate::search::Explain) -> String {
-    if ex.dropped > 0 {
+    if let Some(h) = ex.under_bar.first() {
+        format!("no note likely to help (best p {:.3}, under the bar {:.2}); the closest is {}", h.trace.policy, crate::policy::tau(), h.path)
+    } else if ex.dropped > 0 {
         format!("no relevant note (best confidence {:.2}, below {:.2}); the store has nothing on this", ex.best_confidence, ex.floor.max(crate::limits::MIN_CONFIDENCE))
     } else {
         "no results".to_string()

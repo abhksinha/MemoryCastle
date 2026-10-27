@@ -18,6 +18,9 @@ pub struct Context {
     /// Why `project` is None inside a git checkout (for example a changed remote).
     pub project_error: Option<String>,
     pub quiet: bool,
+    /// Whether `search` may show a note under the policy's bar to learn from
+    /// it; off for recall, whose output is never logged as a search.
+    pub explore: bool,
     embedder: Option<Box<dyn Embedder>>,
 }
 
@@ -48,7 +51,7 @@ impl Context {
                 None => None,
             },
         };
-        Ok(Context { conn, db_path, repo, project, project_error, quiet, embedder: None })
+        Ok(Context { conn, db_path, repo, project, project_error, quiet, explore: true, embedder: None })
     }
 
     pub fn require_project(&self) -> Result<&Project> {
@@ -96,10 +99,37 @@ impl Context {
             opts.working = self.working_set()?;
         }
         let (mut hits, ex) = self.search_ranked(query, flags, &opts)?;
+        self.explore(&mut hits, &ex)?;
         if let Some(root) = self.repo.as_ref().map(|r| r.root.clone()) {
             search::mark_code_changed(&self.conn, &root, &mut hits)?;
         }
         Ok((hits, ex))
+    }
+
+    /// Thompson sampling: one draw of the policy's weights; the best note the
+    /// floor kept under the bar is shown, labelled `explore`, when the draw
+    /// lifts it over. Its reward then corrects the posterior where it is least
+    /// sure. Not for benchmarks or the hooks' own lookups.
+    fn explore(&self, hits: &mut Vec<Hit>, ex: &search::Explain) -> Result<()> {
+        if !self.explore || !crate::policy::learning() || ex.under_bar.is_empty() || std::env::var_os("MEMORYCASTLE_NO_LEDGER").is_some() || std::env::var_os("MEMORYCASTLE_VIA").is_some() {
+            return Ok(());
+        }
+        let Some(pid) = self.project.as_ref().map(|p| p.id) else { return Ok(()) };
+        let note = ex.under_bar[0].note_id;
+        let Some((_, x)) = ex.policy.iter().find(|(n, _)| *n == note) else { return Ok(()) };
+        let mut rng = crate::policy::Rng::seeded();
+        if !rng.one_in(crate::limits::POLICY_EXPLORE_ONE_IN) {
+            return Ok(());
+        }
+        let post = crate::policy::load(&self.conn, pid)?;
+        let w = post.sample(&mut rng);
+        if post.prob_with(&w, x) >= crate::policy::tau() {
+            hits.extend(ex.under_bar.iter().filter(|h| h.note_id == note).take(2).cloned().map(|mut h| {
+                h.trace.explore = true;
+                h
+            }));
+        }
+        Ok(())
     }
 
     /// `search` for the question and each other wording of it (`--also`),

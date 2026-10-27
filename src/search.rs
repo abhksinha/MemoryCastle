@@ -66,6 +66,16 @@ pub struct Trace {
     pub via: u8,
     /// Cosine to a learned question of this note (`learned.rs`), 0 if none.
     pub learned: f32,
+    /// The note's reading (`reader::read`): the question's rare words held
+    /// together in its best chunk, 0 to 1.
+    #[serde(default)]
+    pub reader: f32,
+    /// The policy's p(useful) for the note (`policy.rs`), 0 when it did not run.
+    #[serde(default)]
+    pub policy: f32,
+    /// Shown by exploration: under the bar, lifted by a posterior draw.
+    #[serde(default)]
+    pub explore: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -158,6 +168,13 @@ pub struct Explain {
     pub learned_spans: Vec<(String, u32, u32)>,
     /// The floor applied: `MIN_CONFIDENCE_MODEL` when the model ran, else `MIN_CONFIDENCE`.
     pub floor: f32,
+    /// The policy's candidates: note, features, p (for the search log).
+    #[serde(skip)]
+    pub policy: Vec<(i64, [f32; crate::policy::NF])>,
+    /// Hits of the candidate notes above the floor and under the bar, best p
+    /// first, for exploration (`Context::search`).
+    #[serde(skip)]
+    pub under_bar: Vec<Hit>,
 }
 
 /// A searchable memory: the store, or a baseline. The harness measures any of these.
@@ -507,6 +524,26 @@ pub fn search(
             }
         }
     }
+    // The reader: what the notes' own text says, by counting. The note that
+    // holds the question's rare words together rises in its quarter.
+    let reader_on = crate::reader::enabled();
+    // The calibrated policy decides what is shown when the model ran
+    // (`policy.rs`); otherwise the reader's cut does.
+    let policy_on = run_model && crate::policy::enabled();
+    let mut reader_terms = 0;
+    if reader_on {
+        let rterms = crate::reader::terms(conn, scope, query)?;
+        // The question's own words: one identifier split into its parts is
+        // still one word asked, and reads all or nothing.
+        reader_terms = content_words(query).len().min(rterms.len());
+        if !rterms.is_empty() {
+            crate::reader::read_hits(&rterms, &mut hits);
+            let base = crate::reader::knob("SCORE_BASE", crate::limits::READER_SCORE_BASE);
+            for h in hits.iter_mut() {
+                h.trace.score *= base + h.trace.reader;
+            }
+        }
+    }
     for h in hits.iter_mut() {
         if h.trace.graph == 0.0 {
             h.trace.graph = 1.0;
@@ -537,6 +574,49 @@ pub fn search(
         let section = h.heading.rsplit(" > ").next().unwrap_or("").to_string();
         by_note.entry(h.note_id).or_default().push(Part { line: h.line, end: h.end_line(), confidence: h.trace.confidence, section });
     }
+    // The policy: candidates are the notes among the first chunks (duplicates
+    // collapsed, no floor), each read from its best chunk, as in the replay
+    // that fitted it; p decides what is shown and in which order.
+    let mut note_p: HashMap<i64, f32> = HashMap::new();
+    if policy_on {
+        let post = crate::policy::load(conn, scope.ids().next().unwrap_or(0))?;
+        let mut seen_keys = std::collections::HashSet::new();
+        let mut cands: Vec<crate::policy::Cand> = Vec::new();
+        for h in hits.iter().filter(|h| seen_keys.insert(dedupe_key(&h.text))).take(crate::limits::POLICY_CANDIDATE_CHUNKS) {
+            if cands.iter().any(|c| c.note_id == h.note_id) {
+                continue;
+            }
+            let mut parts = by_note.get(&h.note_id).cloned().unwrap_or_default();
+            parts.sort_by(|a, b| b.confidence.total_cmp(&a.confidence).then(a.line.cmp(&b.line)));
+            let mut lines = std::collections::HashSet::new();
+            parts.retain(|p| lines.insert(p.line));
+            parts.truncate(crate::limits::SEARCH_CHUNKS_PER_NOTE);
+            let files = links.get(&h.note_id).map(|l| l.iter().filter(|(k, _)| *k == crate::graph::Kind::File).count()).unwrap_or(0);
+            cands.push(crate::policy::Cand {
+                note_id: h.note_id,
+                conf: h.trace.confidence,
+                cosine: h.trace.cosine,
+                coverage: h.trace.coverage,
+                reader: h.trace.reader,
+                graph: h.trace.graph > 1.0,
+                bm25_rank: h.trace.bm25_rank,
+                vec_rank: h.trace.vec_rank,
+                decision: h.heading.to_ascii_lowercase().ends_with("decision"),
+                decision_part: parts.iter().filter(|p| p.section.to_ascii_lowercase().starts_with("decision")).map(|p| p.confidence).fold(0.0, f32::max),
+                parts: parts.len(),
+                superseded: h.superseded_by.is_some(),
+                files,
+                rank: cands.len() + 1,
+            });
+        }
+        for (c, x) in cands.iter().zip(crate::policy::features(&cands)) {
+            note_p.insert(c.note_id, post.prob(&x));
+            ex.policy.push((c.note_id, x));
+        }
+        for h in hits.iter_mut() {
+            h.trace.policy = note_p.get(&h.note_id).copied().unwrap_or(0.0);
+        }
+    }
     let before = hits.len();
     ex.floor = if run_model { crate::limits::MIN_CONFIDENCE_MODEL } else { MIN_CONFIDENCE };
     // `MEMORYCASTLE_NO_FLOOR=1` keeps every hit: for measuring a judge over
@@ -544,7 +624,54 @@ pub fn search(
     if std::env::var_os("MEMORYCASTLE_NO_FLOOR").is_none() {
         hits.retain(|h| h.trace.confidence >= ex.floor);
     }
+    // Relative cut: a note reading far under the best note this question
+    // found is noise beside it. Not a hit the model puts in the top quarter
+    // (a paraphrase reads poorly and is still the answer), a verbatim name
+    // or a note the question names, nor a superseded note (it stays
+    // searchable, weighted down and labelled with what replaced it); and
+    // only when the best note reads at all, so a question no note words
+    // like is left to the floor.
+    // Only when the model ran: without it nothing guards a paraphrase, and
+    // the cut lost 5 answers from the top ten over four gold sets.
+    if reader_on && run_model && !policy_on && reader_terms >= 2 {
+        let best = hits.iter().map(|h| h.trace.reader).fold(0.0, f32::max);
+        let cut = crate::reader::knob("CUT", crate::limits::READER_CUT) * best;
+        let keep_conf = crate::reader::knob("KEEP_CONF", crate::limits::READER_KEEP_CONF);
+        // The model's word for a paraphrase: close to the best hit's
+        // confidence, the hit stays whatever the counting says.
+        let best_conf = hits.iter().map(|h| h.trace.confidence).fold(0.0, f32::max);
+        let gap = crate::reader::knob("KEEP_GAP", crate::limits::READER_KEEP_GAP);
+        if best >= crate::reader::knob("MIN_BEST", crate::limits::READER_MIN_BEST) {
+            hits.retain(|h| {
+                h.trace.reader >= cut || h.trace.identifier || h.superseded_by.is_some() || h.trace.graph >= GRAPH_DIRECT_WEIGHT || h.trace.confidence >= keep_conf || h.trace.confidence >= best_conf - gap
+            });
+        }
+    }
     ex.dropped = before - hits.len();
+    // Shown when p reaches the bar, ordered by p (a note's chunks keep their
+    // order). What the floor kept under the bar waits for exploration.
+    if policy_on {
+        let tau = crate::policy::tau();
+        // A note a learned question brought in stays: that question is an
+        // earlier reward, and the prior was fitted with the channel off.
+        let learned_notes: std::collections::HashSet<i64> = hits.iter().filter(|h| h.trace.learned > 0.0).map(|h| h.note_id).collect();
+        let (keep, under): (Vec<Hit>, Vec<Hit>) = hits.into_iter().partition(|h| h.trace.policy >= tau || learned_notes.contains(&h.note_id));
+        hits = keep;
+        ex.under_bar = under;
+        hits.sort_by(|a, b| {
+            let pa = if learned_notes.contains(&a.note_id) { a.trace.policy.max(a.trace.confidence) } else { a.trace.policy };
+            let pb = if learned_notes.contains(&b.note_id) { b.trace.policy.max(b.trace.confidence) } else { b.trace.policy };
+            pb.total_cmp(&pa)
+        });
+        // Each note's best chunk first, in p order, then the other chunks:
+        // `k` counts chunks, and a note's three chunks side by side pushed
+        // other notes out of it (its parts list those lines anyway).
+        let mut firsts = std::collections::HashSet::new();
+        let (first, rest): (Vec<Hit>, Vec<Hit>) = hits.into_iter().partition(|h| firsts.insert(h.note_id));
+        hits = first;
+        hits.extend(rest);
+        ex.under_bar.sort_by(|a, b| b.trace.policy.total_cmp(&a.trace.policy));
+    }
     // The same fact in a tracker entry and a dated note: keep one, the dated
     // one when both are present (it carries the context the tracker lacks).
     let mut seen: HashMap<String, usize> = HashMap::new();
@@ -626,7 +753,13 @@ pub fn merge_queries(lists: Vec<Vec<Hit>>, k: usize) -> Vec<Hit> {
     }
     let bucket = |h: &Hit| if h.trace.cosine.is_none() { 0 } else if h.trace.identifier { 4 } else { ((h.trace.confidence * 4.0).floor() as i32).min(3) };
     let mut out: Vec<(Hit, f32)> = notes.into_values().collect();
-    out.sort_by(|a, b| bucket(&b.0).cmp(&bucket(&a.0)).then(b.1.total_cmp(&a.1)).then(a.0.chunk_id.cmp(&b.0.chunk_id)));
+    // When the policy scored the notes, its p orders them, as in one wording.
+    let p = |h: &Hit| if h.trace.learned > 0.0 { h.trace.policy.max(h.trace.confidence) } else { h.trace.policy };
+    if out.iter().all(|(h, _)| h.trace.policy > 0.0 || h.trace.learned > 0.0) && out.iter().any(|(h, _)| h.trace.policy > 0.0) {
+        out.sort_by(|a, b| p(&b.0).total_cmp(&p(&a.0)).then(b.1.total_cmp(&a.1)).then(a.0.chunk_id.cmp(&b.0.chunk_id)));
+    } else {
+        out.sort_by(|a, b| bucket(&b.0).cmp(&bucket(&a.0)).then(b.1.total_cmp(&a.1)).then(a.0.chunk_id.cmp(&b.0.chunk_id)));
+    }
     out.truncate(k);
     out.into_iter().map(|(h, _)| h).collect()
 }
