@@ -445,6 +445,13 @@ pub const JUDGE_NOTES: usize = 12;
 /// at 39%, 2.6 notes. Before an edit a missed note costs more than an extra
 /// one, so 0.6 (2026-10-27-jev-links-for-task-and-gate.md).
 pub const JUDGE_CUT: f32 = 0.6;
+/// The cut when the edit gate asks (task plus the edit in the state). On the
+/// same 36 edits: 0.6 showed 35 of 38 relevant notes at 48% precision,
+/// silent on 4 of 6 edits no note bears on; 0.7 showed 34 at 62%, silent on
+/// 6 of 6 (held-out half 17 of 19 at 68%, 4 of 4). Subquestions inside the
+/// score and a structured must-read noul cut noise no better than this
+/// (2026-10-27-judge-gate-cut.md).
+pub const JUDGE_GATE_CUT: f32 = 0.7;
 /// The judge call gives up after this and `links` prints its usual list:
 /// p50 was 530 ms and p95 about 640 ms.
 pub const JUDGE_TIMEOUT_MS: u64 = 2000;

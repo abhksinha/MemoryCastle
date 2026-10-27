@@ -1766,12 +1766,13 @@ fn run(cli: Cli) -> Result<()> {
                             }
                             // A note the edit may contradict prints whatever its score.
                             let rej = |i: usize| v.rejected.get(i).copied().unwrap_or(0.0);
+                            let cut = if judge_edit.is_some() { memorycastle::limits::JUDGE_GATE_CUT } else { memorycastle::limits::JUDGE_CUT };
                             let mut kept: Vec<(f32, usize)> = v
                                 .scores
                                 .iter()
                                 .copied()
                                 .enumerate()
-                                .filter(|&(i, s)| s >= memorycastle::limits::JUDGE_CUT || rej(i) >= memorycastle::limits::JUDGE_REJECTED)
+                                .filter(|&(i, s)| s >= cut || rej(i) >= memorycastle::limits::JUDGE_REJECTED)
                                 .map(|(i, s)| (s, i))
                                 .collect();
                             kept.sort_by(|a, b| rej(b.1).ge(&memorycastle::limits::JUDGE_REJECTED).cmp(&rej(a.1).ge(&memorycastle::limits::JUDGE_REJECTED)).then(b.0.total_cmp(&a.0)).then(a.1.cmp(&b.1)));
