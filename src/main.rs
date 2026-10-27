@@ -14,6 +14,7 @@ find code | where defined, callers, callees, notes | memcastle links <symbol>
 change signature | one span per call site, and constants | memcastle links <symbol> --context
 every caller | also under 0.3; every call site with --context | memcastle links <symbol> --all
 task | only the notes that matter for a change (sends them to Jev) | memcastle links <symbol> --for '<task>'
+judged gate | edits judged against your last prompt (sends notes to Jev) | memcastle project judge on
 one of many | the definition in that file or directory | memcastle links crates/server/src/auth.rs::refresh
 json | notes, definitions, scored callers, call sites | memcastle --json links <symbol> --context
 new file | its notes, or what it defines and who uses it | memcastle links <file>
@@ -510,6 +511,14 @@ enum ProjectCmd {
         #[arg(value_parser = ["block", "context", "off"])]
         mode: Option<String>,
     },
+    /// The judge in the edit gate for this project: `on` sends the session's last prompt, the edit
+    /// and the file's notes to TypeSafe AI's Jev (key in TYPESAFE_API_KEY) and shows only the notes
+    /// that matter for it, plus any whose Rejected section the edit may bring back; `off` (the
+    /// default) keeps everything local. `MEMORYCASTLE_JUDGE` overrides it. With no mode, prints it.
+    Judge {
+        #[arg(value_parser = ["on", "off"])]
+        mode: Option<String>,
+    },
 }
 
 /// The first `CONTEXT_ITEMS` entries, then "+N more".
@@ -720,6 +729,15 @@ fn run(cli: Cli) -> Result<()> {
                 }
                 println!("edit gate: {}", memorycastle::gate::mode(&ctx.conn, id)?);
             }
+            ProjectCmd::Judge { mode } => {
+                let id = ctx.require_project()?.id;
+                if let Some(m) = &mode {
+                    db::meta_set(&ctx.conn, &memorycastle::judge::mode_key(id), m)?;
+                }
+                let on = memorycastle::judge::mode(&ctx.conn, id)?;
+                let key = if memorycastle::judge::key().is_some() { "" } else { " (TYPESAFE_API_KEY is not set: the gate stays local)" };
+                println!("edit gate judge: {on}{key}");
+            }
             ProjectCmd::Relink => {
                 let repo = ctx.repo.clone().ok_or("not inside a git repository")?;
                 match project::relink(&mut ctx.conn, &repo)? {
@@ -928,6 +946,14 @@ fn run(cli: Cli) -> Result<()> {
             };
             // The prompt's prose, not its paste (`search::recall_query`).
             let text = memorycastle::search::recall_query(&text);
+            // The edit gate's task when the judge is on: the session's last prompt.
+            if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
+                if memorycastle::judge::enabled(&ctx.conn, pid)? {
+                    if let Some(sid) = store::current_session(&ctx.conn, pid)? {
+                        memorycastle::judge::remember_prompt(&ctx.conn, &sid, &text)?;
+                    }
+                }
+            }
             if explain {
                 eprintln!("query: {}", text.trim().replace('\n', " / "));
             }
@@ -1341,17 +1367,17 @@ fn run(cli: Cli) -> Result<()> {
             if hook || new_stdin {
                 let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut input);
             }
-            let (path, at, new_text) = if hook {
+            let (path, at, new_text, old_text) = if hook {
                 let Some(e) = memorycastle::gate::claude_edit(&input) else { return Ok(()) };
-                (Some(e.file), e.at, e.new_text)
+                (Some(e.file), e.at, e.new_text, e.old_text)
             } else {
-                (path, at, new_stdin.then_some(input))
+                (path, at, new_stdin.then_some(input), None)
             };
             let Some(path) = path else { return Ok(()) };
             let abs = std::env::current_dir()?.join(&path);
             let Ok(rel) = abs.strip_prefix(&repo.root) else { return Ok(()) };
             let rel = rel.to_string_lossy().into_owned();
-            match memorycastle::gate::check(&ctx.conn, p.id, &repo.root, &rel, at, abs.exists(), new_text.as_deref())? {
+            match memorycastle::gate::check(&ctx.conn, p.id, &repo.root, &rel, at, abs.exists(), new_text.as_deref(), old_text.as_deref())? {
                 memorycastle::gate::Outcome::Pass => {}
                 memorycastle::gate::Outcome::Context(t) if hook => {
                     println!("{}", serde_json::json!({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": t}}));
@@ -1716,7 +1742,11 @@ fn run(cli: Cli) -> Result<()> {
             // `--for <task>`: the judge keeps the notes that matter for the
             // task, best first; the code facts are never judged. Superseded
             // notes are left out (their successors are in the list).
+            // From the edit gate (`gate::check`), the edit too: the judge also
+            // asks whether it brings back what each note rejected.
+            let judge_edit = memorycastle::judge::edit_from_env();
             let mut judged: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
+            let mut judged_rejected: std::collections::HashMap<i64, f32> = std::collections::HashMap::new();
             let mut judge_model: Option<(String, usize)> = None;
             if let Some(task) = for_task.as_deref() {
                 let cand: Vec<graph::NoteRef> = notes.iter().filter(|n| n.superseded_by.is_none()).take(memorycastle::limits::JUDGE_NOTES).cloned().collect();
@@ -1725,7 +1755,7 @@ fn run(cli: Cli) -> Result<()> {
                     for n in &cand {
                         texts.push((n.path.clone(), ctx.conn.query_row("SELECT content FROM notes WHERE id = ?1", [n.id], |r| r.get::<_, String>(0))?));
                     }
-                    match memorycastle::judge::score(&target, task, &texts) {
+                    match memorycastle::judge::score(&target, task, &texts, judge_edit.as_ref()) {
                         Ok(v) => {
                             // Once per session: this is a network call with the notes' text.
                             let sid = store::current_session(&ctx.conn, pid)?.unwrap_or_default();
@@ -1734,9 +1764,19 @@ fn run(cli: Cli) -> Result<()> {
                                 eprintln!("memorycastle: judge: the task and {} notes' text sent to api.typesafe.ai ({})", cand.len(), v.model);
                                 memorycastle::db::meta_set(&ctx.conn, &key, "1")?;
                             }
-                            let mut kept: Vec<(f32, usize)> = v.scores.iter().copied().enumerate().filter(|(_, s)| *s >= memorycastle::limits::JUDGE_CUT).map(|(i, s)| (s, i)).collect();
-                            kept.sort_by(|a, b| b.0.total_cmp(&a.0).then(a.1.cmp(&b.1)));
+                            // A note the edit may contradict prints whatever its score.
+                            let rej = |i: usize| v.rejected.get(i).copied().unwrap_or(0.0);
+                            let mut kept: Vec<(f32, usize)> = v
+                                .scores
+                                .iter()
+                                .copied()
+                                .enumerate()
+                                .filter(|&(i, s)| s >= memorycastle::limits::JUDGE_CUT || rej(i) >= memorycastle::limits::JUDGE_REJECTED)
+                                .map(|(i, s)| (s, i))
+                                .collect();
+                            kept.sort_by(|a, b| rej(b.1).ge(&memorycastle::limits::JUDGE_REJECTED).cmp(&rej(a.1).ge(&memorycastle::limits::JUDGE_REJECTED)).then(b.0.total_cmp(&a.0)).then(a.1.cmp(&b.1)));
                             judged = kept.iter().map(|&(s, i)| (cand[i].id, s)).collect();
+                            judged_rejected = kept.iter().filter(|&&(_, i)| rej(i) >= memorycastle::limits::JUDGE_REJECTED).map(|&(_, i)| (cand[i].id, rej(i))).collect();
                             notes = kept.iter().map(|&(_, i)| cand[i].clone()).collect();
                             decisions = notes.len();
                             judge_model = Some((v.model, cand.len()));
@@ -1879,6 +1919,35 @@ fn run(cli: Cli) -> Result<()> {
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
                     if let (Some(sc), Some((m, _))) = (judged.get(&n.id), &judge_model) {
                         out.push_str(&format!("   judge      {sc:.2} for this task ({m})\n"));
+                    }
+                    if let Some(p) = judged_rejected.get(&n.id) {
+                        // The Rejected bullet sharing most words with the task and the
+                        // new text (the judge says which note, not which bullet).
+                        let body = store::section_body(&ctx.conn, n.id, "Rejected")?.unwrap_or_default();
+                        let want: std::collections::HashSet<String> = memorycastle::search::content_words(&format!(
+                            "{} {}",
+                            for_task.as_deref().unwrap_or(""),
+                            judge_edit.as_ref().map(|e| e.new.as_str()).unwrap_or("")
+                        ))
+                        .into_iter()
+                        .collect();
+                        let mut bullets: Vec<String> = Vec::new();
+                        for l in body.lines() {
+                            if l.trim_start().starts_with("- ") || bullets.is_empty() {
+                                bullets.push(l.trim().trim_start_matches("- ").to_string());
+                            } else if let Some(b) = bullets.last_mut() {
+                                b.push(' ');
+                                b.push_str(l.trim());
+                            }
+                        }
+                        let line = bullets
+                            .iter()
+                            .enumerate()
+                            .max_by_key(|(i, b)| (memorycastle::search::content_words(b).iter().filter(|w| want.contains(*w)).count(), std::cmp::Reverse(*i)))
+                            .map(|(_, b)| b.clone())
+                            .unwrap_or_default();
+                        let line: String = line.chars().take(memorycastle::limits::TRIP_LINE_CHARS).collect();
+                        out.push_str(&format!("   rejected   {p:.2} this edit may bring back what this note ruled out: {line}\n              If the reason no longer holds, say why and supersede the note; otherwise keep it out.\n"));
                     }
                     if (i < decisions || successor) && n.superseded_by.is_none() {
                         if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {

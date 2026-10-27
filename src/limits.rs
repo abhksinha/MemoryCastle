@@ -448,3 +448,13 @@ pub const JUDGE_CUT: f32 = 0.6;
 /// The judge call gives up after this and `links` prints its usual list:
 /// p50 was 530 ms and p95 about 640 ms.
 pub const JUDGE_TIMEOUT_MS: u64 = 2000;
+/// The edit gate with the judge on (`memcastle project judge on`): a note
+/// whose "this edit brings back what Note k's Rejected section ruled out" is
+/// at least this prints that Rejected line. On 7 such edits among 36, with
+/// the task in the state: 6 of 7 caught, no false alarm in the other 29;
+/// at 0.5, 3 false alarms; the name-based tripwire caught 0.
+pub const JUDGE_REJECTED: f32 = 0.6;
+/// Characters of the last prompt kept per session as the gate's task.
+pub const JUDGE_TASK_CHARS: usize = 1500;
+/// Characters of each side of an edit sent to the judge.
+pub const JUDGE_EDIT_CHARS: usize = 4000;

@@ -159,6 +159,8 @@ pub struct Edit {
     pub file: String,
     pub at: Option<u32>,
     pub new_text: Option<String>,
+    /// The text replaced, for the judge (`judge::EditText`).
+    pub old_text: Option<String>,
 }
 
 /// Reads an Edit, Write or MultiEdit event: the file, the line the first
@@ -181,7 +183,12 @@ pub fn claude_edit(json: &str) -> Option<Edit> {
         let text = std::fs::read_to_string(&file).ok()?;
         text.lines().position(|l| l.contains(first)).map(|i| i as u32 + 1)
     });
-    Some(Edit { file, at, new_text: if news.is_empty() { None } else { Some(news.join("\n")) } })
+    Some(Edit {
+        file,
+        at,
+        new_text: if news.is_empty() { None } else { Some(news.join("\n")) },
+        old_text: if olds.is_empty() { None } else { Some(olds.join("\n")) },
+    })
 }
 
 pub enum Outcome {
@@ -191,14 +198,22 @@ pub enum Outcome {
 }
 
 fn run(root: &Path, args: &[&str]) -> String {
+    run_with(root, args, None)
+}
+
+/// `judge_edit`: the edit as JSON for a judged lookup (`judge::edit_from_env`).
+fn run_with(root: &Path, args: &[&str], judge_edit: Option<&str>) -> String {
     let exe = std::env::current_exe().unwrap_or_else(|_| "memcastle".into());
-    Command::new(exe)
-        .args(args)
+    let mut cmd = Command::new(exe);
+    cmd.args(args)
         .current_dir(root)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .env("MEMORYCASTLE_VIA", if blocking() { "gateblock" } else { "gate" })
-        .output()
+        .env("MEMORYCASTLE_VIA", if blocking() { "gateblock" } else { "gate" });
+    if let Some(e) = judge_edit {
+        cmd.env("MEMORYCASTLE_JUDGE_EDIT", e);
+    }
+    cmd.output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim_end().to_string())
         .unwrap_or_default()
 }
@@ -206,7 +221,8 @@ fn run(root: &Path, args: &[&str]) -> String {
 /// The gate for one file about to be written. `rel` is repo-relative;
 /// `at` the line being edited when the tool says; `exists` whether the file
 /// is on disk (a write that creates it searches its area).
-pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Option<u32>, exists: bool, new_text: Option<&str>) -> Result<Outcome> {
+#[allow(clippy::too_many_arguments)]
+pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Option<u32>, exists: bool, new_text: Option<&str>, old_text: Option<&str>) -> Result<Outcome> {
     if rel.starts_with("memorycastle/") || store::current_session(conn, project_id)?.is_none() {
         return Ok(Outcome::Pass);
     }
@@ -222,6 +238,18 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     let looked_before = first_file && have.contains(&format!("was:{rel}"));
     mark(conn, project_id, &[rel.to_string()])?;
     let at_s = at.map(|a| a.to_string());
+    // With the judge on (`memcastle project judge on`), the lookups judge the
+    // file's notes against the session's last prompt and this edit: only the
+    // notes that matter print, and any whose Rejected section the edit may
+    // bring back (`2026-10-27-jev-weak-spots-five-experiments.md`). No key,
+    // no prompt, an error or the timeout: the usual lookup.
+    let judge_task = match store::current_session(conn, project_id)? {
+        Some(sid) if crate::judge::enabled(conn, project_id)? => crate::judge::last_prompt(conn, &sid)?,
+        _ => None,
+    };
+    let judge_edit = judge_task.as_ref().map(|_| {
+        serde_json::json!({"file": rel, "line": at, "old": old_text.unwrap_or(""), "new": new_text.unwrap_or("")}).to_string()
+    });
     let mut block = Vec::new();
     let mut context = Vec::new();
     if first_file && exists {
@@ -231,10 +259,13 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         if let Some(a) = &at_s {
             args.extend(["--at", a]);
         }
-        let mut out = run(root, &args);
+        if let Some(t) = &judge_task {
+            args.extend(["--for", t]);
+        }
+        let mut out = run_with(root, &args, judge_edit.as_deref());
         if out.is_empty() {
             args.retain(|a| *a != "--once");
-            out = run(root, &args);
+            out = run_with(root, &args, judge_edit.as_deref());
         }
         if informative(&out) {
             if looked_before { context.push(out) } else { block.push(out) }
@@ -243,7 +274,11 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         // Looked up already: only the notes about the definition being
         // edited, once, as context.
         if let Some(a) = &at_s {
-            let out = run(root, &["links", rel, "--at", a, "--once"]);
+            let mut args = vec!["links", rel, "--at", a, "--once"];
+            if let Some(t) = &judge_task {
+                args.extend(["--for", t]);
+            }
+            let out = run_with(root, &args, judge_edit.as_deref());
             if !out.is_empty() && !out.starts_with("no notes link to") {
                 context.push(out);
             }
