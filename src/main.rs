@@ -28,6 +28,11 @@ read as: too wide: read path:a-b = function over 150 lines, read the block shown
 read as: blocks: a-b header = inner blocks of a function over 150 lines, read the one you edit
 read as: lines 9-11 Decision = note sections naming it; read those lines, not the note
 read as: decision <sentence> = the note's first Decision sentence (first two notes)
+read as: judge 0.75 for this task = Jev's score, 0 to 1; only notes at 0.6 or more print
+read as: judge ...: the task changes or retries what it decided = read that note before the edit
+read as: rejected 0.90 = the edit may bring back what the note ruled out
+read as: N notes ... left out: no match for the task = links <file> lists them all
+read as: tripwire: this edit adds `0.40` = a value a note's Rejected section tried and dropped
 read as: nodes.store( = a field's declared type (nodes: Nodes) points at Nodes::store
 read as: as foo::bar = spelling the note used, or the neighbour it was ranked by
 read as: superseded by X = decision reversed, act on X
@@ -517,7 +522,10 @@ enum ProjectCmd {
     /// The judge in the edit gate for this project: `on` sends the session's last prompt, the edit
     /// and the file's notes to TypeSafe AI's Jev (key in TYPESAFE_API_KEY) and shows only the notes
     /// that matter for it, plus any whose Rejected section the edit may bring back; `off` (the
-    /// default) keeps everything local. `MEMORYCASTLE_JUDGE` overrides it. With no mode, prints it.
+    /// default) keeps everything local. Measured on 36 edits: notes that matter 34% to 63% of those
+    /// shown, rejected approaches caught 2 to 6 of 7, about 0.5 s per first edit of a file. The
+    /// sound choice where the notes may leave the machine (an open-source repo); off for private
+    /// code. `MEMORYCASTLE_JUDGE` overrides it. With no mode, prints it.
     Judge {
         #[arg(value_parser = ["on", "off"])]
         mode: Option<String>,

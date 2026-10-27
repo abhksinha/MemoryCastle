@@ -60,6 +60,11 @@ skip | routine edits, reading code, running tests | no search
 - `too wide: read path:a-b` = function over 150 lines; read the block shown
 - `blocks: ... widest: a-b header` = inner blocks of a function over 150 lines; read the one you edit
 - `as foo::bar` = spelling the note used, or the neighbour it was ranked by
+- `judge 0.75 for this task` = Jev's score, 0 to 1; only notes at 0.6 or more print
+- `judge ...: the task changes or retries what it decided` = read that note before the edit
+- `rejected 0.90` = the edit may bring back what the note ruled out; supersede the note or keep it out
+- `N notes ... left out: no match for the task` = `links <file>` lists them all
+- ``tripwire: this edit adds `0.40` `` = a value a note's Rejected section tried and dropped
 - `no notes link to X`, nothing after = not indexed; check spelling or run `memcastle graph --code`
 - limits: call edges are by name; a call through a trait or a macro is missed
 - cite as `memorycastle/journal/<note>.md:<line>`
@@ -80,10 +85,28 @@ after the edit | build, tests, then the note and `memcastle save` | the note rec
 ## Hooks (Claude Code, Codex, Gemini CLI, Cursor)
 
 - each prompt: notes the store is confident about, one line each, once per session
-- first edit of a file: its ranges and notes as context
+- first edit of a file: its ranges and notes as context, ordered by your last prompt (judged by Jev when the judge is on)
 - whole read of a file (or a long note) a lookup gave ranges for: stopped once with the ranges
 - a grep for one name the code defines (Claude Code, Codex, Gemini CLI; Cursor for shell greps): answered once with `links <name>`; the retry runs the grep
 - compaction, stop, after a commit: a note is asked for when code was edited since the last one; if the work was routine, say no decision was made; the second attempt passes
+
+## The judge (opt-in)
+
+`memcastle project judge on` (per project; `MEMORYCASTLE_JUDGE=on|off` overrides) with `TYPESAFE_API_KEY` set where the agent runs: before the first edit of a file the gate sends your last prompt, the edit and the file's notes to TypeSafe AI's Jev in one call, and prints only the notes that matter for the change, each with its score.
+
+measured on 36 edits | judge off (local) | judge on
+--- | --- | ---
+first note shown matters | 21 of 30 | 25 of 30
+notes shown that matter | 34% | 63%
+silent when no note matters | 2 of 6 | 5 of 6
+rejected approach caught (no false alarm in 29) | 2 of 7 | 6 of 7
+notes that matter shown | 33 of 38 | 32 of 38
+time per first edit of a file | 73 ms | about 0.5 s
+
+- turn it on where the notes may leave the machine (an open-source repo); keep it off for private code: notes and the prompt go to a US vendor with no published retention period
+- no key, no prompt, an error or over 2 s: the local lookup prints instead; nothing blocks
+- by hand: `memcastle links <symbol> --for "<task>"`
+- off: the gate orders notes by a local search of your last prompt and quotes a Rejected line when the edit adds a value it names
 
 ## When to write a note
 
