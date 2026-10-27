@@ -253,6 +253,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             if notes.is_empty() && kind == crate::graph::Kind::File {
                 notes = crate::graph::notes_for(&ctx.conn, pid, crate::graph::Kind::Symbol, target)?;
             }
+            let notes = crate::graph::with_successors(&ctx.conn, pid, notes)?;
             let defs = if kind == crate::graph::Kind::Symbol { crate::code::defs_named(&ctx.conn, pid, target)? } else { Vec::new() };
             // The edit gate's record: these files were looked up.
             let looked: Vec<String> = if kind == crate::graph::Kind::File { crate::code::paths_ending_with(&ctx.conn, pid, target)? } else { defs.iter().map(|d| d.path.clone()).collect() };

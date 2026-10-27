@@ -93,6 +93,7 @@ fn notes_about(conn: &Connection, project_id: i64, rel: &str) -> Result<Vec<grap
             }
         }
     }
+    let mut notes = graph::with_successors(conn, project_id, notes)?;
     notes.retain(|n| n.superseded_by.is_none());
     Ok(notes)
 }

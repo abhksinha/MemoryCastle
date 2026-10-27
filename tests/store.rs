@@ -316,6 +316,27 @@ fn links_history_and_graph_from_declared_lines() {
 }
 
 #[test]
+fn links_lists_the_note_that_replaced_a_superseded_one() {
+    use memorycastle::graph::{self, Kind};
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "p", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-01-batch.md", "# Batch\nFiles: src/store.rs\n## Decision\n`embed_missing` embeds sixteen chunks per call.");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-02-mid.md", "# Mid\nSupersedes: 2026-10-01-batch.md\n## Decision\nEight per call.");
+    save(&mut conn, &p, "memorycastle/journal/2026-10-03-one.md", "# One\nSupersedes: 2026-10-02-mid.md\n## Decision\nOne chunk per call; batches bought nothing.");
+    // The reversals never name `embed_missing`: only the first note links it.
+    let linked = graph::notes_for(&conn, p.id, Kind::Symbol, "embed_missing").unwrap();
+    assert_eq!(linked.len(), 1);
+    let v = graph::with_successors(&conn, p.id, linked).unwrap();
+    let paths: Vec<&str> = v.iter().map(|n| n.path.as_str()).collect();
+    assert_eq!(paths, ["memorycastle/journal/2026-10-03-one.md", "memorycastle/journal/2026-10-01-batch.md"]);
+    assert_eq!(v[0].via, "replaces 2026-10-01-batch.md");
+    assert!(v[0].superseded_by.is_none());
+    // Nothing superseded: unchanged.
+    let live = graph::notes_for(&conn, p.id, Kind::Note, "memorycastle/journal/2026-10-03-one.md").unwrap();
+    assert_eq!(graph::with_successors(&conn, p.id, live.clone()).unwrap().len(), live.len());
+}
+
+#[test]
 fn bit_prefilter_matches_exact_scan() {
     use memorycastle::search::Explain;
     let mut conn = db::open_memory().unwrap();

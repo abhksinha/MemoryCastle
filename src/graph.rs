@@ -484,6 +484,50 @@ pub fn notes_for_def(conn: &Connection, project_id: i64, d: &crate::code::Def) -
         .collect())
 }
 
+/// Adds the live note that replaced each superseded one, where the
+/// superseded ones start: a reversal need not name what the old note named
+/// (`2026-10-18-one-chunk-per-call.md` rejects the batching that
+/// `embed_missing`'s only linked note decided, without naming it), so the
+/// old decision was listed and the current one was not. `via` says which
+/// note it replaces. The chain is followed to its live end.
+pub fn with_successors(conn: &Connection, project_id: i64, notes: Vec<NoteRef>) -> Result<Vec<NoteRef>> {
+    if notes.iter().all(|n| n.superseded_by.is_none()) {
+        return Ok(notes);
+    }
+    let mut stmt = conn.prepare_cached(
+        "SELECT id, path, title, saved_at, superseded_by, source, dated FROM notes
+         WHERE project_id = ?1 AND path = ?2 AND deleted_at IS NULL",
+    )?;
+    let mut added: Vec<NoteRef> = Vec::new();
+    for old in notes.iter().filter(|n| n.superseded_by.is_some()) {
+        let mut next = old.superseded_by.clone();
+        let mut live = None;
+        for _ in 0..8 {
+            let Some(p) = next.take() else { break };
+            let name = old.path.rsplit('/').next().unwrap_or(&old.path).to_string();
+            let row = stmt
+                .query_row(params![project_id, p], |r| {
+                    Ok(NoteRef { id: r.get(0)?, path: r.get(1)?, title: r.get(2)?, saved_at: r.get(3)?, dated: r.get(6)?, superseded_by: r.get(4)?, author: r.get(5)?, via: format!("replaces {name}") })
+                })
+                .optional()?;
+            match row {
+                Some(r) if r.superseded_by.is_some() => next = r.superseded_by.clone(),
+                Some(r) => live = Some(r),
+                None => {}
+            }
+        }
+        if let Some(r) = live {
+            if !notes.iter().chain(added.iter()).any(|o| o.id == r.id) {
+                added.push(r);
+            }
+        }
+    }
+    let at = notes.iter().position(|n| n.superseded_by.is_some()).unwrap_or(notes.len());
+    let mut out = notes;
+    out.splice(at..at, added);
+    Ok(out)
+}
+
 /// Orders a file's notes for an edit inside `names[0]` when no note names
 /// that definition: notes naming one of its call neighbours (`names`, the
 /// functions it calls and the ones calling it) come first, most neighbours

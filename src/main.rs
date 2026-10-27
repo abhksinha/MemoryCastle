@@ -1658,6 +1658,7 @@ fn run(cli: Cli) -> Result<()> {
             if notes.is_empty() && kind == graph::Kind::File {
                 notes = graph::notes_for(&ctx.conn, pid, graph::Kind::Symbol, &target)?;
             }
+            let mut notes = graph::with_successors(&ctx.conn, pid, notes)?;
             // The line is in a definition no note names: the file's notes
             // about its call neighbours come first, not merely the newest.
             // A note that names no neighbour is about some other part of
@@ -1832,9 +1833,12 @@ fn run(cli: Cli) -> Result<()> {
                         continue;
                     }
                     let sup = n.superseded_by.as_ref().map(|p| format!("  (superseded by {p})")).unwrap_or_default();
-                    let via = if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
+                    // A successor (`graph::with_successors`) is the current word
+                    // on what the note it replaces decided: always its Decision.
+                    let successor = n.via.starts_with("replaces ");
+                    let via = if successor { format!("  ({})", n.via) } else if !n.via.is_empty() && n.via != target { format!("  as {}", n.via) } else { String::new() };
                     out.push_str(&format!("{}  {}  {}  ({}){}{}\n", n.path, n.title, fmt_date(n.dated.unwrap_or(n.saved_at)), n.author, sup, via));
-                    if i < decisions && n.superseded_by.is_none() {
+                    if (i < decisions || successor) && n.superseded_by.is_none() {
                         if let Some(d) = store::decision_sentence(&ctx.conn, n.id)? {
                             out.push_str(&format!("   decision   {d}\n"));
                         }
