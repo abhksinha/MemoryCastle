@@ -465,6 +465,9 @@ pub const JUDGE_REJECTED: f32 = 0.6;
 /// 36 tasks a yes was right 73% (task only) and 83% (with the edit); the other
 /// considerations said yes to most notes (27% to 45%) and are not printed.
 pub const JUDGE_REVERSES: f32 = 0.5;
+/// `links --task`: hits taken from the local search of the task to order a
+/// file's notes; notes not among them are left out (60 measured).
+pub const TASK_RANK_K: usize = 60;
 /// Characters of the last prompt kept per session as the gate's task.
 pub const JUDGE_TASK_CHARS: usize = 1500;
 /// Characters of each side of an edit sent to the judge.

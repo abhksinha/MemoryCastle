@@ -113,15 +113,20 @@ fn reversed(conn: &Connection, project_id: i64, note_id: i64, name: &str, since:
 
 /// The Rejected line naming `name`, and its line in the note.
 fn rejected_line(conn: &Connection, note_id: i64, name: &str) -> Result<(u32, String)> {
+    let tick = format!("`{name}`");
+    rejected_line_where(conn, note_id, |l| l.contains(&tick))
+}
+
+/// The first Rejected line `hit` accepts, clipped to `TRIP_LINE_CHARS`.
+fn rejected_line_where(conn: &Connection, note_id: i64, hit: impl Fn(&str) -> bool) -> Result<(u32, String)> {
     let content: String = conn.query_row("SELECT content FROM notes WHERE id = ?1", [note_id], |r| r.get(0))?;
     let mut in_rejected = false;
-    let tick = format!("`{name}`");
     for (i, l) in content.lines().enumerate() {
         if let Some(h) = l.strip_prefix("## ") {
             in_rejected = h.trim().eq_ignore_ascii_case("rejected");
             continue;
         }
-        if in_rejected && l.contains(&tick) {
+        if in_rejected && hit(l) {
             let t = l.trim().trim_start_matches("- ").to_string();
             let t = if t.chars().count() > limits::TRIP_LINE_CHARS { format!("{}...", t.chars().take(limits::TRIP_LINE_CHARS).collect::<String>()) } else { t };
             return Ok(((i + 1) as u32, t));
@@ -132,6 +137,75 @@ fn rejected_line(conn: &Connection, note_id: i64, name: &str) -> Result<(u32, St
 
 /// The added text without whole-line comments: a comment that names a
 /// rejected approach describes it, it does not bring it back.
+/// A number the edit adds that a Rejected line of a note about the edited
+/// definition states: a value tried and dropped (`0.40` for the floor,
+/// batches of `16`), which no backticked name catches. Only notes naming the
+/// definition holding line `at`: over every note on the file, broad notes
+/// full of numbers matched by chance. 2 of 7 such edits caught on 36
+/// labelled ones, no false alarm (2026-10-27-local-stand-ins-for-jev.md).
+/// `as_of` (replay): only notes whose day ended before it.
+pub fn check_numbers(conn: &Connection, project_id: i64, rel: &str, at: u32, before: &str, added: &str, as_of: Option<i64>) -> Result<Vec<Trip>> {
+    let added = &code_lines(added);
+    if added.trim().is_empty() || rel.starts_with("memorycastle/") || !is_code_path(rel) {
+        return Ok(Vec::new());
+    }
+    let Some(def) = crate::code::def_enclosing(conn, project_id, rel, at)? else { return Ok(Vec::new()) };
+    let mut notes = graph::with_successors(conn, project_id, graph::notes_for_def(conn, project_id, &def)?)?;
+    notes.retain(|n| n.superseded_by.is_none() && as_of.is_none_or(|t| n.dated.unwrap_or(n.saved_at) + 86_400 <= t));
+    let (now, was) = (numbers(added), numbers(before));
+    let mut trips: Vec<Trip> = Vec::new();
+    for n in notes {
+        let Some(rejected) = store::section_body(conn, n.id, "Rejected")? else { continue };
+        let kept = numbers(&store::section_body(conn, n.id, "Decision")?.unwrap_or_default());
+        for num in values(&rejected) {
+            if !now.contains(&num) || was.contains(&num) || kept.contains(&num) || trips.iter().any(|t| t.name == num) {
+                continue;
+            }
+            let (line, text) = rejected_line_where(conn, n.id, |l| values(l).contains(&num))?;
+            trips.push(Trip { name: num, note: n.path.clone(), line, text });
+        }
+    }
+    Ok(trips)
+}
+
+/// The numbers written in `text` as tokens (`16`, `0.40`, not `f16` or the
+/// `4` in `v0.4`), leaving out 0, 1 and 2, which every file holds.
+fn numbers(text: &str) -> std::collections::HashSet<String> {
+    numbers_where(text, false)
+}
+
+/// The numbers a Rejected line states as values: not a count followed by a
+/// word (`25 rushtex functions`, `4 to 8`), which a replay of this repo's
+/// commits matched against `CODE_VERSION` 25.
+fn values(text: &str) -> std::collections::HashSet<String> {
+    numbers_where(text, true)
+}
+
+fn numbers_where(text: &str, values_only: bool) -> std::collections::HashSet<String> {
+    let b = text.as_bytes();
+    let mut out = std::collections::HashSet::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i].is_ascii_digit() && (i == 0 || !(b[i - 1].is_ascii_alphanumeric() || b[i - 1] == b'_' || b[i - 1] == b'.')) {
+            let start = i;
+            while i < b.len() && (b[i].is_ascii_digit() || b[i] == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit)) {
+                i += 1;
+            }
+            let after = b.get(i).copied().unwrap_or(b' ');
+            let count = values_only && after == b' ' && b.get(i + 1).is_some_and(u8::is_ascii_alphabetic);
+            if !(after.is_ascii_alphabetic() || after == b'_' || count) {
+                let n = &text[start..i];
+                if !matches!(n, "0" | "1" | "2") {
+                    out.insert(n.to_string());
+                }
+            }
+        } else {
+            i += 1;
+        }
+    }
+    out
+}
+
 fn code_lines(added: &str) -> String {
     added
         .lines()
@@ -240,6 +314,17 @@ pub fn render(trips: &[Trip]) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn numbers_are_whole_tokens() {
+        let n = numbers("- 0.40: loses 4 to 8 answers; f16, v0.4, x2, 16_000 and batches of 16.");
+        let mut v: Vec<_> = n.into_iter().collect();
+        v.sort();
+        assert_eq!(v, ["0.40", "16", "4", "8"]);
+        let mut v: Vec<_> = values("- 0.40: loses 4 to 8 answers; 25 rushtex functions; batches of 2, 4, 8 and 16.").into_iter().collect();
+        v.sort();
+        assert_eq!(v, ["0.40", "16", "4"]);
+    }
     use super::*;
 
     #[test]

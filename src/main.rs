@@ -428,6 +428,9 @@ enum Cmd {
         /// The task at hand: a judge (TypeSafe AI's Jev, key in TYPESAFE_API_KEY) scores each note for it and only the notes that matter print, best first. Sends the task and the notes' text to api.typesafe.ai; without a key or on any error the usual list prints.
         #[arg(long = "for", value_name = "TASK")]
         for_task: Option<String>,
+        /// The task at hand, judged locally: the notes are ordered by a search of it and those under the search's floor are left out (the edit gate passes the session's last prompt when the judge is off).
+        #[arg(long, hide = true, value_name = "TASK")]
+        task: Option<String>,
     },
     /// The unresolved items of every live note's Open section, newest first; with a file or symbol, only the notes about it.
     Open {
@@ -946,12 +949,11 @@ fn run(cli: Cli) -> Result<()> {
             };
             // The prompt's prose, not its paste (`search::recall_query`).
             let text = memorycastle::search::recall_query(&text);
-            // The edit gate's task when the judge is on: the session's last prompt.
+            // The edit gate's task: the session's last prompt, kept locally;
+            // judged by Jev when the judge is on, by a local search otherwise.
             if let Some(pid) = ctx.project.as_ref().map(|p| p.id) {
-                if memorycastle::judge::enabled(&ctx.conn, pid)? {
-                    if let Some(sid) = store::current_session(&ctx.conn, pid)? {
-                        memorycastle::judge::remember_prompt(&ctx.conn, &sid, &text)?;
-                    }
+                if let Some(sid) = store::current_session(&ctx.conn, pid)? {
+                    memorycastle::judge::remember_prompt(&ctx.conn, &sid, &text)?;
                 }
             }
             if explain {
@@ -1358,6 +1360,27 @@ fn run(cli: Cli) -> Result<()> {
                             trips += 1;
                             println!("{} {path}  `{}`  {}:{}", &c[..7], tr.name, tr.note, tr.line);
                         }
+                        // Numbers per hunk, at the line it replaces in the parent.
+                        let diff = git(&["diff", "-U0", &format!("{c}^"), c, "--", path]);
+                        let mut hunk: Option<(u32, String)> = None;
+                        let mut hunks = Vec::new();
+                        for l in diff.lines() {
+                            if let Some(h) = l.strip_prefix("@@ -") {
+                                hunks.extend(hunk.take());
+                                let a = h.split([',', ' ']).next().and_then(|x| x.parse().ok()).unwrap_or(0u32);
+                                hunk = Some((a.max(1), String::new()));
+                            } else if let (Some((_, text)), Some(added)) = (hunk.as_mut(), l.strip_prefix('+').filter(|_| !l.starts_with("+++"))) {
+                                text.push_str(added);
+                                text.push('\n');
+                            }
+                        }
+                        hunks.extend(hunk);
+                        for (a, text) in hunks {
+                            for tr in memorycastle::tripwire::check_numbers(&ctx.conn, p.id, path, a, &before, &text, Some(t))? {
+                                trips += 1;
+                                println!("{} {path}:{a}  `{}`  {}:{}", &c[..7], tr.name, tr.note, tr.line);
+                            }
+                        }
                     }
                 }
                 println!("replay: {commits} commits, {files} file changes, {trips} trips");
@@ -1599,7 +1622,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("gates passed");
             }
         }
-        Cmd::Links { target, at, context, once, all, for_task } => {
+        Cmd::Links { target, at, context, once, all, for_task, task } => {
             let pid = ctx.require_project()?.id;
             // A line inside a file: the enclosing definition is the unit the
             // agent is editing, so notes about it come first and the file's
@@ -1788,6 +1811,31 @@ fn run(cli: Cli) -> Result<()> {
                     }
                 }
             }
+            // `--task` (or `--for` when the judge did not answer): a local search
+            // of the task orders the notes, and notes it ranks under its floor
+            // are left out. On 36 labelled edits the first note listed was
+            // relevant 12 to 20 of 30 times, precision 23% to 35%
+            // (2026-10-27-local-stand-ins-for-jev.md).
+            let mut task_left_out = None;
+            if let (None, Some(t)) = (&judge_model, task.as_deref().or(for_task.as_deref())) {
+                if !notes.is_empty() {
+                    let (hits, _) = ctx.search(t, &ScopeFlags::default(), &SearchOptions { k: memorycastle::limits::TASK_RANK_K, mode: Mode::Auto, working: Vec::new() })?;
+                    // A hit on a superseded note counts for the note that replaced it.
+                    let mut conf: std::collections::HashMap<String, f32> = std::collections::HashMap::new();
+                    for h in &hits {
+                        for p in std::iter::once(h.path.clone()).chain(h.superseded_by.clone()) {
+                            let c = conf.entry(p).or_insert(0.0);
+                            *c = c.max(h.trace.confidence);
+                        }
+                    }
+                    let before = notes.len();
+                    let mut ranked: Vec<(f32, graph::NoteRef)> = notes.into_iter().filter(|n| n.superseded_by.is_none()).filter_map(|n| conf.get(&n.path).map(|&c| (c, n))).collect();
+                    ranked.sort_by(|a, b| b.0.total_cmp(&a.0));
+                    notes = ranked.into_iter().map(|(_, n)| n).collect();
+                    decisions = decisions.min(notes.len());
+                    task_left_out = Some(before - notes.len());
+                }
+            }
             if cli.json {
                 // Callers and callees per definition, every one with its score.
                 let mut calls = Vec::with_capacity(defs.len());
@@ -1807,7 +1855,7 @@ fn run(cli: Cli) -> Result<()> {
                     _ => Vec::new(),
                 };
                 println!("{}", serde_json::json!({"notes": notes, "definitions": defs, "calls": calls, "context": sites, "code": facts}));
-            } else if notes.is_empty() && defs.is_empty() && judge_model.is_none() {
+            } else if notes.is_empty() && defs.is_empty() && judge_model.is_none() && task_left_out.is_none() {
                 println!("no notes link to {target}");
                 for f in &facts {
                     println!("   {f}");
@@ -1897,6 +1945,13 @@ fn run(cli: Cli) -> Result<()> {
                 let cap = if kind == graph::Kind::File && judge_model.is_none() { memorycastle::limits::LINKS_NOTES } else { notes.len() };
                 if let (Some((m, n)), true) = (&judge_model, notes.is_empty()) {
                     out.push_str(&format!("no note bears on this task (judge {m}, {n} notes judged)\n"));
+                }
+                if let Some(n) = task_left_out.filter(|&n| n > 0) {
+                    if notes.is_empty() {
+                        out.push_str(&format!("no note about {target} matches the task ({n} left out; links {target} lists them)\n"));
+                    } else {
+                        out.push_str(&format!("{n} notes about {target} that do not match the task left out (links {target} lists them)\n"));
+                    }
                 }
                 // A hook's lookup (`--once`) names a note it already printed
                 // this session in one line: the same trackers came back under

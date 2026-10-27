@@ -243,10 +243,14 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     // notes that matter print, and any whose Rejected section the edit may
     // bring back (`2026-10-27-jev-weak-spots-five-experiments.md`). No key,
     // no prompt, an error or the timeout: the usual lookup.
-    let judge_task = match store::current_session(conn, project_id)? {
-        Some(sid) if crate::judge::enabled(conn, project_id)? => crate::judge::last_prompt(conn, &sid)?,
-        _ => None,
+    // With the judge off, the same prompt orders the notes by a local search
+    // (`links --task`): the first note listed was relevant 12 to 20 of 30.
+    let last_prompt = match store::current_session(conn, project_id)? {
+        Some(sid) => crate::judge::last_prompt(conn, &sid)?,
+        None => None,
     };
+    let task_flag = if crate::judge::enabled(conn, project_id)? { "--for" } else { "--task" };
+    let judge_task = if task_flag == "--for" { last_prompt.clone() } else { None };
     let judge_edit = judge_task.as_ref().map(|_| {
         serde_json::json!({"file": rel, "line": at, "old": old_text.unwrap_or(""), "new": new_text.unwrap_or("")}).to_string()
     });
@@ -259,8 +263,8 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         if let Some(a) = &at_s {
             args.extend(["--at", a]);
         }
-        if let Some(t) = &judge_task {
-            args.extend(["--for", t]);
+        if let Some(t) = &last_prompt {
+            args.extend([task_flag, t]);
         }
         let mut out = run_with(root, &args, judge_edit.as_deref());
         if out.is_empty() {
@@ -275,8 +279,8 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         // edited, once, as context.
         if let Some(a) = &at_s {
             let mut args = vec!["links", rel, "--at", a, "--once"];
-            if let Some(t) = &judge_task {
-                args.extend(["--for", t]);
+            if let Some(t) = &last_prompt {
+                args.extend([task_flag, t]);
             }
             let out = run_with(root, &args, judge_edit.as_deref());
             if !out.is_empty() && !out.starts_with("no notes link to") {
@@ -297,7 +301,11 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         }
     }
     if let Some(added) = new_text {
-        let trips: Vec<_> = crate::tripwire::check(conn, project_id, rel, &before, added, None, None)?
+        let mut trips = crate::tripwire::check(conn, project_id, rel, &before, added, None, None)?;
+        if let Some(a) = at {
+            trips.extend(crate::tripwire::check_numbers(conn, project_id, rel, a, &before, added, None)?);
+        }
+        let trips: Vec<_> = trips
             .into_iter()
             .filter(|t| !have.contains(&format!("trip:{}:{}", t.note, t.name)))
             .collect();
