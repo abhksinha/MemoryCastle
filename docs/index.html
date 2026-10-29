@@ -225,7 +225,7 @@ footer .wrap { display: flex; flex-wrap: wrap; gap: 8px 24px; }
     <div class="figures">
       <div class="fig"><b>6 MB</b><span>one binary, one SQLite file</span></div>
       <div class="fig"><b>0</b><span>tokens to index a note: no LLM, no API key</span></div>
-      <div class="fig"><b>~600</b><span>tokens of fixed context per session</span></div>
+      <div class="fig"><b>~550</b><span>tokens of fixed context per session</span></div>
       <div class="fig"><b>&lt;1 ms</b><span>keyword search, local</span></div>
       <div class="fig"><b>7</b><span>agents: Claude Code, Codex, Gemini CLI, Cursor and more</span></div>
     </div>
@@ -255,7 +255,7 @@ memcastle install</pre>
       <dt>Half the turns</dt>
       <dd>In the benchmark the agents needed half as many turns on every model: 45 to 21 on Fable, 30 to 15 on Opus, 21 to 12 on Sonnet. Fewer turns means fewer times the context is billed.</dd>
       <dt>No LLM of its own, no API key</dt>
-      <dd>Indexing and search run locally in a 6 MB binary with a small embedding model on the CPU. Saving a note costs 0 tokens; the only cost to the agent is about 600 tokens of fixed context per session.</dd>
+      <dd>Indexing and search run locally in a 6 MB binary with a small embedding model on the CPU. Saving a note costs 0 tokens; the only cost to the agent is about 550 tokens of fixed context per session.</dd>
     </dl>
 
     <h3 style="margin-top:26px">What it means in dollars</h3>
@@ -319,6 +319,23 @@ memcastle install</pre>
       </table>
       <p class="small muted">Every question was cheaper with memorycastle on every model. The saving grows with the price of the model: each turn the memory saves costs more on a larger model.</p>
     </div>
+
+    <h3 style="margin-top:26px">Rerun on 1.0.6, 2026-10-29: effort levels</h3>
+    <p>The same five questions and method, after the search answer became one line per item (<code>read &lt;note&gt;:&lt;a-b&gt;</code>, <code>open &lt;file&gt;:&lt;a-b&gt;</code>), with Claude Code's <code>--effort</code> setting varied. One run per arm.</p>
+    <div class="table">
+      <table>
+        <thead><tr><th>Model, effort</th><th>Without memorycastle</th><th>With memorycastle</th><th>Cost saved</th><th>Turns</th><th>Total tokens</th></tr></thead>
+        <tbody>
+          <tr><td>Sonnet 5.5, default</td><td>$0.375</td><td>$0.280</td><td class="x">25%</td><td>22 / 16</td><td>&minus;21%</td></tr>
+          <tr><td>Opus 5.5, low</td><td>$0.657</td><td>$0.620</td><td class="x">6%</td><td>18 / 18</td><td>&minus;5%</td></tr>
+          <tr><td>Fable 5.1, low</td><td>$2.170</td><td>$1.813</td><td class="x">16%</td><td>27 / 18</td><td>&minus;19%</td></tr>
+          <tr><td>Fable 5.1, medium</td><td>$2.261</td><td>$1.971</td><td class="x">13%</td><td>29 / 21</td><td>+2%</td></tr>
+          <tr><td>Fable 5.1, high</td><td>$2.905</td><td>$2.083</td><td class="x">28%</td><td>40 / 22</td><td>+14%</td></tr>
+        </tbody>
+      </table>
+      <p class="small muted">All 50 answers right in both arms. The saving grows with effort: an agent that works harder greps more without memory. At low effort Opus answered two questions from grep in two turns, and the plugin's fixed context ate most of the saving. Total tokens can rise while cost falls, because a cache read costs about a tenth of a cache write or an output token. Not every question was cheaper this time: on Sonnet n5 cost 6% more, on low-effort Opus n2 and n4 cost more.</p>
+    </div>
+    <p>Release 1.0.7 cuts what memorycastle adds to a session's first request from 1,177 to 546 tokens (a 10-line memory section, one MCP tool, a one-line hook message); Sonnet on the same five questions with the short section cost $0.288 in 17 turns, the same as the long one, all answers right.</p>
 
     <h3 style="margin-top:26px">How to use <code>links</code></h3>
     <p>Run it before an edit, on the function or file about to change: <code>memcastle links render::search</code>. One call returns where the definition is (<code>path:start-end</code>), every caller with every line it calls from, what it calls, and the notes and decisions about it. Read the printed range, not the file; edit the call lines it lists; respect the decisions it quotes.</p>
