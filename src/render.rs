@@ -287,9 +287,9 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
 /// ```
 ///
 /// One sentence per note, labelled by the section it comes from, so a
-/// Rejected line never reads as the decision: the Decision's first sentence
-/// when the hit is in Decision or Decision matched, else the sentence of the
-/// hit that reads best for the question. The parenthesis holds only facts
+/// Rejected line never reads as the decision: the hit's sentence that reads
+/// best for the question, else (and for a Context hit when Decision also
+/// scored) the Decision's first sentence. The parenthesis holds only facts
 /// that change what the note is worth: superseded, its code changed, found
 /// by a name but weak by meaning (`NAME_ONLY_JUDGED`), shown to explore.
 /// Code lines come from the code graph: definitions the question names or an
@@ -353,18 +353,22 @@ fn brief(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) 
         out.push_str(&format!("{}. {}:{range}{facts}\n", rank + 1, h.path));
         let (_, section) = split_heading(&h.heading);
         let section = section.split(" > ").next().unwrap_or(section);
-        let in_decision = section.to_ascii_lowercase().starts_with("decision");
+        // The sentence that matched, labelled by where it is: a Decision of
+        // several bullets opens with another item than the one hit, and a
+        // Rejected hit printed as the Decision lost what was tried. A Context
+        // hit (background) gives way to the Decision when that also scored.
+        let in_context = section.to_ascii_lowercase().starts_with("context");
         let decision_matched = h.parts.iter().any(|p| p.section.to_ascii_lowercase().starts_with("decision") && p.confidence >= crate::limits::MIN_CONFIDENCE);
-        let decision = crate::store::decision_sentence(conn, h.note_id)?;
-        let line = match decision {
-            Some(d) if in_decision || decision_matched => Some(("decision".to_string(), d)),
-            d => {
-                if let std::collections::hash_map::Entry::Vacant(e) = reader_terms.entry(h.project_id) {
-                    e.insert(crate::reader::terms(conn, &crate::project::Scope::single(h.project_id), o.query)?);
-                }
-                let m = brief_match(&h.text, o.query, &reader_terms[&h.project_id]);
-                if m.is_empty() { d.map(|d| ("decision".to_string(), d)) } else { Some((section_label(section), m)) }
-            }
+        if let std::collections::hash_map::Entry::Vacant(e) = reader_terms.entry(h.project_id) {
+            e.insert(crate::reader::terms(conn, &crate::project::Scope::single(h.project_id), o.query)?);
+        }
+        let own = if in_context && decision_matched { None } else { brief_match(&h.text, &reader_terms[&h.project_id]) };
+        let line = match own {
+            Some(m) => Some((section_label(section), m)),
+            None => match crate::store::decision_sentence(conn, h.note_id)? {
+                Some(d) => Some(("decision".to_string(), d)),
+                None => Some((section_label(section), one_line(&crate::search::focus(&h.text, o.query, crate::limits::RECALL_DECISION_CHARS).0))),
+            },
         };
         if let Some((label, text)) = line {
             out.push_str(&format!("   {label}: {text}\n"));
@@ -444,19 +448,19 @@ pub const WRAP_COLS: usize = 92;
 
 /// The sentence of a hit's chunk the reader scores best (the question's rare
 /// words, close together), on one line, cut at a word under
-/// `RECALL_DECISION_CHARS`. With no word of the question read, the chunk's
-/// most query-dense passage (`search::focus`).
-fn brief_match(text: &str, query: &str, terms: &[crate::reader::Term]) -> String {
-    let sentences = sentences(text);
-    let best = sentences
-        .iter()
-        .map(|s| (crate::reader::read(s, terms).score, s.as_str()))
+/// `RECALL_DECISION_CHARS`; None when no sentence holds a word of the question.
+fn brief_match(text: &str, terms: &[crate::reader::Term]) -> Option<String> {
+    let best = sentences(text)
+        .into_iter()
+        .map(|s| (crate::reader::read(&s, terms).score, s))
         .filter(|(sc, s)| *sc > 0.0 && s.trim().len() > 3)
-        .fold(None::<(f32, &str)>, |acc, x| if acc.is_none_or(|a| x.0 > a.0) { Some(x) } else { acc });
-    let s = match best {
-        Some((_, s)) => s.to_string(),
-        None => crate::search::focus(text, query, crate::limits::RECALL_DECISION_CHARS).0,
-    };
+        .fold(None::<(f32, String)>, |acc, x| if acc.as_ref().is_none_or(|a| x.0 > a.0) { Some(x) } else { acc })?;
+    Some(one_line(&best.1))
+}
+
+/// A passage on one line, heading and bullet marks dropped, cut at a word
+/// under `RECALL_DECISION_CHARS` with ` ...`.
+fn one_line(s: &str) -> String {
     let s: String = s.lines().map(|l| l.trim().trim_start_matches('#').trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
     if s.len() <= crate::limits::RECALL_DECISION_CHARS {
         return s;
