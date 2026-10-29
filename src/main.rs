@@ -56,12 +56,11 @@ sister repo | question about a repo in a declared group | memcastle search \"<qu
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
 learned | questions searches learned, teach or drop one | memcastle learned; learned add <note.md> \"<q>\"
 skip | routine edits, reading code, running tests | use links before an edit
-read as: 1. note.md:13-14 = a note and the lines that matched, best first
-read as: rejected: <sentence> = one sentence of that section; decision: is the recorded choice
+read as: read note.md:13-14  rejected: <sentence> = a note's matched lines and one sentence of that section, best first
+read as: rejected: = tried and dropped; decision: = the recorded choice
 read as: (superseded by X) = decision reversed, act on X
-read as: (may be stale: f changed since it was written) = run links f first
-read as: (found by name, weak by meaning) = the note names it; check it is about the question
-read as: code: path:a-b name (fn), called by c path:line = code to read and its callers, from the code graph
+read as: (may be stale: f changed since) = run links f first
+read as: open path:a-b  name, called by c path:line = code to read and its callers, from the code graph
 read as: --sections/--full: note.md:13-14 0.71 Rejected = lines, confidence 0 to 1 (1.00 exact identifier, under 0.36 dropped), section
 read as: --sections/--full: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first
 read as: --sections/--full: code changed since: <symbols> = that code changed after the note
@@ -69,11 +68,10 @@ read as: … lines 27-51 = bullets that did not match; sed -n '27,51p' note.md i
 read as: learned 0.88 (--explain) = an earlier question this close was answered by this note
 read as: read after a similar question = the code an earlier asker of this question read next
 read as: --sections/--full: read first a. path:a-b name score why = code spans to read first
-read as: no relevant note = store has nothing; work from the code and say so
+read as: no note on this; read the code = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>
 combine: printed range | sed -n 'a,bp' path, or Read with offset and limit
-combine: no relevant note | grep -rn the names you know, then read the code
-combine: hit found by name, weak by meaning | read its lines, then check the code it names
+combine: no note on this | grep -rn the names you know, then read the code
 ";
 
 #[derive(Parser)]
@@ -158,7 +156,7 @@ enum Cmd {
         /// With --sections: every line of each section (up to 30), not only the blocks that matched.
         #[arg(long)]
         whole: bool,
-        /// The default: per note `n. note.md:a-b` and one sentence labelled by its section, then `code:` lines from the code graph.
+        /// The default: one line per item, verb first: `read note.md:a-b  <section>: <sentence>`, `open path:a-b  name`.
         #[arg(long, hide = true, conflicts_with = "sections")]
         brief: bool,
         /// The 3-line block per hit (title, files, a text snippet) instead of the brief line.
@@ -657,7 +655,7 @@ fn run(cli: Cli) -> Result<()> {
                 }
             }
             let repo_root = ctx.repo.as_ref().map(|r| r.root.clone());
-            let r = memorycastle::render::search(&ctx.conn, &hits, &read_spans, &memorycastle::render::Options { query: &query, sections: sections || whole, whole, brief, explain, abs, repo_root: repo_root.as_deref() })?;
+            let r = memorycastle::render::search(&ctx.conn, &hits, &read_spans, &memorycastle::render::Options { query: &query, sections: sections || whole, whole, brief, explain, abs, repo_root: repo_root.as_deref(), project_id: ctx.project.as_ref().map(|p| p.id) })?;
             print!("{}", r.text);
             // The ledger counts agent lookups only: `--explain` is a person
             // diagnosing ranking, and `eval` never records.

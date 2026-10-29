@@ -38,7 +38,7 @@ pub const SEARCH_CHUNKS_PER_NOTE: usize = 3;
 /// turn that a few hundred bytes do not pay for.
 pub const NOTE_GUARD_MIN_BYTES: usize = 3000;
 /// Relevance. Confidence is the best of a rescaled cosine and term coverage;
-/// a hit under `MIN_CONFIDENCE` is not shown and "no relevant note" is said.
+/// a hit under `MIN_CONFIDENCE` is not shown and "no note on this" is said.
 /// Cosine rescale, measured on the gold set (BENCHMARKS.md): off-topic
 /// questions reach 0.54 to 0.65 against their best chunk, the right note
 /// scores 0.67 to 0.83. Floor 0.60 and ceiling 0.80 map that to 0 to 1;
@@ -182,17 +182,11 @@ pub const SEARCH_CODE_SPANS: usize = 4;
 pub const SEARCH_FILES_SHOWN: usize = 4;
 /// Ranked `read:` lines printed after search hits: the spans to read first.
 pub const READ_SPANS: usize = 5;
-/// Code lines in the default answer: definitions the question names, an
-/// earlier asker read, or the first note's symbols. Each carries its callers
-/// from the code graph, so one search answers what `links` would.
+/// `open` lines in the default answer: definitions the question names (with
+/// their callers from the code graph) or an earlier asker read.
 pub const BRIEF_CODE_LINES: usize = 3;
-/// Callers named on a code line, the rest counted.
+/// Callers named on an `open` line, the rest counted.
 pub const BRIEF_CALLERS: usize = 2;
-/// A hit whose 1.00 came from a verbatim name is labelled "found by name,
-/// weak by meaning" when the meaning alone judged it under this: on 20 gold
-/// questions such hits sat at 0.24 to 0.56 (one an answer, at 0.33) and the
-/// answers proved by name at 0.62 and 0.83.
-pub const NAME_ONLY_JUDGED: f32 = 0.6;
 
 /// With the model run, a verbatim identifier proves a hit (confidence 1.0)
 /// only when the model and the words judge it at least this. On four gold

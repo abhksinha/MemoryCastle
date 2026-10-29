@@ -337,7 +337,7 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
         // unrelated notes at 0.46 to 0.57 (`src/zz.rs` got `SPAN_WIDE`).
         // Context only, never a block: a new file has no notes, and the
         // search on its path is a hint about the area, not a lookup missed.
-        if out.lines().next().is_some_and(|l| l.starts_with("1. ")) {
+        if out.lines().next().is_some_and(|l| l.starts_with("read ")) {
             context.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
         }
     }

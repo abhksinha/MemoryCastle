@@ -786,12 +786,13 @@ mod tests {
     }
 
     #[test]
-    fn repo_form_is_short_and_replaces_the_full_one() {
+    fn repo_form_replaces_the_user_form() {
         let full = upsert_snippet("# X\n\nintro\n").unwrap();
         let short = upsert_repo_snippet(&full).unwrap();
         assert!(short.contains(REPO_SNIPPET_MARKER) && !short.contains(SNIPPET_MARKER), "{short}");
         assert_eq!(short.matches("## Memory (memorycastle)").count(), 1);
-        assert!(short.lines().count() < full.lines().count() / 2, "short is under half: {} vs {}", short.lines().count(), full.lines().count());
+        // Both are the short rules; the repo form adds how a teammate installs.
+        assert!(short.lines().count() <= 40 && short.contains("get.sh"), "{short}");
         assert!(upsert_repo_snippet(&short).is_none());
         assert!(upsert_snippet(&short).unwrap().contains(SNIPPET_MARKER), "the full form replaces the short one when asked");
         assert_eq!(remove_snippet(&short).unwrap(), "# X\n\nintro\n");

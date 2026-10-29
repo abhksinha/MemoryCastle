@@ -22,6 +22,8 @@ pub struct Options<'a> {
     /// Print absolute paths for spans.
     pub abs: bool,
     pub repo_root: Option<&'a Path>,
+    /// For callers of a named definition when no note was found.
+    pub project_id: Option<i64>,
 }
 
 pub struct Rendered {
@@ -278,49 +280,45 @@ pub fn search(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Opti
     Ok(Rendered { text: out, mode, notes, served, spans: read_spans.to_vec() })
 }
 
-/// The default answer, every line saying what it is, no number to misread:
+/// The default answer: one line per item, verb first, so the line is the
+/// agent's next action and nothing needs a legend:
 ///
 /// ```text
-/// 1. <note path>:<a-b>  (<what to know about the hit>)
-///    <section>: <one sentence>
-/// code: <path>:<a-b> <name> (<kind>), called by <caller> <path>:<line> +N more
+/// read <note path>:<a-b>  <section>: <one sentence>  (superseded by X; may be stale: f)
+/// open <path>:<a-b>  <name>, called by <caller> <path>:<line> +N more
 /// ```
 ///
 /// One sentence per note, labelled by the section it comes from, so a
 /// Rejected line never reads as the decision: the hit's sentence that reads
 /// best for the question, else (and for a Context hit when Decision also
-/// scored) the Decision's first sentence. The parenthesis holds only facts
-/// that change what the note is worth: superseded, its code changed, found
-/// by a name but weak by meaning (`NAME_ONLY_JUDGED`), shown to explore.
-/// Code lines come from the code graph: definitions the question names or an
-/// earlier asker read, then the first sound note's symbols whose name shares
-/// a word with the question (its other symbols were noise for a prose
-/// question: `stem` for "apple neural engine"), with callers at
-/// `CALL_MIN_CONF`; `code: none` ends an answer with nothing to read. Order is
-/// rank; confidence and the trace stay in `--explain`.
+/// scored) the Decision's first sentence. The parenthesis holds the two facts
+/// that change what a note is worth and were measured to be read: superseded,
+/// and code it names changed since. `open` lines are the code graph's part:
+/// only definitions the question names (with their callers) or an earlier
+/// asker read; a note's other symbols guessed nothing worth an order. Every
+/// printed note already cleared the policy's bar, so no line hedges; order is
+/// rank, and numbers stay in `--explain`.
 fn brief(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) -> Result<Rendered> {
     let mut out = String::new();
     let mut notes: Vec<i64> = Vec::new();
     let mut served: Vec<(String, u32, u32, u32)> = Vec::new();
     let mut reader_terms: HashMap<i64, Vec<crate::reader::Term>> = HashMap::new();
     let multi = hits.iter().map(|h| h.project.as_str()).collect::<HashSet<_>>().len() > 1;
-    let name_only = |h: &Hit| h.trace.identifier && h.trace.judged < crate::limits::NAME_ONLY_JUDGED;
-    // The rank of the first note that is about the question, not only naming it.
-    let mut sound: Option<usize> = None;
+    let in_root = o.repo_root.map(|r| std::env::current_dir().map(|c| c == r).unwrap_or(false)).unwrap_or(false);
+    let shown_path = |p: &str| match o.repo_root {
+        Some(r) if o.abs || !in_root => r.join(p).to_string_lossy().into_owned(),
+        _ => p.to_string(),
+    };
     for h in hits {
         if notes.contains(&h.note_id) {
             continue;
         }
-        let rank = notes.len();
         notes.push(h.note_id);
-        if sound.is_none() && !name_only(h) {
-            sound = Some(rank);
-        }
         let end = h.end_line().max(h.line);
         let range = if end > h.line { format!("{}-{end}", h.line) } else { h.line.to_string() };
         let mut facts: Vec<String> = Vec::new();
         if let Some(p) = &h.superseded_by {
-            facts.push(format!("superseded by {p}"));
+            facts.push(format!("superseded by {}", shown_path(p)));
         }
         // A definition too wide to read (`run`, 884 lines) changes with
         // every commit and marked nearly every note: only a name whose every
@@ -335,22 +333,12 @@ fn brief(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) 
         if !changed.is_empty() {
             let n = crate::limits::CONTEXT_ITEMS;
             let more = if changed.len() > n { format!(" +{} more", changed.len() - n) } else { String::new() };
-            facts.push(format!("may be stale: {}{more} changed since it was written", changed.iter().take(n).map(|c| c.as_str()).collect::<Vec<_>>().join(", ")));
-        }
-        if name_only(h) {
-            facts.push("found by name, weak by meaning".into());
-        }
-        if h.trace.explore {
-            facts.push("shown to explore, under the bar".into());
-        }
-        if h.dated.is_none() {
-            facts.push(format!("tracker, saved {}", fmt_date(h.saved_at)));
+            facts.push(format!("may be stale: {}{more} changed since", changed.iter().take(n).map(|c| c.as_str()).collect::<Vec<_>>().join(", ")));
         }
         if multi {
             facts.push(format!("project {}", h.project));
         }
         let facts = if facts.is_empty() { String::new() } else { format!("  ({})", facts.join("; ")) };
-        out.push_str(&format!("{}. {}:{range}{facts}\n", rank + 1, h.path));
         let (_, section) = split_heading(&h.heading);
         let section = section.split(" > ").next().unwrap_or(section);
         // The sentence that matched, labelled by where it is: a Decision of
@@ -363,45 +351,29 @@ fn brief(conn: &Connection, hits: &[Hit], read_spans: &[ReadSpan], o: &Options) 
             e.insert(crate::reader::terms(conn, &crate::project::Scope::single(h.project_id), o.query)?);
         }
         let own = if in_context && decision_matched { None } else { brief_match(&h.text, &reader_terms[&h.project_id]) };
-        let line = match own {
-            Some(m) => Some((section_label(section), m)),
+        let (label, text) = match own {
+            Some(m) => (section_label(section), m),
             None => match crate::store::decision_sentence(conn, h.note_id)? {
-                Some(d) => Some(("decision".to_string(), d)),
-                None => Some((section_label(section), one_line(&crate::search::focus(&h.text, o.query, crate::limits::RECALL_DECISION_CHARS).0))),
+                Some(d) => ("decision".to_string(), d),
+                None => (section_label(section), one_line(&crate::search::focus(&h.text, o.query, crate::limits::RECALL_DECISION_CHARS).0)),
             },
         };
-        if let Some((label, text)) = line {
-            out.push_str(&format!("   {label}: {text}\n"));
-        }
+        out.push_str(&format!("read {}:{range}  {label}: {text}{facts}\n", shown_path(&h.path)));
         if crate::store::note_bytes(conn, h.note_id)? >= crate::limits::NOTE_GUARD_MIN_BYTES {
             let ranges: Vec<(u32, u32)> = if h.parts.is_empty() { vec![(h.line, end)] } else { h.parts.iter().map(|p| (p.line, p.end)).collect() };
             served.extend(ranges.into_iter().map(|(a, b)| (h.path.clone(), a, b, 0)));
         }
     }
-    // The code graph's part of the answer: nothing guessed from a word.
-    let spans: Vec<ReadSpan> = read_spans
-        .iter()
-        .filter(|s| s.kind != "variant" && (s.from_question() || (sound.is_some() && s.from_note() == sound && s.why.ends_with("name matches question"))))
-        .take(crate::limits::BRIEF_CODE_LINES)
-        .cloned()
-        .collect();
-    let in_root = o.repo_root.map(|r| std::env::current_dir().map(|c| c == r).unwrap_or(false)).unwrap_or(false);
-    let project_id = hits.first().map(|h| h.project_id);
+    let spans: Vec<ReadSpan> = read_spans.iter().filter(|s| s.kind != "variant" && s.from_question()).take(crate::limits::BRIEF_CODE_LINES).cloned().collect();
+    let project_id = hits.first().map(|h| h.project_id).or(o.project_id);
     for (i, s) in spans.iter().enumerate() {
         let path = if o.abs || !in_root { s.abs.as_deref().unwrap_or(&s.path) } else { &s.path };
-        let kind = match s.kind {
-            "range" | "use" | "header" => String::new(),
-            k => format!(" ({k})"),
-        };
         let callers = match project_id {
-            Some(pid) if s.kind == "fn" => callers_phrase(conn, pid, s)?,
+            Some(pid) if s.kind == "fn" && s.why == "named in question" => callers_phrase(conn, pid, s)?,
             _ => String::new(),
         };
-        out.push_str(&format!("code: {path}:{}-{} {}{kind}{callers}\n", s.start, s.end, s.name));
+        out.push_str(&format!("open {path}:{}-{}  {}{callers}\n", s.start, s.end, s.name));
         served.push((s.path.clone(), s.start, s.end, i as u32 + 1));
-    }
-    if spans.is_empty() && !out.is_empty() {
-        out.push_str("code: none\n");
     }
     Ok(Rendered { text: out, mode: "brief", notes, served, spans })
 }
@@ -596,18 +568,13 @@ pub fn tidy_files(files: &[String]) -> Vec<String> {
     out
 }
 
-/// The "no results" line for an empty hit list.
-pub fn empty_line(ex: &crate::search::Explain) -> String {
-    if let Some(h) = ex.under_bar.first() {
-        format!("no relevant note; the closest, unlikely to help, is {}", h.path)
-    } else if ex.dropped > 0 {
-        "no relevant note; the store has nothing on this".to_string()
-    } else {
-        "no results".to_string()
-    }
+/// The line for an empty hit list: whether the floor or the policy's bar
+/// held every note back, the agent's next step is the same.
+pub fn empty_line(_ex: &crate::search::Explain) -> String {
+    "no note on this; read the code".to_string()
 }
 
-/// Under "no relevant note": the definitions the question describes, from
+/// Under "no note on this": the definitions the question describes, from
 /// the code index (`code::find`), labelled as code so they never read as
 /// notes. Empty when nothing matches two of the question's words. A search
 /// about call measurement found no note while two telemetry scripts existed.

@@ -40,14 +40,14 @@ skip | routine edits, reading code, running tests | no search
 
 ## Read the answer
 
-A plain search answers in lines that say what they are:
+A plain search answers in one line per item, verb first; each line is the next step:
 
-- `1. note.md:13-14` = a note and the lines that matched, best first
-- `rejected: <sentence>` = one sentence of that section; `decision:` is the recorded choice
-- `(superseded by X)` = decision reversed; act on X
-- `(may be stale: f changed since it was written)` = run `links f` first
-- `(found by name, weak by meaning)` = the note names it; check it is about the question
-- `code: path:a-b name (fn), called by c path:line` = code to read and its callers, from the code graph; `code: none` when nothing is sure
+- `read memorycastle/journal/<note>.md:13-14  rejected: <sentence>` = a note, the lines that matched, best first, and one sentence of the section it comes from; `rejected:` was tried and dropped, `decision:` is the choice. Often the sentence is the answer; read the range when it is not.
+- `(superseded by X)` at the end = decision reversed; act on X
+- `(may be stale: f changed since)` = code the note names changed after it; run `links f` first
+- `open src/x.rs:110-150  name, called by c src/y.rs:40` = code to read: a definition the question names, with its callers from the code graph, or what an earlier asker of this question read
+- `no note on this; read the code` = the store has nothing; work from the code and say so
+- every line printed cleared the relevance bar; order is rank, numbers are in `--explain`
 
 `--sections`, `--full` and `--explain` add numbers and fields:
 
@@ -57,7 +57,6 @@ A plain search answers in lines that say what they are:
 - `… lines 27-51` (under a section) = bullets that did not match; `sed -n '27,51p' note.md` if needed
 - `learned 0.88` (in `--explain`) = an earlier question this close was answered by this note
 - `read first a. path:a-b name score why` (`--sections`) = code spans to read first: `sed -n 'a,bp' path`
-- `no relevant note` = the store has nothing; work from the code and say so
 - `path:a-b` = read those lines, not the file
 - `caller path:line 0.9` = chance this call reaches this definition: 1.0 same file, 0.2 lowest
 - caller under 0.7 = check the call site; it may reach another definition
@@ -84,7 +83,7 @@ moment | tool | why
 --- | --- | ---
 a range was printed | `sed -n 'a,bp' path`, or Read with offset and limit | the range is the answer, not the file
 a call goes through a trait, macro or callback | `grep -rn "name("` or a language server | call edges are by name only
-`no notes link to X` after `memcastle graph --code`, or `no relevant note` | `grep -rn X`, then read the code | the memory has nothing; the code decides
+`no notes link to X` after `memcastle graph --code`, or `no note on this` | `grep -rn X`, then read the code | the memory has nothing; the code decides
 changing a signature | `links <symbol> --context`, then build | links lists likely callers; the compiler lists all
 text that is not a definition (config key, string, flag) | `grep -rn` | the code index holds definitions and calls only
 after the edit | build, tests, then the note and `memcastle save` | the note records what was decided and measured
@@ -151,6 +150,11 @@ What remains, questions for the user.
 ```
 
 - title states the decision; it is embedded with every chunk
+- open Decision with one sentence that stands alone, the choice and its reason: a search prints one sentence per note, so a note whose first sentence is "Item 3." or "Not built." tells the next agent nothing
+- one decision per note: a Decision of many bullets is found for each and shows one
+- Rejected: one bullet per approach, what was tried and the reason it failed, so `rejected:` reads alone; numbers there too when they decided it
+- Measured: numbers with units, before and after, and on what (`20 gold questions: 33.8 KB to 17.3 KB`)
+- Open: what the next agent should do first; it is what `memcastle open` lists after a compaction
 - files and functions in backticks: they become links, so `links <name>` finds the note
 - numbers under `## Measured`
 - edit an earlier note to add to it (a measurement, an Open item closed, a correction, a missed file), then `save` it again; to reverse its decision, write a new note with `Supersedes:` and leave the old one as it was

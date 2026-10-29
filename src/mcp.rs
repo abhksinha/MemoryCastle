@@ -138,7 +138,7 @@ fn tool_list() -> Value {
                 "query": {"type": "string"},
                 "also": {"type": "array", "items": {"type": "string"}, "description": "The same question in other words: the repo's own terms or the likely name of the mechanism. Hits are merged per note. One wording found 3 to 6 more answers in 187 gold questions; give one for a why or design question"},
                 "k": {"type": "integer", "default": 5},
-                "brief": {"type": "boolean", "default": true, "description": "The default: per note, best first, `n. note.md:a-b` and one sentence labelled by its section (decision:, rejected:, ...), then `code: path:a-b name, called by ...` lines from the code graph or `code: none`; pick a note, then ask for its sections. false gives a 3-line block per hit with a confidence and a text snippet"},
+                "brief": {"type": "boolean", "default": true, "description": "The default: one line per item, verb first: `read note.md:a-b  <section>: <sentence>` per note, best first, and `open path:a-b  name, called by ...` for code the question names; do what the line says. false gives a 3-line block per hit with a confidence and a text snippet"},
                 "sections": {"type": "boolean", "default": false, "description": "Print each note's Decision, Rejected and Measured sections: the bullets and paragraphs that matched the question, the rest as line ranges; ask for it on the note you picked, before a design choice"},
                 "whole": {"type": "boolean", "default": false, "description": "With sections: every line of each section (up to 30 per section), not only the matched blocks"},
                 "related": {"type": "boolean", "description": "Include sibling projects in the same group"},
@@ -211,7 +211,7 @@ fn call_tool(ctx: &mut Context, name: &str, args: &Value) -> Result<Value> {
             // The same budgeted text the CLI prints, so a tool call costs the
             // same tokens whichever way the agent reaches the store.
             let root = ctx.repo.as_ref().map(|r| r.root.clone());
-            let r = crate::render::search(&ctx.conn, &hits, &read, &crate::render::Options { query, sections: sections || whole, whole, brief, explain: false, abs: true, repo_root: root.as_deref() })?;
+            let r = crate::render::search(&ctx.conn, &hits, &read, &crate::render::Options { query, sections: sections || whole, whole, brief, explain: false, abs: true, repo_root: root.as_deref(), project_id: ctx.project.as_ref().map(|p| p.id) })?;
             let text = match (&ctx.project, hits.is_empty()) {
                 (Some(p), true) => format!("{}\n{}{}", crate::render::empty_line(&explain), crate::render::code_fallback(&ctx.conn, p.id, query)?, r.text),
                 (None, true) => crate::render::empty_line(&explain),

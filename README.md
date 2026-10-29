@@ -9,7 +9,7 @@ Shared memory for coding agents. One 6 MB Rust binary, one SQLite file, no LLM, 
 best-known open-source agent memories, each without a key and with a paid
 OpenAI configuration, on three real journals: memorycastle wins 12 of 17
 rows with no key, no competitor more than 3, and ranks first on all three journals. It is the only one that says
-"no relevant note" when there is none and the only one that labels and
+"no note on this" when there is none and the only one that labels and
 demotes a superseded decision; it indexes an edited note in place in
 0.19 s, answers keyword questions in 2.5 ms from a 9 MB process, and ran
 four agent tasks on 50% fewer tokens than cognee and 61% fewer than Mem0.
@@ -139,33 +139,29 @@ reranks by the graph, and drops anything off topic rather than returning
 the nearest unrelated page. The answer is shaped for the agent's budget:
 
 ```
-$ memcastle search "why do we embed one chunk at a time" -k 2
-1. memorycastle/journal/2026-10-18-one-chunk-per-call.md:10
-   decision: One chunk per call, longest first, and chunk targets of 200 words (max 280).
-2. memorycastle/journal/2026-10-22-chunks-of-60-words.md:9  (may be stale: decision_sentence changed since it was written)
-   decision: `CHUNK_TARGET_WORDS` 60 and `CHUNK_MAX_WORDS` 90 (were 200 and 280), `CHUNK_VERSION` 4: a small chunk embeds one point, so a paraphrased question meets the passage that answers it instead of an average of several.
-code: none
+$ memcastle search "was batching embeddings rejected" -k 2
+read memorycastle/journal/2026-10-18-one-chunk-per-call.md:13  rejected: Batches of 2, 4, 8 and 16: per-chunk time was 138 to 200 ms regardless, so batching bought no throughput on the CPU while peak memory grew linearly.
+read memorycastle/journal/2026-10-19-brief-default-with-decision.md:17  measured: Default answer for "did we try batching embeddings" on the real store: 3 lines, about 45 tokens, where the snippet block was about 400.  (may be stale: decision_sentence changed since)
 
-$ memcastle search "where is the Decision sentence cut, decision_sentence" -k 1
-1. memorycastle/journal/2026-10-22-decision-sentence-cut-at-a-word.md:6  (may be stale: decision_sentence changed since it was written)
-   decision: `store::decision_sentence` cuts at the last space before the limit and appends ` ...`, so a cut is visible and no word is split.
-code: src/store.rs:758-788 decision_sentence (fn), called by run src/main.rs:1042, call_tool src/mcp.rs:313 +2 more
-code: src/limits.rs:424-425 RECALL_DECISION_CHARS (const)
-code: tests/store.rs:638-654 recall_prints_the_decision_sentence (fn)
+$ memcastle search "why is observed saving a range" -k 1
+read memorycastle/journal/2026-10-18-observed-savings.md:21  decision: Observed is reported as a range, not a point.
+
+$ memcastle search "spans::ranked" -k 1
+read memorycastle/journal/2026-10-18-ranked-read-spans.md:18  open: No integration test for `spans::ranked` yet; it needs a code index fixture.
+open src/spans.rs:104-272  ranked, called by run src/main.rs:614, call_tool src/mcp.rs:207 +1 more
 ```
 
-Every line says what it is, so an agent needs no legend: `n. path:a-b` is
-a note and the lines that matched, best first; the line under it is one
-sentence labelled by the section it comes from (`decision:`, `rejected:`,
-`measured:`), so a rejected approach never reads as the decision; a
-parenthesis says only what changes the note's worth (superseded, may be
-stale because its code changed, found by a name but weak by meaning). The
-`code:` lines are the code graph's part of the same answer: the
-definitions to read, re-found by their anchor line after edits, and who
-calls them, or `code: none`. No confidence is printed: order is rank, and
-`--explain` keeps every number. `--sections` prints the chosen note's
-Decision, Rejected and Measured; `--json` gives every field typed,
-including the ranking trace.
+One line per item, verb first, so each line is the agent's next step and
+needs no legend. `read` is a note and the lines that matched, best first,
+with one sentence labelled by the section it comes from: `rejected:` was
+tried and dropped, `decision:` is the choice. A parenthesis at the end says
+only what changes the note's worth: superseded, or may be stale because
+code it names changed since. `open` is the code graph's part of the same
+answer: a definition the question names, re-found by its anchor line after
+edits, and who calls it. Nothing found is one line, `no note on this; read
+the code`. No confidence is printed: order is rank, and `--explain` keeps
+every number. `--sections` prints the chosen note's Decision, Rejected and
+Measured; `--json` gives every field typed, including the ranking trace.
 
 The agent can pass a second wording with `--also` ("the same question in
 the repo's own words"), which found the right note in the top 3 for 6 more
