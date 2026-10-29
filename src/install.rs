@@ -792,7 +792,7 @@ mod tests {
         assert!(short.contains(REPO_SNIPPET_MARKER) && !short.contains(SNIPPET_MARKER), "{short}");
         assert_eq!(short.matches("## Memory (memorycastle)").count(), 1);
         // Both are the short rules; the repo form adds how a teammate installs.
-        assert!(short.lines().count() <= 40 && short.contains("get.sh"), "{short}");
+        assert!(short.lines().count() <= 45 && short.contains("get.sh"), "{short}");
         assert!(upsert_repo_snippet(&short).is_none());
         assert!(upsert_snippet(&short).unwrap().contains(SNIPPET_MARKER), "the full form replaces the short one when asked");
         assert_eq!(remove_snippet(&short).unwrap(), "# X\n\nintro\n");

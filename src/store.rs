@@ -755,6 +755,17 @@ fn observed(conn: &Connection, project_id: i64, session: Option<&str>) -> Result
     })
 }
 
+/// The first sentence of a section's text, whole: heading and bullet marks
+/// dropped, lines joined; `### 1. The pipeline` does not end at `1.`, nor
+/// "Search prints `n. path`" inside code.
+pub fn first_sentence(text: &str) -> String {
+    let body: String = text.lines().map(|l| l.trim().trim_start_matches('#').trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
+    let numbered = |i: usize| body[..i].rsplit(' ').next().is_some_and(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit()));
+    let in_code = |i: usize| body[..i].bytes().filter(|&b| b == b'`').count() % 2 == 1;
+    let end = body.match_indices(". ").map(|(i, _)| i).find(|&i| !numbered(i) && !in_code(i)).map(|i| i + 1).unwrap_or(body.len());
+    body[..end].trim().to_string()
+}
+
 /// The first sentence of a note's `Decision` section, at most
 /// `limits::RECALL_DECISION_CHARS`, cut at a word and ended with `...` when
 /// longer; `None` when the note has no such section.
@@ -765,12 +776,8 @@ pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<Strin
         if !heading.to_ascii_lowercase().starts_with("decision") {
             continue;
         }
-        // Heading marks go; `### 1. The pipeline` is not a sentence ending at `1.`.
-        let body: String = text.lines().map(|l| l.trim().trim_start_matches('#').trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
-        let numbered = |i: usize| body[..i].rsplit(' ').next().is_some_and(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit()));
-        // Nor inside code: "Search prints `n. path`" ended at `n.`.
-        let in_code = |i: usize| body[..i].bytes().filter(|&b| b == b'`').count() % 2 == 1;
-        let mut end = body.match_indices(". ").map(|(i, _)| i).find(|&i| !numbered(i) && !in_code(i)).map(|i| i + 1).unwrap_or(body.len());
+        let body = first_sentence(&text);
+        let mut end = body.len();
         let mut cut = false;
         if end > crate::limits::RECALL_DECISION_CHARS {
             end = body.char_indices().map(|(i, _)| i).take_while(|&i| i < crate::limits::RECALL_DECISION_CHARS).last().unwrap_or(0);
@@ -1318,6 +1325,15 @@ pub fn lint(content: &str) -> Vec<String> {
             out.push(format!("`## Decision` is under {} words; say what was chosen and why", crate::limits::DECISION_MIN_WORDS))
         }
         Some(b) => {
+            // Search prints this sentence and nothing else of the note; past
+            // the limit it prints it cut (55 of 172 notes, 2026-10-29).
+            let first = first_sentence(b).chars().count();
+            if first > crate::limits::RECALL_DECISION_CHARS {
+                out.push(format!(
+                    "the first `## Decision` sentence is {first} characters; search prints only that sentence, cut at {}: state the choice and its reason in one shorter sentence",
+                    crate::limits::RECALL_DECISION_CHARS
+                ));
+            }
             let words = b.split_whitespace().count();
             let bullets = b.lines().filter(|l| l.trim_start().starts_with("- ")).count();
             if words > crate::limits::DECISION_MAX_WORDS || bullets > crate::limits::DECISION_MAX_BULLETS {

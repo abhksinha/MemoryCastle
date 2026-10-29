@@ -125,40 +125,44 @@ a user preference or working rule | a second note on work an earlier note covers
 
 ## Note shape
 
-File: `memorycastle/journal/YYYY-MM-DD-<topic>.md` (today's date; `save` reads `Date:` from it when the header omits it), topic a noun phrase for the decision (`int8-over-q4`, not `model-work`). Omit empty sections.
+A note is for the next agent, in any project: what was chosen, what was dropped and why, what the numbers were, what is left. Search prints one sentence of it, so each sentence must stand alone.
+
+File: `memorycastle/journal/YYYY-MM-DD-<topic>.md`, topic a noun phrase for the decision (`int8-over-q4`, not `model-work`). `save` fills `Author:` and `Date:`.
 
 ```markdown
-# <the decision in one line, as a statement>
-Author: <user>+<agent> | Date: YYYY-MM-DD
+# Keep int8 as the default model; q4 drops one answer in 24
 Files: `src/embed/ort_rt.rs`, `src/limits.rs`
-Supersedes: 2026-10-10-older-note.md        (only when it replaces one)
-
-## Context
-Why this task existed, two or three sentences.
+Supersedes: 2026-10-10-older-note.md        (only when it reverses one)
 
 ## Decision
-What was chosen and why, under 120 words.
+int8 stays the default because it is the only setting with every gold answer in the top 3. q4 stays selectable with `MEMORYCASTLE_MODEL=q4`.
 
 ## Rejected
-- What was tried or considered, and the one reason it was dropped.
+- q4 as default: twice as fast but loses one gold question.
+- 768 dims: 50% more bytes per vector for a difference within noise.
 
 ## Measured
-Numbers before and after, with units.
+- recall@3, 24 gold questions: int8 1.000, q4 0.958.
+- query latency: int8 100 ms, q4 56 ms.
 
 ## Open
-What remains, questions for the user.
+- Re-measure q4 when a text-only model export appears.
 ```
 
-- title states the decision; it is embedded with every chunk
-- open Decision with one sentence that stands alone, the choice and its reason: a search prints one sentence per note, so a note whose first sentence is "Item 3." or "Not built." tells the next agent nothing
-- one decision per note: a Decision of many bullets is found for each and shows one
-- Rejected: one bullet per approach, what was tried and the reason it failed, so `rejected:` reads alone; numbers there too when they decided it
-- Measured: numbers with units, before and after, and on what (`20 gold questions: 33.8 KB to 17.3 KB`)
-- Open: what the next agent should do first; it is what `memcastle open` lists after a compaction
-- files and functions in backticks: they become links, so `links <name>` finds the note
-- numbers under `## Measured`
-- edit an earlier note to add to it (a measurement, an Open item closed, a correction, a missed file), then `save` it again; to reverse its decision, write a new note with `Supersedes:` and leave the old one as it was
-- write `Author:` and `Date:`, or leave them out and `save` fills them; `save` also marks the note a `Supersedes:` names, and names edited files and changed functions the note leaves out; commit the note with the code
+rule | why
+--- | ---
+title: the decision in at most 12 words | embedded with every chunk; `links` lists it
+first Decision sentence under 200 characters: the choice and its reason | search prints this sentence, cut at 220 (55 of 172 notes were cut)
+one decision per note, Decision under 120 words | a note of many bullets is found for each and shows one
+Rejected: `- <approach>: <reason>`, one per bullet | prints as `rejected: <approach>: <reason>`, read alone
+Measured: `- <what>: <before> to <after> <unit>, on <what>` | a number with no unit or set is not reusable
+Open: the next action, first | `memcastle open` lists it after a compaction
+`## Context` only when the why is not obvious, two sentences | background is printed only when nothing else matched
+files and functions in backticks | they become links, so `links <name>` finds the note
+continue a note: edit it and `save` again; reverse it: a new note with `Supersedes:` | the old one stays searchable, labelled with what replaced it
+never store code, file layout, git history, tool output, secrets | the repo already holds them; a secret in a note is a leak
+
+`save` warns when the first Decision sentence is over 220 characters, the Decision is over 120 words or 3 bullets, a `Files:` line is missing, or the title names a task instead of a decision.
 
 ## MCP
 
