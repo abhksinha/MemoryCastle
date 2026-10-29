@@ -93,6 +93,11 @@ fn call(command: &str) -> std::result::Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let out = std::process::Command::new(exe).args(&args).output().map_err(|e| e.to_string())?;
     let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
+    if args == ["init"] {
+        // The rules name shell commands; an agent with only this tool read
+        // them, made no second call and grepped (2 of 5 runs, 2026-10-29).
+        text.insert_str(0, "Call this tool again with a command: {\"command\": \"links <file|symbol>\"} before an edit or for callers, {\"command\": \"search \\\"<question>\\\"\"} before a design choice or a fix. Below, `memcastle X` means this tool with command `X`.\n\n");
+    }
     if !out.status.success() {
         text.push_str(&String::from_utf8_lossy(&out.stderr));
     }
