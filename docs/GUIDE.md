@@ -166,4 +166,4 @@ never store code, file layout, git history, tool output, secrets | the repo alre
 
 ## MCP
 
-Same tools: `search` (plus typed `read[]`), `links`, `save`, `history`, `status`, `project`. Same output and token cost as the CLI.
+One tool, `memcastle`, with one argument `command`: a read-only subcommand (`search`, `links`, `open`, `history`, `status`, `guide`, `help`), run by the same binary, so the answer is the CLI's. Writing a note stays on the CLI: `memcastle save`.

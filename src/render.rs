@@ -34,7 +34,7 @@ pub struct Rendered {
     pub notes: Vec<i64>,
     /// Spans printed: (path, start, end, rank), for the guided-read ledger.
     pub served: Vec<(String, u32, u32, u32)>,
-    /// The code spans the text offers to read, for the MCP `read[]`.
+    /// The code spans the text offers to read.
     pub spans: Vec<ReadSpan>,
 }
 

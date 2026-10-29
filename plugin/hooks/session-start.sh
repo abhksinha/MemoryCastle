@@ -22,18 +22,19 @@ synced=$(memcastle sync 2>/dev/null)
 # Only what the agent acts on: which store, and anything wrong with it. The
 # savings lines are for the user (status line, memcastle status); here
 # they were about 500 tokens kept in context for every model call.
-state=$(memcastle status 2>/dev/null | grep -E '^(project:|notes:|warning:|changed on disk)')
+# Only the note count: chunks, vectors and projects are never acted on.
+state=$(memcastle status 2>/dev/null | grep -E '^(project:|notes:|warning:|changed on disk)' | sed 's/  chunks:.*//')
 [ -n "$state" ] || exit 0
 echo "$state"
 # What the hooks do, so silence reads as "nothing matched", not "not running".
-echo "memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); the first edit of a file this session (Edit, Write, or a shell write: sed -i, >, tee, python open) prints its ranges and notes; a whole-file Read of a file a lookup already gave a range for is stopped once; a grep for one name the code defines is answered once with links <name> (retry to run the grep); a note is asked for at compaction, stop and after commits, and stop holds once when the note's Files: misses edited files."
+echo "memorycastle hooks: notes print on a prompt, a first edit or a one-name grep only when one matches; silence means nothing matched. A blocked Read or grep passes on retry."
 # After compaction the summary has lost what was looked up: the gate starts
 # over, and the routine is said again.
 if [ "$source" = "compact" ]; then
   memcastle gate --reset >/dev/null 2>&1
   echo "memorycastle routine (context was compacted; the edit gate starts over):
 1. Before editing a file or function, and for any question about code (callers, definitions): memcastle links <file|symbol>, not search; read only the printed range.
-2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --sections.
+2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --also \"<other wording>\".
 3. After a task that decided, rejected or measured something: write memorycastle/journal/<date>-<topic>.md, then memcastle save it."
   # Where the session's last note left the work: its Open items.
   resume=$(memcastle open --resume 2>/dev/null)

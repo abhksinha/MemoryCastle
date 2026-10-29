@@ -90,7 +90,7 @@ pub fn write(conn: &Connection, project_id: i64, root: &Path) -> Result<Option<P
     };
     let files: Vec<String> = edited.iter().map(|p| format!("`{p}`")).collect();
     let text = format!(
-        "# {PLACEHOLDER_TITLE}\n{author}Files: {}\n\n## Context\n<why this task existed>\n\n## Decision\n<what was chosen and why>\n\n## Rejected\n<what was tried or considered and dropped, and why>\n\n## Measured\n<numbers, before and after>\n\n## Open\n<what remains>\n",
+        "# {PLACEHOLDER_TITLE}\n{author}Files: {}\n\n## Decision\n<One sentence under 200 characters: what was chosen, and why.> <Details after it.>\n\n## Rejected\n- <approach>: <the reason it failed>\n\n## Measured\n- <what>: <before> to <after> <unit>, on <what>\n\n## Open\n- <what the next agent should do first>\n",
         files.join(", ")
     );
     if let Some(dir) = path.parent() {

@@ -503,7 +503,15 @@ fn claude_plugin(o: &Options) -> Result<Step> {
             return Ok(Step { what: format!("Claude Code plugin: would update {} to {want}", have.unwrap_or_default()), done: true });
         }
         return Ok(match run(&["plugin", "update", "memorycastle@memorycastle"]) {
-            Ok(out) if out.status.success() => Step { what: format!("Claude Code plugin updated {} to {want} (restart Claude Code to load it)", have.unwrap_or_default()), done: true },
+            // The update pulls the marketplace (GitHub), not this binary's
+            // tree, so report the version it actually installed.
+            Ok(out) if out.status.success() => {
+                let now = installed_plugin_version(&std::fs::read_to_string(home().join(".claude/plugins/installed_plugins.json")).unwrap_or_default());
+                match now.as_deref() {
+                    Some(v) if v == want => Step { what: format!("Claude Code plugin updated {} to {want} (restart Claude Code to load it)", have.unwrap_or_default()), done: true },
+                    v => Step { what: format!("Claude Code plugin: marketplace still has {}, binary is {want}; push the release, then run install again", v.unwrap_or("an unknown version")), done: false },
+                }
+            }
             Ok(out) => Step { what: format!("Claude Code plugin: update failed: {}", String::from_utf8_lossy(&out.stderr).lines().last().unwrap_or("").trim()), done: false },
             Err(e) => Step { what: format!("Claude Code plugin: could not run claude: {e}"), done: false },
         });
@@ -782,7 +790,7 @@ mod tests {
         assert!(short.contains(LEAD));
         assert_eq!(section_start(&short).map(|i| short[i..].starts_with(HEAD)), Some(true));
         let removed = remove_snippet(&short).unwrap();
-        assert!(removed.contains("## Build\ncargo\n") && !removed.contains("Three rules"), "{removed}");
+        assert!(removed.contains("## Build\ncargo\n") && !removed.contains("Each answer line is the next step"), "{removed}");
     }
 
     #[test]

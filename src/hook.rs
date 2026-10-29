@@ -241,7 +241,7 @@ fn emit(agent: Agent, event: &str, reply: Reply) -> i32 {
 }
 
 /// The three rules, said again after a compaction.
-const ROUTINE: &str = "1. Before editing a file or function, and for any question about code (callers, definitions): memcastle links <file|symbol>, not search; read only the printed range.\n2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --sections.\n3. After a task that decided, rejected or measured something: write memorycastle/journal/<date>-<topic>.md, then memcastle save it.";
+const ROUTINE: &str = "1. Before editing a file or function, and for any question about code (callers, definitions): memcastle links <file|symbol>, not search; read only the printed range.\n2. Before a design choice or a fix in an area with history: memcastle search \"<question>\" --also \"<other wording>\".\n3. After a task that decided, rejected or measured something: write memorycastle/journal/<date>-<topic>.md, then memcastle save it.";
 
 /// The hook body, agent-independent: the same steps the Claude plugin's
 /// scripts take, with the same once-per-session rules.
@@ -295,13 +295,13 @@ pub fn run_hook(agent: Agent, event: &str) -> Result<i32> {
             let (synced, _, _) = run(&["sync"], None);
             // Only what the agent acts on; the savings lines are the user's.
             let (status, _, _) = run(&["status"], None);
-            let mut lines: Vec<String> = status.lines().filter(|l| l.starts_with("project:") || l.starts_with("notes:") || l.starts_with("warning:") || l.starts_with("changed on disk")).map(str::to_string).collect();
+            let mut lines: Vec<String> = status.lines().filter(|l| l.starts_with("project:") || l.starts_with("notes:") || l.starts_with("warning:") || l.starts_with("changed on disk")).map(|l| l.split("  chunks:").next().unwrap_or(l).to_string()).collect();
             if !synced.is_empty() {
                 lines.push(format!("memorycastle: {synced}"));
             }
             // What the hooks do, so silence reads as "nothing matched".
             if !lines.is_empty() {
-                lines.push("memorycastle hooks: each prompt prints notes it is confident about (silent below 0.50); the first edit of a file this session prints its ranges and notes; a grep for one name the code defines is answered once with links <name> (retry to run the grep); a note is asked for at compaction and stop.".into());
+                lines.push("memorycastle hooks: notes print on a prompt, a first edit or a one-name grep only when one matches; silence means nothing matched. A blocked grep passes on retry.".into());
             }
             // After compaction the summary has lost what was looked up.
             if input.source.as_deref() == Some("compact") {

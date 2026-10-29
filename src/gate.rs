@@ -542,7 +542,7 @@ fn names_file(p: &str) -> bool {
 }
 
 /// Splits a shell segment into words, quotes removed.
-fn shell_words(s: &str) -> Vec<String> {
+pub(crate) fn shell_words(s: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut quote: Option<char> = None;

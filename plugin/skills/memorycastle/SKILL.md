@@ -1,6 +1,6 @@
 ---
 name: memorycastle
-description: Search the repo's memory of decisions, rejected attempts and measurements before designing, fixing or resuming; save a journal note when a task changes a decision. Use when the user refers to the past, when choosing an approach in an area with history, or when a search hook prints notes about a file.
+description: The repo's memory of past decisions and rejected attempts; use before a design choice or a fix, or when the user mentions past work.
 ---
 
 # memorycastle
@@ -11,7 +11,7 @@ Run `memcastle init` to see the full rules; the short form:
   `memcastle search "<question>" --also "<same question in the repo's own words>" --sections`. Read the printed Decision,
   Rejected and Measured bullets and the `code:` ranges; do not open the files.
   Bullets that did not match print as `… lines a-b`; `--whole` prints every line.
-- A plain `search` (and the MCP tool by default) prints one line per item, verb first: `read note.md:a-b  rejected: <sentence>` per note, best first (a parenthesis at the end says superseded or may be stale), and `open path:a-b  name, called by ...` for code the question names. Do what the line says and read only that range with `sed -n 'a,bp' path`; `--sections` on the note you pick.
+- A plain `search` prints one line per item, verb first: `read note.md:a-b  rejected: <sentence>` per note, best first (a parenthesis at the end says superseded or may be stale), and `open path:a-b  name, called by ...` for code the question names. Do what the line says and read only that range with `sed -n 'a,bp' path`; `--sections` on the note you pick.
 - Before editing a file or symbol: `memcastle links <file|symbol>`; read
   only the printed `path:start-end` with `sed -n 'a,bp'`. For a symbol it
   prints where it is defined, who calls it and what it calls; for a file
