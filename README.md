@@ -139,27 +139,33 @@ reranks by the graph, and drops anything off topic rather than returning
 the nearest unrelated page. The answer is shaped for the agent's budget:
 
 ```
-$ memcastle search "did we try batching embeddings"
-1. memorycastle/journal/2026-10-18-one-chunk-per-call.md:13   0.77   Rejected
-   decision   Embed one chunk per model call, longest first; batching bought no throughput on the CPU.
-read first (2 spans, 1.1 KB; sed -n 'a,bp' path):
-   a. src/store.rs:161-232   embed_missing   1.00  named in question
-   b. src/limits.rs:130-132  EMBED_BATCH     0.90  named by note #1
+$ memcastle search "why do we embed one chunk at a time" -k 2
+1. memorycastle/journal/2026-10-18-one-chunk-per-call.md:10
+   decision: One chunk per call, longest first, and chunk targets of 200 words (max 280).
+2. memorycastle/journal/2026-10-22-chunks-of-60-words.md:9  (may be stale: decision_sentence changed since it was written)
+   decision: `CHUNK_TARGET_WORDS` 60 and `CHUNK_MAX_WORDS` 90 (were 200 and 280), `CHUNK_VERSION` 4: a small chunk embeds one point, so a paraphrased question meets the passage that answers it instead of an average of several.
+code: none
+
+$ memcastle search "where is the Decision sentence cut, decision_sentence" -k 1
+1. memorycastle/journal/2026-10-22-decision-sentence-cut-at-a-word.md:6  (may be stale: decision_sentence changed since it was written)
+   decision: `store::decision_sentence` cuts at the last space before the limit and appends ` ...`, so a cut is visible and no word is split.
+code: src/store.rs:758-788 decision_sentence (fn), called by run src/main.rs:1042, call_tool src/mcp.rs:313 +2 more
+code: src/limits.rs:424-425 RECALL_DECISION_CHARS (const)
+code: tests/store.rs:638-654 recall_prints_the_decision_sentence (fn)
 ```
 
-The text has a fixed grammar, so a human and a parser read the same bytes:
-a hit line is `n. path:line   confidence   section`, the next line is the
-title and author, every field after that is `   label      value` with
-continuations indented to the value column, a blank line ends the hit, and
-the read table rows are lettered so they never look like hits. `--json`
-gives the same answer with every field typed, including the ranking trace.
-
-The default is one line per hit (confidence, note, line, section) and the
-note's first Decision sentence, about 50 tokens: enough to pick a note.
-`--sections` prints that note's Decision, Rejected and Measured; `--full`
-the older title-and-snippet block. Every answer ends with the code
-spans to read, re-found by their anchor line after edits, so the agent
-reads 60 lines instead of a 110 KB file.
+Every line says what it is, so an agent needs no legend: `n. path:a-b` is
+a note and the lines that matched, best first; the line under it is one
+sentence labelled by the section it comes from (`decision:`, `rejected:`,
+`measured:`), so a rejected approach never reads as the decision; a
+parenthesis says only what changes the note's worth (superseded, may be
+stale because its code changed, found by a name but weak by meaning). The
+`code:` lines are the code graph's part of the same answer: the
+definitions to read, re-found by their anchor line after edits, and who
+calls them, or `code: none`. No confidence is printed: order is rank, and
+`--explain` keeps every number. `--sections` prints the chosen note's
+Decision, Rejected and Measured; `--json` gives every field typed,
+including the ranking trace.
 
 The agent can pass a second wording with `--also` ("the same question in
 the repo's own words"), which found the right note in the top 3 for 6 more

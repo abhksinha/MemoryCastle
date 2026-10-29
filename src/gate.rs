@@ -139,12 +139,6 @@ pub fn blocking() -> bool {
     std::env::var("MEMORYCASTLE_GATE").is_ok_and(|v| v == "block")
 }
 
-/// The confidence of the first hit in a search answer (`1. path:line   0.62   section`).
-pub fn top_confidence(out: &str) -> Option<f32> {
-    let line = out.lines().find(|l| l.starts_with("1. "))?;
-    line.split_whitespace().nth(2)?.parse().ok()
-}
-
 /// True when a `links` answer holds more than "no notes link to X": notes,
 /// or what the code index knows about the file.
 fn informative(out: &str) -> bool {
@@ -337,12 +331,13 @@ pub fn check(conn: &Connection, project_id: i64, root: &Path, rel: &str, at: Opt
     let parent_exists = root.join(rel).parent().is_some_and(|d| d.is_dir());
     if !exists && first_file && parent_exists {
         let k = limits::GATE_SEARCH_K.to_string();
-        let out = run(root, &["search", rel, "-k", &k]);
+        let bar = limits::GATE_SEARCH_BLOCK.to_string();
+        let out = run(root, &["search", rel, "-k", &k, "--min-confidence", &bar]);
         // Under `GATE_SEARCH_BLOCK` nothing: a new path's words matched
         // unrelated notes at 0.46 to 0.57 (`src/zz.rs` got `SPAN_WIDE`).
         // Context only, never a block: a new file has no notes, and the
         // search on its path is a hint about the area, not a lookup missed.
-        if top_confidence(&out).is_some_and(|top| top >= limits::GATE_SEARCH_BLOCK) {
+        if out.lines().next().is_some_and(|l| l.starts_with("1. ")) {
             context.push(format!("search \"{rel}\" (first edit in this area; --sections for the full notes):\n{out}"));
         }
     }
@@ -637,13 +632,6 @@ mod tests {
         assert_eq!(grep_target(&ev("Bash", "command", "grep -rn render src/ tests")).as_deref(), Some("render"));
         let in_file = serde_json::json!({"tool_name": "Grep", "tool_input": {"pattern": "render", "path": "src/main.rs"}}).to_string();
         assert_eq!(grep_target(&in_file), None);
-    }
-
-    #[test]
-    fn reads_top_confidence() {
-        let out = "1. memorycastle/journal/a.md:12   0.64   Decision\n   title\n\n2. b.md:3   0.40   Open\n";
-        assert_eq!(top_confidence(out), Some(0.64));
-        assert_eq!(top_confidence("no relevant note"), None);
     }
 
     #[test]

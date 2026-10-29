@@ -35,6 +35,20 @@ pub struct ReadSpan {
     pub bytes: usize,
 }
 
+impl ReadSpan {
+    /// The rank (0-based) of the note that named this span's symbol, from
+    /// the `why` step 2 writes; None for any other source.
+    pub fn from_note(&self) -> Option<usize> {
+        let n = self.why.strip_prefix("named by note #")?;
+        n.split(|c: char| !c.is_ascii_digit()).next()?.parse::<usize>().ok()?.checked_sub(1)
+    }
+
+    /// A span the question itself or an earlier asker's read points at.
+    pub fn from_question(&self) -> bool {
+        self.why == "named in question" || self.why == "read after a similar question"
+    }
+}
+
 /// A backticked name that is one of the note's own files (`cite.tex`), not
 /// a symbol (`tex`).
 pub fn is_note_file(sym: &str, note_files: &[&String]) -> bool {

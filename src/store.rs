@@ -768,7 +768,9 @@ pub fn decision_sentence(conn: &Connection, note_id: i64) -> Result<Option<Strin
         // Heading marks go; `### 1. The pipeline` is not a sentence ending at `1.`.
         let body: String = text.lines().map(|l| l.trim().trim_start_matches('#').trim().trim_start_matches("- ")).filter(|l| !l.is_empty()).collect::<Vec<_>>().join(" ");
         let numbered = |i: usize| body[..i].rsplit(' ').next().is_some_and(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_digit()));
-        let mut end = body.match_indices(". ").map(|(i, _)| i).find(|&i| !numbered(i)).map(|i| i + 1).unwrap_or(body.len());
+        // Nor inside code: "Search prints `n. path`" ended at `n.`.
+        let in_code = |i: usize| body[..i].bytes().filter(|&b| b == b'`').count() % 2 == 1;
+        let mut end = body.match_indices(". ").map(|(i, _)| i).find(|&i| !numbered(i) && !in_code(i)).map(|i| i + 1).unwrap_or(body.len());
         let mut cut = false;
         if end > crate::limits::RECALL_DECISION_CHARS {
             end = body.char_indices().map(|(i, _)| i).take_while(|&i| i < crate::limits::RECALL_DECISION_CHARS).last().unwrap_or(0);

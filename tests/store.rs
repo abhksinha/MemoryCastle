@@ -497,11 +497,33 @@ fn brief_prints_the_hit_line_and_the_decision_sentence() {
     let r = render::search(&conn, &hits, &[], &render::Options { query: "brief default", sections: false, whole: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
     let lines: Vec<&str> = r.text.lines().collect();
     assert!(lines[0].starts_with("1. memorycastle/journal/2026-10-19-brief.md:"), "{}", r.text);
-    assert!(lines[1].starts_with("   decision") && lines[1].contains("Brief is the default output."), "{}", r.text);
+    assert!(lines[1].starts_with("   decision: ") && lines[1].contains("Brief is the default output."), "{}", r.text);
     assert!(!lines[1].contains("The sections come"), "one sentence only: {}", r.text);
     assert!(!r.text.contains("Pick the brief default"), "no title line in brief: {}", r.text);
-    assert!(r.text.ends_with("read first: none\n"), "{}", r.text);
+    assert!(r.text.ends_with("code: none\n"), "{}", r.text);
     assert_eq!(r.mode, "brief");
+}
+
+#[test]
+fn brief_lines_say_what_they_are() {
+    use memorycastle::render;
+    let mut conn = db::open_memory().unwrap();
+    let p = project(&conn, "bg", None);
+    save(&mut conn, &p, "memorycastle/journal/2026-10-20-ner.md", "# Keep the tokenizer\nDate: 2026-10-20\n\n## Context\nWe looked at tokenizers.\n\n## Decision\nThe compact tokenizer stays. It loads in 3 ms.\n\n## Rejected\n- The `porter` stemmer was tried\n  and dropped: it stems too far.\n");
+    let scope = Scope::single(p.id);
+    let (hits, _) = search(&conn, &scope, "porter stemmer", &SearchOptions { k: 5, mode: Mode::Keyword, working: Vec::new() }, ModelSource::None).unwrap();
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter stemmer", sections: false, whole: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    let lines: Vec<&str> = r.text.lines().collect();
+    // The hit line is the path and range, no number to misread.
+    assert_eq!(lines[0], "1. memorycastle/journal/2026-10-20-ner.md:11-12", "{}", r.text);
+    // A Rejected hit is labelled so, as one sentence joined over its wrapped lines.
+    assert_eq!(lines[1], "   rejected: The `porter` stemmer was tried and dropped: it stems too far.", "{}", r.text);
+    assert_eq!(lines.last(), Some(&"code: none"));
+    for l in &lines {
+        let hit = l.split_once(". ").is_some_and(|(n, _)| n.chars().all(|c| c.is_ascii_digit()));
+        let sentence = l.starts_with("   ") && l[3..].split_once(": ").is_some_and(|(k, _)| !k.contains(' ') || k.len() < 60);
+        assert!(hit || sentence || l.starts_with("code: "), "{l:?}");
+    }
 }
 
 #[test]
@@ -748,7 +770,7 @@ fn hits_carry_line_ranges_and_the_notes_other_parts() {
         assert!(!lines[part.line as usize - 1].trim().is_empty(), "{part:?}");
     }
     assert!(h.parts.iter().any(|x| x.section == "Rejected" && x.line == 10 && x.end == 10), "{:?}", h.parts);
-    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter tokenizer", sections: false, whole: false, brief: true, explain: false, abs: false, repo_root: None }).unwrap();
+    let r = render::search(&conn, &hits, &[], &render::Options { query: "porter tokenizer", sections: false, whole: false, brief: false, explain: false, abs: false, repo_root: None }).unwrap();
     assert!(r.text.lines().any(|l| l.starts_with("   lines      ")), "{}", r.text);
     // links: the sections that name the target, header lines left out.
     let id: i64 = conn.query_row("SELECT id FROM notes WHERE path = 'memorycastle/journal/2026-10-20-stem.md'", [], |r| r.get(0)).unwrap();

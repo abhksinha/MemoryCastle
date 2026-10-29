@@ -182,6 +182,17 @@ pub const SEARCH_CODE_SPANS: usize = 4;
 pub const SEARCH_FILES_SHOWN: usize = 4;
 /// Ranked `read:` lines printed after search hits: the spans to read first.
 pub const READ_SPANS: usize = 5;
+/// Code lines in the default answer: definitions the question names, an
+/// earlier asker read, or the first note's symbols. Each carries its callers
+/// from the code graph, so one search answers what `links` would.
+pub const BRIEF_CODE_LINES: usize = 3;
+/// Callers named on a code line, the rest counted.
+pub const BRIEF_CALLERS: usize = 2;
+/// A hit whose 1.00 came from a verbatim name is labelled "found by name,
+/// weak by meaning" when the meaning alone judged it under this: on 20 gold
+/// questions such hits sat at 0.24 to 0.56 (one an answer, at 0.33) and the
+/// answers proved by name at 0.62 and 0.83.
+pub const NAME_ONLY_JUDGED: f32 = 0.6;
 
 /// With the model run, a verbatim identifier proves a hit (confidence 1.0)
 /// only when the model and the words judge it at least this. On four gold

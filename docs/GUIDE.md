@@ -40,16 +40,23 @@ skip | routine edits, reading code, running tests | no search
 
 ## Read the answer
 
-- `note.md:13-14 0.71 Rejected` = the note's lines that matched, confidence 0 to 1, section
-- confidence = 1.00 exact identifier; 0.70 and up answer; 0.36 to 0.69 verify; under 0.36 dropped (0.30 without the model)
-- verify = read the hit's lines and check them against the code
+A plain search answers in lines that say what they are:
+
+- `1. note.md:13-14` = a note and the lines that matched, best first
+- `rejected: <sentence>` = one sentence of that section; `decision:` is the recorded choice
+- `(superseded by X)` = decision reversed; act on X
+- `(may be stale: f changed since it was written)` = run `links f` first
+- `(found by name, weak by meaning)` = the note names it; check it is about the question
+- `code: path:a-b name (fn), called by c path:line` = code to read and its callers, from the code graph; `code: none` when nothing is sure
+
+`--sections`, `--full` and `--explain` add numbers and fields:
+
+- `note.md:13-14 0.71 Rejected` = lines, confidence 0 to 1 (1.00 exact identifier; under 0.36 dropped, 0.30 without the model), section
 - `lines 13-14 0.71 Rejected, 9-10 0.53 Decision` = the note's parts, best first; read those lines, not the note
-- `decision <sentence>` = the note's first Decision sentence
-- `code changed since: <symbols>` = that code changed after the note; run `links <symbol>` first
-- `superseded by X` = decision reversed; act on X
+- `code changed since: <symbols>` = that code changed after the note
 - `… lines 27-51` (under a section) = bullets that did not match; `sed -n '27,51p' note.md` if needed
 - `learned 0.88` (in `--explain`) = an earlier question this close was answered by this note
-- `read first a. path:a-b name score why` = code spans to read first: `sed -n 'a,bp' path`
+- `read first a. path:a-b name score why` (`--sections`) = code spans to read first: `sed -n 'a,bp' path`
 - `no relevant note` = the store has nothing; work from the code and say so
 - `path:a-b` = read those lines, not the file
 - `caller path:line 0.9` = chance this call reaches this definition: 1.0 same file, 0.2 lowest

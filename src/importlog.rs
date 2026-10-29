@@ -27,12 +27,19 @@ pub fn import(conn: &Connection, project_id: i64, root: &Path, log: &str) -> Res
             continue;
         }
         if let Some(rest) = t.strip_prefix("code: ") {
-            if let Some(tok) = rest.split_whitespace().nth(1) {
-                if let Some((path, a, b)) = parse_span(tok) {
-                    spans.entry(rel(root, &path)).or_default().push((a, b, 0));
-                }
+            // `code: path:a-b name ..` (the brief answer, ranked) or the
+            // older `code: name path:a-b`.
+            let mut toks = rest.split_whitespace();
+            if let Some((path, a, b)) = toks.next().and_then(parse_span) {
+                rank_in_block += 1;
+                spans.entry(rel(root, &path)).or_default().push((a, b, rank_in_block));
+            } else if let Some((path, a, b)) = toks.next().and_then(parse_span) {
+                spans.entry(rel(root, &path)).or_default().push((a, b, 0));
             }
             continue;
+        }
+        if t.starts_with("1. ") {
+            rank_in_block = 0;
         }
         // Codex logs wrap commands: `/bin/zsh -lc 'sed -n …' in /dir`.
         let cmd = match t.find("-lc ") {
@@ -198,12 +205,12 @@ fn rel(root: &Path, p: &str) -> String {
 
 /// `path:a-b` or `path:a`.
 /// Spans a lookup's output names: `read: path:a-b`, `defined: path:a-b`,
-/// and the numbered `read first` table rows `n. path:a-b`.
+/// `code: path:a-b`, and the numbered `read first` table rows `n. path:a-b`.
 pub fn spans_in_output(body: &str) -> Vec<(String, u32, u32)> {
     let mut out = Vec::new();
     for l in body.lines() {
         let t = l.trim();
-        let tok = if let Some(rest) = t.strip_prefix("read: ").or_else(|| t.strip_prefix("defined: ")) {
+        let tok = if let Some(rest) = t.strip_prefix("read: ").or_else(|| t.strip_prefix("defined: ")).or_else(|| t.strip_prefix("code: ")) {
             rest.split_whitespace().next()
         } else if t.len() > 3 && t.as_bytes()[0].is_ascii_alphanumeric() && t.split_once(". ").is_some_and(|(n, _)| n.len() <= 3 && n.chars().all(|c| c.is_ascii_alphanumeric())) {
             // `1. path:a-b` (older output) or `a. path:a-b` (the lettered table).

@@ -11,10 +11,9 @@ Run `memcastle init` to see the full rules; the short form:
   `memcastle search "<question>" --also "<same question in the repo's own words>" --sections`. Read the printed Decision,
   Rejected and Measured bullets and the `code:` ranges; do not open the files.
   Bullets that did not match print as `… lines a-b`; `--whole` prints every line.
-- A plain `search` (and the MCP tool by default) prints one line per hit plus the note's Decision sentence, about 50 tokens, to choose a note; then `--sections` on that one.
-- Every search ends with a ranked `read first` table (`a. path:start-end  name  score  why`), or `read first: none`. Read those
-  ranges with `sed -n 'a,bp' path` first; they are the lines the question
-  needs, cheapest first on ties.
+- A plain `search` (and the MCP tool by default) prints `n. note.md:a-b` per note, best first, and one sentence labelled by its section (`decision:`, `rejected:`); a parenthesis says superseded, may be stale, or found by a name only. Then `--sections` on the note you pick.
+- It ends with `code: path:a-b name (kind), called by ...` lines from the code graph, or `code: none`. Read those
+  ranges with `sed -n 'a,bp' path` first. `--sections` keeps the ranked `read first` table.
 - Before editing a file or symbol: `memcastle links <file|symbol>`; read
   only the printed `path:start-end` with `sed -n 'a,bp'`. For a symbol it
   prints where it is defined, who calls it and what it calls; for a file

@@ -56,22 +56,24 @@ sister repo | question about a repo in a declared group | memcastle search \"<qu
 ranking | why a hit ranked there, stage timings | memcastle search \"<question>\" --explain
 learned | questions searches learned, teach or drop one | memcastle learned; learned add <note.md> \"<q>\"
 skip | routine edits, reading code, running tests | use links before an edit
-read as: note.md:13-14 0.71 Rejected = lines that matched, confidence 0 to 1, section
-read as: confidence = 1.00 exact identifier; 0.70 and up answer; 0.36 to 0.69 verify; under 0.36 dropped (0.30 without the model)
-read as: verify = read the hit's lines and check them against the code
-read as: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first; read those lines
-read as: decision <sentence> = the note's first Decision sentence
-read as: code changed since: <symbols> = that code changed after the note; run links <symbol> first
-read as: superseded by X = decision reversed, act on X
+read as: 1. note.md:13-14 = a note and the lines that matched, best first
+read as: rejected: <sentence> = one sentence of that section; decision: is the recorded choice
+read as: (superseded by X) = decision reversed, act on X
+read as: (may be stale: f changed since it was written) = run links f first
+read as: (found by name, weak by meaning) = the note names it; check it is about the question
+read as: code: path:a-b name (fn), called by c path:line = code to read and its callers, from the code graph
+read as: --sections/--full: note.md:13-14 0.71 Rejected = lines, confidence 0 to 1 (1.00 exact identifier, under 0.36 dropped), section
+read as: --sections/--full: lines 13-14 0.71 Rejected, 9-10 0.53 Decision = note parts best first
+read as: --sections/--full: code changed since: <symbols> = that code changed after the note
 read as: … lines 27-51 = bullets that did not match; sed -n '27,51p' note.md if needed
 read as: learned 0.88 (--explain) = an earlier question this close was answered by this note
 read as: read after a similar question = the code an earlier asker of this question read next
-read as: read first a. path:a-b name score why = code spans to read first, sed -n 'a,bp' path
+read as: --sections/--full: read first a. path:a-b name score why = code spans to read first
 read as: no relevant note = store has nothing; work from the code and say so
 cite as: memorycastle/journal/<note>.md:<line>
 combine: printed range | sed -n 'a,bp' path, or Read with offset and limit
 combine: no relevant note | grep -rn the names you know, then read the code
-combine: hit at 0.36 to 0.69 | read its lines, then check the code it names
+combine: hit found by name, weak by meaning | read its lines, then check the code it names
 ";
 
 #[derive(Parser)]
@@ -156,7 +158,7 @@ enum Cmd {
         /// With --sections: every line of each section (up to 30), not only the blocks that matched.
         #[arg(long)]
         whole: bool,
-        /// The default: one line per hit (confidence, note:line, section) plus the note's Decision sentence, then the read table; about 50 tokens per hit.
+        /// The default: per note `n. note.md:a-b` and one sentence labelled by its section, then `code:` lines from the code graph.
         #[arg(long, hide = true, conflicts_with = "sections")]
         brief: bool,
         /// The 3-line block per hit (title, files, a text snippet) instead of the brief line.
@@ -168,6 +170,9 @@ enum Cmd {
         /// The same question in other words (the repo's own terms, the likely mechanism); hits are merged per note. Repeat for a second wording.
         #[arg(long)]
         also: Vec<String>,
+        /// Print nothing unless the top hit's confidence reaches this (the edit gate's bar).
+        #[arg(long, hide = true)]
+        min_confidence: Option<f32>,
     },
     /// Questions the store learned from searches followed by an open of another note; `add` teaches one, `forget` drops one.
     Learned {
@@ -599,7 +604,7 @@ fn run(cli: Cli) -> Result<()> {
                 println!("added {added}, updated {updated}, unchanged {unchanged}, embedded {embedded} chunks");
             }
         }
-        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, whole, brief, full, abs, also } => {
+        Cmd::Search { query, k, scope, meaning, keyword, explain, sections, whole, brief, full, abs, also, min_confidence } => {
             let mode = if meaning { Mode::Meaning } else if keyword { Mode::Keyword } else { Mode::Auto };
             // Brief is the default; sections, the full block and explain (which needs the trace field) opt out.
             let brief = brief || !(sections || whole || full || explain);
@@ -640,6 +645,10 @@ fn run(cli: Cli) -> Result<()> {
                     ex.floor,
                     if ex.distinctive.is_empty() { "none".to_string() } else { ex.distinctive.join(" ") }
                 );
+            }
+            // The edit gate shows a new file's search only when it is sure.
+            if min_confidence.is_some_and(|m| hits.first().is_none_or(|h| h.trace.confidence < m)) {
+                return Ok(());
             }
             if hits.is_empty() {
                 println!("{}", memorycastle::render::empty_line(&ex));
